@@ -13,10 +13,10 @@ tms = df['hr_dec']
 
 ##########################################
 
-for i,d in enumerate(dates[:10]):
+for i,d in enumerate(dates[:20]):
     write_vip(data_path='/sgp/clear_sky_days',
               irs_channel=2,
-              band=6)
+              band=12)
     date = d
     start_hr = tms[i]
     end_hr = tms[i]

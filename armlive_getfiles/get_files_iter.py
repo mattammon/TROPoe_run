@@ -1,5 +1,7 @@
 import pandas as pd
 import os
+import sys
+sys.path.append('/data/script_repo')
 from config import *
 
 streams = {
@@ -13,7 +15,7 @@ streams = {
 
 ##########################################
 
-strms = ['ch2','eng','sum','sonde']
+strms = ['ch1','ch2','eng','sum','sonde']
 rundir = f'{SCRIPT_DIR}/armlive_getfiles'
 cc_type_title = 'clear_sky'
 
