@@ -1,28 +1,31 @@
 import sys, os
 import pandas as pd
+from datetime import datetime
 from config import *
+from utils import *
 from vip_gen import write_vip
+import glob
 
 ##########################################
 
-cc_type_title = 'clear_sky'
-
-df = pd.read_csv(f'{SCRIPT_DIR}/{cc_type_title}_sgp_sounding_times.csv')
-dates = df['date']
-tms = df['hr_dec']
+obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
+dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
 bands = [1,2,3,4,5,6,7,8,9,10,11,12]
 
 ##########################################
 
 for b in bands:
-    for i,d in enumerate(dates[:20]):
-        write_vip(data_path='/sgp/clear_sky_days',
+    for i,d in enumerate(dates[20:]):
+        write_vip(data_path=GROUP_SUBDIR,
                 irs_channel=2,
                 band=b)
-        date = d
-        start_hr = tms[i]
-        end_hr = tms[i]
+        dt = datetime.strptime(d,'%Y%m%d%H%M')
+
+        date = d[:8]
+        hr = datetime_to_decimal_hours([dt])[0]
+        start_hr = hr
+        end_hr = hr
         vip_file = f'{VIP_DIR}/curr_VIP.txt'
         prior_file = 'prior.MIDLAT.nc'
         verbose = '1'

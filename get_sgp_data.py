@@ -1,9 +1,8 @@
 ###############################
 
-start_date = '2025-01-01'
-end_date = '2025-01-26'
+start_date = '2025-01-26'
+end_date = '2025-03-20'
 cloud_cover_perc_range = [0,0]
-collection_name = 'clear_sky_days'
 cloud_cover_variable = 'near_zenith_percent_cloud'
 
 ###############################
@@ -25,24 +24,21 @@ streams = {
     'sonde':'sgpsondewnpnC1.b1'
 }
 
-sondedir = f'{SONDE_DIR}/{collection_name}'
-args = f'{login} -ds {streams["sonde"]} -s {start_date} -e {end_date} -o {sondedir}'
+args = f'{login} -ds {streams["sonde"]} -s {start_date} -e {end_date} -o {SONDE_DIR}'
 os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
 
-asidir = f'{ASI_DIR}/{collection_name}'
-args = f'{login} -ds {streams["asi"]} -s {start_date} -e {end_date} -o {asidir}'
+args = f'{login} -ds {streams["asi"]} -s {start_date} -e {end_date} -o {ASI_DIR}'
 os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
-
 
 cc_min = cloud_cover_perc_range[0]
 cc_max = cloud_cover_perc_range[1]
 asi_files_keep = []
 
-sonde_files = sorted(glob.glob(f'{sondedir}/sgpsonde*'))
+sonde_files = sorted(glob.glob(f'{SONDE_DIR}/sgpsonde*'))
 for f in sonde_files:
     date_str = f[-19:-11]
     time_str = f[-10:-6]
-    asi_file = sorted(glob.glob(f'{asidir}/sgpasiskycover*{date_str}*'))[0]
+    asi_file = sorted(glob.glob(f'{ASI_DIR}/sgpasiskycover*{date_str}*'))[0]
     ds_asi = xr.open_dataset(asi_file)
     time_asi = ds_asi.time.data
     perc_cld = ds_asi[cloud_cover_variable].data
@@ -58,20 +54,16 @@ for f in sonde_files:
             sdate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
             edate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
 
-            ch1dir = f'{CH1_DIR}/{collection_name}'
-            args = f'{login} -ds {streams["ch1"]} -s {sdate} -e {edate} -o {ch1dir}'
+            args = f'{login} -ds {streams["ch1"]} -s {sdate} -e {edate} -o {CH1_DIR}'
             os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
 
-            ch2dir = f'{CH2_DIR}/{collection_name}'
-            args = f'{login} -ds {streams["ch2"]} -s {sdate} -e {edate} -o {ch2dir}'
+            args = f'{login} -ds {streams["ch2"]} -s {sdate} -e {edate} -o {CH2_DIR}'
             os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
 
-            sumdir = f'{SUM_DIR}/{collection_name}'
-            args = f'{login} -ds {streams["sum"]} -s {sdate} -e {edate} -o {sumdir}'
+            args = f'{login} -ds {streams["sum"]} -s {sdate} -e {edate} -o {SUM_DIR}'
             os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
 
-            engdir = f'{ENG_DIR}/{collection_name}'
-            args = f'{login} -ds {streams["eng"]} -s {sdate} -e {edate} -o {engdir}'
+            args = f'{login} -ds {streams["eng"]} -s {sdate} -e {edate} -o {ENG_DIR}'
             os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
 
         else:
