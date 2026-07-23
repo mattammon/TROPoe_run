@@ -1,2 +1,9 @@
 *.pyc
+*.ipynb
+*.png
+*.pdf
+*.cdf
+*.nc
+*.csv
+
 

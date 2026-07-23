@@ -12,15 +12,27 @@
 
 ###############################
 
-import os
-import numpy as np
-import pandas as pd
-from matplotlib import pyplot as plt
-from utils import *
-from config import *
-from data import obs_sonde, tropoe_sonde
-from spectral_bands import ch2_bands
-from write_stats import *
+# import os
+# import numpy as np
+# import pandas as pd
+# from matplotlib import pyplot as plt
+# from utils import *
+# from config import *
+# from profile_data import *
+# from spectralBands import ch2_bands
+# from write_stats import *
+
+
+from work import Retrieval_Evaluation
+
+Retrieval_Evaluation([1,10,11])
+
+
+
+
+
+
+
 
 def MAIN(date,time,profile_max_hgt=5,Observed=True,Ch1=True,
          Ch2_bands = [1,2,3,4,5,6,7,8,9,12]):

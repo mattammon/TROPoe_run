@@ -4,9 +4,9 @@ from typing import Iterable
 import numpy as np
 import glob
 import pandas as pd
-
 import os, sys
-sys.path.append('scripts')
+
+#sys.path.append('scripts')
 from utils import datetime_to_decimal_hours as dt_to_hr
 
 #####################################
