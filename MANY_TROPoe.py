@@ -18,8 +18,8 @@ bands = [1,2,3,4,5,6,7,8,9,10,11,12]
 for b in bands:
     for i,d in enumerate(dates[20:]):
         write_vip(data_path=GROUP_SUBDIR,
-                irs_channel=2,
-                band=b)
+                irs_channel=1,
+                band=None)
         dt = datetime.strptime(d,'%Y%m%d%H%M')
 
         date = d[:8]

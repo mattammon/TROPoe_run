@@ -1,9 +1,27 @@
+#################################
+
+Evaluate_Ch1 = True
+Ch2_bands_toEval = [1,2,6,11,12]
+
+Plot_Ch1 = True
+Ch2_bands_toPlot = [1,2,6,11,12]
+
+Plot_Observed = True
+
+max_height_eval = 5
+max_height_plot = 5
+
+#################################
+
+
 import glob
 import sys,os
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import xarray as xr
+from collections import defaultdict
+import math
 
 from utils import *
 from config import *
@@ -13,34 +31,62 @@ from profile_data import *
 
 class Retrieval_Evaluation:
 
-    def __init__(self,bands,max_hgt=5):
-        self.bands = bands
-        obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
-        obs_dts = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
+    def __init__(self,max_hgt = max_height_eval,
+                 eval_bands = Ch2_bands_toEval,
+                 plot_bands = Ch2_bands_toPlot):
+
+        self.max_hgt = max_hgt
+        self.obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
+        self.obs_dts = [f'{file[-19:-11]}{file[-10:-6]}' for file in self.obs_snd_files]
+
+        self.profile_data = {
+            "observed_snd": defaultdict(dict),
+            "retrieval_snd": defaultdict(dict),
+            "rmse": defaultdict()
+            }
+
+        for i,d in enumerate(self.obs_snd_files):
+            dt = self.obs_dts[i]
+            obs_dict = self.obs_profiles(d)
+
+            self.profile_data['observed_snd'][dt] = obs_dict
+
+            try:
+                retrieval_dict = self.ret_profiles_compile(dt,ch2Bands=eval_bands)
+                self.profile_data['retrieval_snd'][dt] = retrieval_dict
+                print(f'{dt} Retrievals Succeeded!')
+            except:
+                print(f'{dt} Retrievals Failed!')
+                pass
+
+        # for i, snd in enumerate(snd_files):
+        #     ch1, ch2s = EVAL.retrieval_files(dts[i])
+        #     hgt_obs, T_obs, Td_obs, P_obs = EVAL.obs_profiles(snd)
+        #     hgt_ch1, T_ch1, Td_ch1, P_ch1 = EVAL.tropoe_profiles(ch1)
+
+        #     T_obs_interp = np.interp(hgt_ch1,hgt_obs,T_obs)
+        #     Td_obs_interp = np.interp(hgt_ch1,hgt_obs,Td_obs)
+
+    def ret_profiles_compile(self,dt,ch2Bands=[None]):
+        curr_ret_data = defaultdict(dict)
+        ch1_f, ch2_fs = self.retrieval_files(dt,ch2Bands)
+        curr_ret_data['ch1'] = self.tropoe_profiles(ch1_f)
+        for f,b in enumerate(ch2Bands):
+            curr_ret_data[f'ch2_B{b}'] = self.tropoe_profiles(ch2_fs[f])
+        return curr_ret_data
 
 
-
-        # hgt_obs, T_obs, Td_obs, P_obs = self.obs_profiles(date, time, profile_max_hgt)
-        # hgt_ch1, T_ch1, Td_ch1, P_ch1 = tropoe_sonde(1,date,time,profile_max_hgt)
-
-        # T_obs_interp = np.interp(hgt_ch1,hgt_obs,T_obs)
-        # Td_obs_interp = np.interp(hgt_ch1,hgt_obs,Td_obs)
-
-    def retrieval_files(self,obs_dt):
+    def retrieval_files(self,obs_dt,bands):
         try:
             Ch1_file = self.ch1_file(obs_dt)
             ret_dt = Ch1_file[-18:-3]
         except ValueError as error:
             print(error)
         try:
-            Ch2_files = self.ch2_files(obs_dt)
+            Ch2_files = self.ch2_files(ret_dt,bands)
         except ValueError as error:
             print(error)
         return Ch1_file, Ch2_files
-
-        #print(Ch1_file)
-        #print(*Ch2_files, sep='\n')
-
 
 
     def ch1_file(self,dt):
@@ -54,8 +100,7 @@ class Retrieval_Evaluation:
             raise ValueError("No Channel-1 Retrieval Exists Yet.")
         return file
 
-    def ch2_files(self,dt):
-        bands = self.bands
+    def ch2_files(self,dt,bands):
         files = sorted(glob.glob(f'{RETRIEVAL_DIR}/*Ch2*.{dt}*'))
         bands_done = np.unique([s[(s.rindex('B')+1):-19] for s in files])
         bands_not_done = [f'{b}' for b in bands if f'{b}' not in bands_done]
@@ -67,7 +112,8 @@ class Retrieval_Evaluation:
             files_bands.extend(file for file in files if f'B{b}.' in file)
         return files_bands
 
-    def obs_profiles(self,file,max_hgt):
+    def obs_profiles(self,file):
+        max_hgt=self.max_hgt
         ds = xr.open_dataset(file)
         hgt = ds.alt.data
         hgt = hgt - hgt[0]
@@ -83,9 +129,10 @@ class Retrieval_Evaluation:
             T = T[:max_hgt_idx]
             Td = Td[:max_hgt_idx]
             P = P[:max_hgt_idx]
-        return hgt, T, Td, P
+        return {'hgt':hgt, 'T':T, 'Td':Td, 'P':P}
 
-    def tropoe_profiles(self,file,max_hgt):
+    def tropoe_profiles(self,file):
+        max_hgt=self.max_hgt
         ds = xr.open_dataset(file)
         hgt = ds.height.data
         P = ds.pressure.data[0]
@@ -102,6 +149,12 @@ class Retrieval_Evaluation:
         # err_q = ds.sigma_waterVapor.data[tropoe_time_idx,:]
         # err_T = ds.sigma_temperature.data[tropoe_time_idx,:]
         ds.close()
-        return hgt, T, Td, P
+        return {'hgt':hgt, 'T':T, 'Td':Td, 'P':P}
+
+
+if __name__ == "__main__":
+    EVAL = Retrieval_Evaluation()
+    profile_data_dict = EVAL.profile_data
+    print(profile_data_dict)
 
 
