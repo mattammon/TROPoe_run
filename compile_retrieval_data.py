@@ -1,15 +1,6 @@
 #################################
 
-Evaluate_Ch1 = True
-Ch2_bands_toEval = [1,2,6,11,12]
 
-Plot_Ch1 = True
-Ch2_bands_toPlot = [1,2,6,11,12]
-
-Plot_Observed = True
-
-max_height_eval = 5
-max_height_plot = 5
 
 #################################
 
@@ -22,6 +13,8 @@ import pandas as pd
 import xarray as xr
 from collections import defaultdict
 import math
+from matplotlib.colors import TwoSlopeNorm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from utils import *
 from config import *
@@ -31,9 +24,7 @@ from profile_data import *
 
 class Retrieval_Evaluation:
 
-    def __init__(self,max_hgt = max_height_eval,
-                 eval_bands = Ch2_bands_toEval,
-                 plot_bands = Ch2_bands_toPlot):
+    def __init__(self,max_hgt,eval_bands,plot_bands):
 
         self.max_hgt = max_hgt
         self.obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
@@ -45,15 +36,27 @@ class Retrieval_Evaluation:
             "rmse": defaultdict()
             }
 
+        self.good_dts = []
+
         for i,d in enumerate(self.obs_snd_files):
             dt = self.obs_dts[i]
             obs_dict = self.obs_profiles(d)
 
-            self.profile_data['observed_snd'][dt] = obs_dict
-
             try:
                 retrieval_dict = self.ret_profiles_compile(dt,ch2Bands=eval_bands)
                 self.profile_data['retrieval_snd'][dt] = retrieval_dict
+                self.good_dts.append(dt)
+
+                T_obs_interp = np.interp(retrieval_dict['Ch1']['hgt'],
+                                         obs_dict['hgt'],
+                                         obs_dict['T'])
+                Td_obs_interp = np.interp(retrieval_dict['Ch1']['hgt'],
+                                         obs_dict['hgt'],
+                                         obs_dict['Td'])
+
+                obs_dict['T'] = T_obs_interp
+                obs_dict['Td'] = Td_obs_interp
+                self.profile_data['observed_snd'][dt] = obs_dict
                 print(f'{dt} Retrievals Succeeded!')
             except:
                 print(f'{dt} Retrievals Failed!')
@@ -70,9 +73,9 @@ class Retrieval_Evaluation:
     def ret_profiles_compile(self,dt,ch2Bands=[None]):
         curr_ret_data = defaultdict(dict)
         ch1_f, ch2_fs = self.retrieval_files(dt,ch2Bands)
-        curr_ret_data['ch1'] = self.tropoe_profiles(ch1_f)
+        curr_ret_data['Ch1'] = self.tropoe_profiles(ch1_f)
         for f,b in enumerate(ch2Bands):
-            curr_ret_data[f'ch2_B{b}'] = self.tropoe_profiles(ch2_fs[f])
+            curr_ret_data[f'Ch2_B{b}'] = self.tropoe_profiles(ch2_fs[f])
         return curr_ret_data
 
 
@@ -153,7 +156,21 @@ class Retrieval_Evaluation:
 
 
 if __name__ == "__main__":
-    EVAL = Retrieval_Evaluation()
+    #Evaluate_Ch1 = True
+    Ch2_bands_toEval = [1,2,6,11,12]
+
+    #Plot_Ch1 = True
+    Ch2_bands_toPlot = [1,2,6,11,12]
+
+    #Plot_Observed = True
+
+    max_height_eval = 5
+    max_height_plot = 5
+
+    EVAL = Retrieval_Evaluation(max_height_eval,
+                                Ch2_bands_toEval,
+                                Ch2_bands_toPlot)
+
     profile_data_dict = EVAL.profile_data
     print(profile_data_dict)
 
