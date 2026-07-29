@@ -1,9 +1,11 @@
 ###############################
 
-start_date = '2025-01-26'
-end_date = '2025-03-20'
+start_date = '2025-01-01'
+end_date = '2025-09-20'
 cloud_cover_perc_range = [0,0]
 cloud_cover_variable = 'near_zenith_percent_cloud'
+#cloud_cover_variable = 'percent_cloud'
+
 
 ###############################
 

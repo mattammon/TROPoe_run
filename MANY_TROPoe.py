@@ -11,15 +11,16 @@ import glob
 obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
-bands = [1,2,3,4,5,6,7,8,9,10,11,12]
+#bands = [1,2,3,4,5,6,7,8,9,10,11,12]
+bands = [None]
 
 ##########################################
 
 for b in bands:
-    for i,d in enumerate(dates[20:]):
+    for i,d in enumerate(dates[35:]):
         write_vip(data_path=GROUP_SUBDIR,
                 irs_channel=1,
-                band=None)
+                band=b)
         dt = datetime.strptime(d,'%Y%m%d%H%M')
 
         date = d[:8]
