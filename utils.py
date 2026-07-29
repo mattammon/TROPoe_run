@@ -1,9 +1,32 @@
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Iterable
+import matplotlib.colors as colors
+from matplotlib.pyplot import colormaps
+import sys
+import subprocess
+import importlib
+
+def install_and_import(package_name):
+    try:
+        # Check if the package is already available
+        importlib.import_module(package_name)
+    except ImportError:
+        print(f"Installing {package_name}...")
+        # Use sys.executable to target the active Python environment
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+        print(f"{package_name} successfully installed!")
 
 def CVI(arr,val):
     return np.abs(arr - val).argmin()
+
+def truncate_colormap(cmap_name, minval=0.0, maxval=1.0, n=100):
+    cmap = colormaps[cmap_name]
+    sampled_colors = cmap(np.linspace(minval, maxval, n))
+    return colors.LinearSegmentedColormap.from_list(
+        f'trunc({cmap.name},{minval:.2f},{maxval:.2f})',
+        sampled_colors
+    )
 
 def dew_point(tair,relh):
     """ Calulate Dew Point Temperature

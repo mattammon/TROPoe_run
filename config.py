@@ -11,6 +11,8 @@ CH2_DIR = f'{DATA_DIR}/irs_ch2/{GROUP_SUBDIR}'
 SUM_DIR = f'{DATA_DIR}/irs_sum/{GROUP_SUBDIR}'
 ENG_DIR = f'{DATA_DIR}/irs_eng/{GROUP_SUBDIR}'
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{GROUP_SUBDIR}'
+SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{GROUP_SUBDIR}'
+
 
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
 RUN_DIR = f'{DATA_DIR}/script_repo'
@@ -26,6 +28,7 @@ token = '1135d911aebbb142'
 login = f'-u {username}:{token}'
 #####################
 
-#import sys
-#print(sys.path)
-# sys.path.append(SCRIPT_DIR)
+site_coordinates = {
+    'sgp':[-97.484726, 36.60611],
+    'nwc':[-97.44, 35.18]
+}
