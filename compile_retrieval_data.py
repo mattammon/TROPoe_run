@@ -22,27 +22,24 @@ from spectralBands import *
 from profile_data import *
 
 
-class Retrieval_Evaluation:
+class Aggregate_Retrievals:
 
     def __init__(self,max_hgt,eval_bands,plot_bands):
 
         self.max_hgt = max_hgt
         self.obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
-        self.obs_dts = [f'{file[-19:-11]}{file[-10:-6]}' for file in self.obs_snd_files]
+        self.obs_dts = [f'{file[-19:-11]}{file[-10:-6]}' for file in self.obs_snd_files if file not in bad_dts[GROUP_NAME]]
 
         self.profile_data = {
             "observed_snd": defaultdict(dict),
             "retrieval_snd": defaultdict(dict),
-            "rmse": defaultdict()
             }
 
         self.good_dts = []
 
         for i,d in enumerate(self.obs_snd_files):
             dt = self.obs_dts[i]
-            if dt in bad_dts[GROUP_NAME]:
-                continue
-                
+
             obs_dict = self.obs_profiles(d)
 
             try:

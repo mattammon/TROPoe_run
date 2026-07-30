@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from compile_retrieval_data import Retrieval_Evaluation
+from compile_retrieval_data import Aggregate_Retrievals
 from config import *
 
 # ==========================================
@@ -14,7 +14,7 @@ Ch2_bands_toPlot = [1,2,3,4,5,6,7,8,9,10,11,12]
 max_height_eval = 3
 max_height_plot = 3
 
-EVAL = Retrieval_Evaluation(max_height_eval,
+EVAL = Aggregate_Retrievals(max_height_eval,
                             Ch2_bands_toEval,
                             Ch2_bands_toPlot)
 
