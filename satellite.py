@@ -115,7 +115,7 @@ class GOES:
         file_band_str = "IR" if self.is_ir else "VIS"
 
         ax.set_title(f"GOES-19 {band_str} Imagery: {self.timestamp}")
-        img_name = f"GOES-{self.goes}_{file_band_str}_{self.timestamp}"
+        img_name = f"GOES-{self.goes}_{file_band_str}_{self.dt}{hr}{mn}"
         img_loc = SAT_IMAGERY_DIR
 
         # Make the directory if it doesn't already exist

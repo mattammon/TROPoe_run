@@ -40,6 +40,9 @@ class Retrieval_Evaluation:
 
         for i,d in enumerate(self.obs_snd_files):
             dt = self.obs_dts[i]
+            if dt in bad_dts[GROUP_NAME]:
+                continue
+                
             obs_dict = self.obs_profiles(d)
 
             try:

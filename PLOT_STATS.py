@@ -11,8 +11,8 @@ from config import *
 Ch2_bands_toEval = [1,2,3,4,5,6,7,8,9,10,11,12]
 Ch2_bands_toPlot = [1,2,3,4,5,6,7,8,9,10,11,12]
 
-max_height_eval = 5
-max_height_plot = 5
+max_height_eval = 3
+max_height_plot = 3
 
 EVAL = Retrieval_Evaluation(max_height_eval,
                             Ch2_bands_toEval,
@@ -110,7 +110,7 @@ for var in variables:
 # 4. VISUALIZATION - BOX AND WHISKER PLOT
 # ==========================================
 # Create two vertically stacked subplots, sharing the x-axis
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
 # Positions for each model along the x-axis
 positions = np.arange(len(models))
@@ -125,9 +125,10 @@ ax1.boxplot(T_data, positions=positions, widths=0.6, patch_artist=True,
            medianprops=dict(color="darkblue", linewidth=2),
            flierprops=dict(markerfacecolor="tab:blue", markeredgecolor="black", alpha=0.7))
 
-ax1.set_title("Distributions of T Profile RMSE by Experiment", fontsize=14, fontweight='bold')
-ax1.set_ylabel("Absolute T RMSE")
-ax1.grid(axis='y', linestyle='--', alpha=0.7)
+ax1.set_title(f"TROPoe Retrieved T Profile RMSE Distributions by Band: {len(dates)} {group_titles[GROUP_NAME]} Cases",
+                fontsize=13, fontweight='bold')
+ax1.set_ylabel(f"0-{max_height_eval} km Vertically Accumulated T RMSE (C)")
+ax1.grid(axis='y', linestyle='--', alpha=0.8)
 
 # Plot Td distributions in the bottom panel
 ax2.boxplot(Td_data, positions=positions, widths=0.6, patch_artist=True,
@@ -135,9 +136,10 @@ ax2.boxplot(Td_data, positions=positions, widths=0.6, patch_artist=True,
            medianprops=dict(color="darkred", linewidth=2),
            flierprops=dict(markerfacecolor="tab:orange", markeredgecolor="black", alpha=0.7))
 
-ax2.set_title("Distributions of Td Profile RMSE by Experiment", fontsize=14, fontweight='bold')
-ax2.set_ylabel("Absolute Td RMSE")
-ax2.grid(axis='y', linestyle='--', alpha=0.7)
+ax2.set_title(f"TROPoe Retrieved Td Profile RMSE Distributions by Band: {len(dates)} {group_titles[GROUP_NAME]} Cases",
+                fontsize=13, fontweight='bold')
+ax2.set_ylabel(f"0-{max_height_eval} km Vertically Accumulated Td RMSE (C)")
+ax2.grid(axis='y', linestyle='--', alpha=0.8)
 
 # Formatting the shared x-axis on the bottom plot
 ax2.set_xticks(positions)
