@@ -143,7 +143,7 @@ class GOES:
             self.band = 13
             self.is_ir = True
             # Greys_r works excellent for IR: lower radiances (colder clouds) will appear whiter
-            self.cmap = plt.get_cmap("Greys_r")
+            self.cmap = plt.get_cmap("Greys")
         else:
             self.band = 2
             self.is_ir = False

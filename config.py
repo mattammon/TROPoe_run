@@ -32,3 +32,5 @@ site_coordinates = {
     'sgp':[-97.484726, 36.60611],
     'nwc':[-97.44, 35.18]
 }
+
+bad_clear_sky_dts = []
