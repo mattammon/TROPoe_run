@@ -36,7 +36,7 @@ def create_directories():
         except Exception as e:
             print(f"Error creating {directory}: {e}")
 
-    print("\nSetup complete! Please ensure you have downloaded any external dependencies like TROPoe and armlive_getfiles.")
+    print("\nSetup complete! Ensure you run in a TROPoe container!")
 
 if __name__ == "__main__":
     create_directories()

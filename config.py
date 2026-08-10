@@ -33,10 +33,10 @@ token = '1135d911aebbb142'
 
 
 ###############################################################
-""""
+"""""
 Anything in this block is automatically set up and/or created upon running
 setup script.
-""""
+"""""
 
 SITE = 'sgp' #Only site currently supported
 login = f'-u {username}:{token}'
