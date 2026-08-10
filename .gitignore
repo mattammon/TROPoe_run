@@ -5,5 +5,5 @@
 *.cdf
 *.nc
 *.csv
-
+**/to_rm/
 

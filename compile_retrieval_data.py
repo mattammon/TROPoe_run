@@ -1,6 +1,9 @@
 #################################
-
-
+"""
+Edit these parameters if running as standalone script:
+"""
+Ch2_bands_compile = [1,2,6,11,12]
+max_height = 5 #km
 
 #################################
 
@@ -166,22 +169,6 @@ class Aggregate_Retrievals:
 
 
 if __name__ == "__main__":
-    #Evaluate_Ch1 = True
-    Ch2_bands_toEval = [1,2,6,11,12]
-
-    #Plot_Ch1 = True
-    Ch2_bands_toPlot = [1,2,6,11,12]
-
-    #Plot_Observed = True
-
-    max_height_eval = 5
-    max_height_plot = 5
-
-    EVAL = Retrieval_Evaluation(max_height_eval,
-                                Ch2_bands_toEval,
-                                Ch2_bands_toPlot)
-
+    EVAL = Retrieval_Evaluation(max_height,Ch2_bands_compile)
     profile_data_dict = EVAL.profile_data
-    print(profile_data_dict)
-
 

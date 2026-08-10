@@ -1,7 +1,45 @@
-SITE = 'sgp'
-GROUP_NAME = 'clear_sky_days'
 
+###############################################################
+"""""
+Update the parameters in this block with your personalized directories
+and profile info.
+
+GROUP_NAME: The "group" that the desired retrievals can be described by
+            (i.e., clear sky, cloudy sky, winter, summer, etc.) all
+            retrievals and relevant data will be organized into
+            subdirectories named GROUP_NAME. Add desired figure title name
+            for this group to group_titles dictionary below.
+
+DATA_DIR: Root directory where raw datasets and completed retrievals (and the
+          subdirectories within which they are located) are.
+
+FIG_DIR: Where any produced figures should be saved.
+
+SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
+"""""
+
+GROUP_NAME = 'clear_sky_days'
 DATA_DIR = f'/data'
+FIG_DIR = f'{DATA_DIR}/temp_figs'
+SCRIPT_DIR = f'{DATA_DIR}/script_repo'
+
+#### ARM Profile ####
+username = 'ammo0000'
+token = '1135d911aebbb142'
+#####################
+
+###############################################################
+
+
+
+###############################################################
+""""
+Anything in this block is automatically set up and/or created upon running
+setup script.
+""""
+
+SITE = 'sgp' #Only site currently supported
+login = f'-u {username}:{token}'
 
 GROUP_SUBDIR = f'{SITE}/{GROUP_NAME}'
 SONDE_DIR = f'{DATA_DIR}/radiosonde/{GROUP_SUBDIR}'
@@ -13,20 +51,12 @@ ENG_DIR = f'{DATA_DIR}/irs_eng/{GROUP_SUBDIR}'
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{GROUP_SUBDIR}'
 SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{GROUP_SUBDIR}'
 
-
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
 RUN_DIR = f'{DATA_DIR}/script_repo'
 VIP_DIR = f'{DATA_DIR}/vips/{SITE}'
 
-profile_figure_dir = f'{DATA_DIR}/Retrieved_Profiles/{GROUP_SUBDIR}'
-retrieval_stats_dir = f'{DATA_DIR}/Retrieval_Statistics/{GROUP_SUBDIR}'
+###############################################################
 
-#### ARM Profile ####
-username = 'ammo0000'
-token = '1135d911aebbb142'
-
-login = f'-u {username}:{token}'
-#####################
 
 site_coordinates = {
     'sgp':[-97.484726, 36.60611],
