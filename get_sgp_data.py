@@ -1,7 +1,7 @@
 ###############################
 
 start_date = '2025-01-01'
-end_date = '2025-09-20'
+end_date = '2025-02-01'
 cloud_cover_perc_range = [0,0]
 cloud_cover_variable = 'near_zenith_percent_cloud'
 #cloud_cover_variable = 'percent_cloud'
@@ -23,7 +23,8 @@ streams = {
     'eng':'sgpaeriengineerC1.b1',
     'sum':'sgpaerisummaryC1.b1',
     'asi':'sgpasiskycoverC1.b1',
-    'sonde':'sgpsondewnpnC1.b1'
+    'sonde':'sgpsondewnpnC1.b1',
+    'sfc':'sgpmetE13.b1'
 }
 
 args = f'{login} -ds {streams["sonde"]} -s {start_date} -e {end_date} -o {SONDE_DIR}'
@@ -44,13 +45,17 @@ for f in sonde_files:
     ds_asi = xr.open_dataset(asi_file)
     time_asi = ds_asi.time.data
     perc_cld = ds_asi[cloud_cover_variable].data
+    if cc_max <= 10 and cloud_cover_variable=='near_zenith_percent_cloud':
+        perc_cld_full = ds_asi['percent_cloud'].data
+    else:
+        perc_cld_full = None
     ds_asi.close()
 
     dt = datetime.strptime(f'{date_str}{time_str}','%Y%m%d%H%M')
     tdiffs = abs(pd.to_datetime(time_asi) - dt)
     if min(tdiffs) < pd.to_timedelta('15min'):
         idx = np.argmin(tdiffs)
-        if (cc_min <= perc_cld[idx] <= cc_max):
+        if (perc_cld_full is None or perc_cld_full[idx] <= 10) and (cc_min <= perc_cld[idx] <= cc_max):
             asi_files_keep.append(asi_file)
 
             sdate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
@@ -68,6 +73,8 @@ for f in sonde_files:
             args = f'{login} -ds {streams["eng"]} -s {sdate} -e {edate} -o {ENG_DIR}'
             os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
 
+            args = f'{login} -ds {streams["sfc"]} -s {sdate} -e {edate} -o {SFC_DIR}'
+            os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
         else:
             os.system(f'rm {f}')
     else:

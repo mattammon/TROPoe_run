@@ -16,6 +16,7 @@ def create_directories():
         CH2_DIR,
         SUM_DIR,
         ENG_DIR,
+        SFC_DIR,
         RETRIEVAL_DIR,
         SAT_IMAGERY_DIR,
         VIP_DIR
