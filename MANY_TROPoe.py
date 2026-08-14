@@ -3,35 +3,24 @@ import pandas as pd
 from datetime import datetime
 from config import *
 from utils import *
-from vip_gen import write_vip
 import glob
+from vip_gen import VIP
+from TROPoe import run_tropoe
 
 ##########################################
 
 obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
+vip_type = 'no_surface'
 
-#bands = [1,2,3,4,5,6,7,8,9,10,11,12]
-bands = [None]
+bands = [1,2,3,4,5,6,7,8,9,10,11,12]
 
 ##########################################
 
-for b in bands:
-    for i,d in enumerate(dates[35:]):
-        write_vip(data_path=GROUP_SUBDIR,
-                irs_channel=1,
-                band=b)
-        dt = datetime.strptime(d,'%Y%m%d%H%M')
+VIP_obj = VIP()
 
-        date = d[:8]
-        hr = datetime_to_decimal_hours([dt])[0]
-        start_hr = hr
-        end_hr = hr
-        vip_file = f'{VIP_DIR}/curr_VIP.txt'
-        prior_file = 'prior.MIDLAT.nc'
-        verbose = '1'
-        data_root = DATA_DIR
-
-        os.system(f'python TROPoe.py {date} {vip_file} {data_root}/{prior_file} --shour={start_hr} --ehour={end_hr} --verbose={verbose}')
-
-        print('####### DONE #######')
+for d in dates:
+    run_tropoe(d,VIP_obj,vip_type=vip_type,channel=1)
+    for b in bands:
+        run_tropoe(d,VIP_obj,vip_type=vip_type,channel=2,band=b)
+    print(f'\nAll Retrievals for {d} Done!\n')

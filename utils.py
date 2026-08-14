@@ -76,3 +76,20 @@ def datetime_to_decimal_hours(
         decimal_times.append(f'{decimal_hour}')
 
     return decimal_times
+
+
+class TEST:
+    def __init__(self,a):
+        func_dict = {
+            'hello':self.hello,
+            'goodbye':self.goodbye,
+        }
+
+        if a in func_dict:
+            func_dict[a]()
+
+    def hello(self):
+        print('HELLO')
+
+    def goodbye(self):
+        print('GOODBYE')
