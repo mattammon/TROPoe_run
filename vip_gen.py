@@ -65,7 +65,7 @@ class VIP:
             f.write(f'cbh_path = {DATA_DIR}/dlfp       # Path to the CBH data\n')
             f.write('cbh_default_ht = 2.0        # Default CBH height [km AGL], if no CBH data found\n')
             f.write('\n')
-            f.write(f'output_rootname = tropoeOutput_Ch{irs_channel}{band_label}_noSfc      # String with the rootname of the output file\n')
+            f.write(f'output_rootname = tropoeOutput_Ch{irs_channel}{band_label}      # String with the rootname of the output file\n')
             f.write(f'output_path = {DATA_DIR}/tropoe/{data_path}          # Path where the output file will be placed\n')
             f.write('output_clobber = 2\n')
             f.write('\n')

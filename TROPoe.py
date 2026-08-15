@@ -20,3 +20,8 @@ def run_tropoe(dt_str,VIP_obj,vip_type='default',channel=None,band=None,verbose=
     os.system(f'python TROPoe.py {date} {vip_file} {DATA_DIR}/{prior_file} --shour={start_hr} --ehour={end_hr} --verbose={verbose}')
 
     print('####### DONE #######')
+
+
+
+
+

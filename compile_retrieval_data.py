@@ -36,7 +36,10 @@ class Aggregate_Retrievals:
         obs_snd_files = []
         for file in all_obs_snd_files:
             dt = f'{file[-19:-11]}{file[-10:-6]}'
-            if dt not in bad_dts[GROUP_NAME]:
+            if GROUP_NAME in bad_dts and dt not in bad_dts[GROUP_NAME]:
+                obs_dts.append(dt)
+                obs_snd_files.append(file)
+            elif GROUP_NAME not in bad_dts:
                 obs_dts.append(dt)
                 obs_snd_files.append(file)
 

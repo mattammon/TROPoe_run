@@ -11,7 +11,7 @@ from TROPoe import run_tropoe
 
 obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
-vip_type = 'no_surface'
+vip_type = 'default'
 
 bands = [1,2,3,4,5,6,7,8,9,10,11,12]
 

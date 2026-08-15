@@ -21,6 +21,7 @@ EVAL = Aggregate_Retrievals(max_height_eval,
                             Ch2_bands_toPlot)
 
 dates = EVAL.good_dts
+
 models = ['Ch1']
 models.extend([f'Ch2_B{b}' for b in Ch2_bands_toPlot])
 variables = ["T", "Td"]
@@ -150,7 +151,7 @@ for var in variables:
     cbar2.ax.tick_params(labelsize=12)
 
     plt.tight_layout()
-    plt.savefig(f'/data/temp_figs/{var}_RMSE_checkerboard.png')
+    plt.savefig(f'{FIG_SUBDIR}/{var}_RMSE_checkerboard.png')
     plt.close(fig)
 
 # ==========================================
@@ -194,7 +195,7 @@ ax1.set_ylim(0, max_T_rmse * 1.01)
 ax2.set_ylim(0, max_Td_rmse * 1.01)
 
 plt.tight_layout()
-plt.savefig('/data/temp_figs/RMSE_Boxplots_Distributions.png')
+plt.savefig(f'{FIG_SUBDIR}/RMSE_Boxplots_Distributions.png')
 plt.close(fig)
 
 # ==========================================
@@ -238,7 +239,7 @@ for date in dates:
 
     plt.tight_layout()
     plt.subplots_adjust(right=0.85, top=0.9)
-    plt.savefig(f'/data/temp_figs/Vertical_Profiles_{date}.png', bbox_inches='tight')
+    plt.savefig(f'{FIG_SUBDIR}/Profile_Plots/Vertical_Profiles_{date}.png', bbox_inches='tight')
     plt.close(fig)
 
 # ==========================================
@@ -297,5 +298,5 @@ for var in variables:
     fig.colorbar(im, cax=cax, label=f"Absolute {var} RMSE")
 
     plt.tight_layout()
-    plt.savefig(f'/data/temp_figs/{var}_Vertical_RMSE_checkerboard.png')
+    plt.savefig(f'{FIG_SUBDIR}/{var}_Vertical_RMSE_checkerboard.png')
     plt.close(fig)

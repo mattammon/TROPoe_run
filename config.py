@@ -20,7 +20,7 @@ SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
 
 GROUP_NAME = 'clear_sky_withSfc'
 DATA_DIR = f'/data'
-FIG_DIR = f'{DATA_DIR}/temp_figs'
+FIG_DIR = f'{DATA_DIR}/FIGS'
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
 
 #### ARM Profile ####
@@ -42,6 +42,8 @@ SITE = 'sgp' #Only site currently supported
 login = f'-u {username}:{token}'
 
 GROUP_SUBDIR = f'{SITE}/{GROUP_NAME}'
+FIG_SUBDIR = f'{FIG_DIR}/{GROUP_SUBDIR}'
+
 SONDE_DIR = f'{DATA_DIR}/radiosonde/{GROUP_SUBDIR}'
 ASI_DIR = f'{DATA_DIR}/asi/{GROUP_SUBDIR}'
 CH1_DIR = f'{DATA_DIR}/irs_ch1/{GROUP_SUBDIR}'
@@ -66,7 +68,8 @@ site_coordinates = {
 
 group_titles = {
     'clear_sky_days':'Clear Sky',
-    'clear_sky_withSfc':'Clear Sky'
+    'clear_sky_withSfc':'Clear Sky',
+    'clear_sky_noSfc':'Clear Sky',
 }
 
 bad_dts = {
