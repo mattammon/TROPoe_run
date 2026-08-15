@@ -22,6 +22,22 @@ def run_tropoe(dt_str,VIP_obj,vip_type='default',channel=None,band=None,verbose=
     print('####### DONE #######')
 
 
+if __name__ == "__main__":
+    import argparse
+    from vip_gen import VIP
 
+    VIP_obj = VIP()
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("date", type=str, help="Datetime string in format yyyymmddHHMM")
+
+    parser.add_argument("--vipType", type=str, default='default', help="Type of Retrieval")
+    parser.add_argument("--channel", type=int, default=1, help="IRS Channel (1 or 2)")
+    parser.add_argument("--band", type=int, default=None, help="Band number (ONLY for channel-2)")
+    parser.add_argument("--verbose", type=str, default='1', help="Retrieval Verbosity")
+    parser.add_argument("--group", action="store_true", help="Include Retrieval in GROUP_SUBDIR")
+
+    args = parser.parse_args()
 
 
