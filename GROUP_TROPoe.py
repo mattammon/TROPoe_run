@@ -5,11 +5,11 @@ from config import *
 from utils import *
 import glob
 from vip_gen import VIP
-from TROPoe import run_tropoe
+from SINGLE_TROPoe import run_tropoe
 
 ##########################################
 
-obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
+obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 vip_type = 'default'
 
