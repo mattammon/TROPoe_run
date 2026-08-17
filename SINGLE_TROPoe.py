@@ -25,6 +25,7 @@ def run_tropoe(dt_str,VIP_obj,vip_type='default',channel=None,band=None,verbose=
 if __name__ == "__main__":
     import argparse
     from vip_gen import VIP
+    from get_sgp_data import SGP_DATA
 
     VIP_obj = VIP()
 
@@ -39,5 +40,12 @@ if __name__ == "__main__":
     parser.add_argument("--group", action="store_true", help="Include Retrieval in GROUP_SUBDIR")
 
     args = parser.parse_args()
+
+    date = args.date
+    data_obj = SGP_DATA(date[:8],date[:8])
+    data_obj.single_data_download()
+
+    run_tropoe(date,VIP_obj,vip_type=args.vipType,channel=args.channel,
+               band=args.band,verbose=args.verbose)
 
 

@@ -7,7 +7,7 @@ import secrets
 
 class VIP:
     vip_id = secrets.token_hex(2)
-    def __init__(self,data_path=GROUP_SUBDIR):
+    def __init__(self,data_path=MASTER_DATA_FOLDER):
         self.vip_type_dict = {
             'default':self.default_vip,
             'no_surface':self.no_surface_vip,
@@ -56,7 +56,7 @@ class VIP:
             f.write('station_pres = 980.0        # Station pressure [mb]; will be only be used if there is no other Psfc input\n')
             f.write('\n')
             f.write('irs_type = 1                    # Specifies the type of IRS data to read\n')
-            f.write(f'irsch1_path = {DATA_DIR}/irs_ch{irs_channel}/{data_path}     # Path to the IRS ch1 radiance files\n')
+            f.write(f'irsch1_path = {DATA_DIR}/irs_ch{irs_channel}/{SITE}/{data_path}     # Path to the IRS ch1 radiance files\n')
             f.write(f'irssum_path = {DATA_DIR}/irs_sum/{data_path}     # Path to the IRS summary files\n')
             f.write(f'irseng_path = {DATA_DIR}/irs_eng/{data_path}     # Path to the IRS engineering files\n')
             f.write('irs_use_missingDataFlag = 0\n')
