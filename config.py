@@ -22,11 +22,10 @@ GROUP_NAME = 'clear_sky_withSfc'
 DATA_DIR = f'/data'
 FIG_DIR = f'{DATA_DIR}/FIGS'
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
-###############################################################
-
-
 
 ###############################################################
+###############################################################
+
 """""
 Anything in this block is automatically set up and/or created upon running
 setup script.
@@ -56,6 +55,11 @@ VIP_DIR = f'{DATA_DIR}/vips/{SITE}'
 site_coordinates = {
     'sgp':[-97.484726, 36.60611],
     'nwc':[-97.44, 35.18]
+}
+
+site_altitude = {
+    'sgp':237.43,
+    'nwc':210.0,
 }
 
 group_titles = {

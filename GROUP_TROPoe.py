@@ -6,21 +6,21 @@ from utils import *
 import glob
 from vip_gen import VIP
 from SINGLE_TROPoe import run_tropoe
+from get_sgp_data import SGP_DATA
 
 ##########################################
 
 obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
-vip_type = 'default'
 
-bands = [1,2,3,4,5,6,7,8,9,10,11,12]
+bands = [1,4,8,9]
 
 ##########################################
 
-VIP_obj = VIP()
+VIP_obj = VIP(in_group=True)
 
 for d in dates:
-    run_tropoe(d,VIP_obj,vip_type=vip_type,channel=1)
+    run_tropoe(d,VIP_obj,channel=1)
     for b in bands:
-        run_tropoe(d,VIP_obj,vip_type=vip_type,channel=2,band=b)
+        run_tropoe(d,VIP_obj,channel=2,band=b)
     print(f'\nAll Retrievals for {d} Done!\n')
