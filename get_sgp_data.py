@@ -24,19 +24,26 @@ class SGP_DATA:
 
     def __init__(self,sdate,edate):
         self.login = f'-u {self.username}:{self.token}'
-        self.start_date = f'{sdate[:4]}-{sdate[4:6]}-{sdate[6:]}'
-        self.end_date = f'{edate[:4]}-{edate[4:6]}-{edate[6:]}'
 
+        if "-" in sdate:
+            self.start_date = sdate
+        else:
+            self.start_date = f'{sdate[:4]}-{sdate[4:6]}-{sdate[6:]}'
+
+        if "-" in edate:
+            self.end_date = edate
+        else:
+            self.end_date = f'{edate[:4]}-{edate[4:6]}-{edate[6:]}'
 
     def single_data_download(self):
         self.download_data_retrieval(self.start_date,self.end_date)
 
 
-    def group_data_download(self,GROUP=GROUP_NAME,cloud_cover_perc_range=None,
+    def group_data_download(self,cloud_cover_perc_range=None,
                             cloud_cover_variable='near_zenith_percent_cloud'):
-        self.directory_setup(GROUP)
+        self.group_dir_setup(GROUP_NAME)
 
-        if "clear_sky" in GROUP:
+        if "clear_sky" in GROUP_NAME and cloud_cover_perc_range==None:
             cloud_cover_perc_range = [0,0]
 
         if cloud_cover_perc_range is not None:
@@ -50,11 +57,11 @@ class SGP_DATA:
 
 
     def cloud_cover_filter(self,cc_min,cc_max,cc_var):
-        sonde_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP}/{SITE}sonde*'))
+        sonde_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/{SITE}sonde*'))
         for f in sonde_files:
             date_str = f[-19:-11]
             time_str = f[-10:-6]
-            asi_file = sorted(glob.glob(f'{ASI_DIR}/{SITE}*{date_str}*'))[0]
+            asi_file = sorted(glob.glob(f'{ASI_DIR}/{MASTER_DATA_FOLDER}/{SITE}*{date_str}*'))[0]
             ds_asi = xr.open_dataset(asi_file)
             time_asi = ds_asi.time.data
             perc_cld = ds_asi[cc_var].data
@@ -71,7 +78,7 @@ class SGP_DATA:
                 if (perc_cld_full is None or perc_cld_full[idx] <= 10) and (cc_min <= perc_cld[idx] <= cc_max):
                     sdate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
                     edate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
-                    self.download_data_retrieval(self,sdate,edate)
+                    self.download_data_retrieval(sdate,edate)
                 else:
                     os.system(f'rm {f}')
             else:
@@ -81,7 +88,7 @@ class SGP_DATA:
     def dataset_download(self,stream,stream_dir,sdate,edate):
         date_args = f'-s {sdate} -e {edate}'
         if stream == "sonde":
-            dir_arg = f'-o {stream_dir}/{GROUP}'
+            dir_arg = f'-o {stream_dir}/{GROUP_NAME}'
         else:
             dir_arg = f'-o {stream_dir}/{MASTER_DATA_FOLDER}'
         args = f'{self.login} -ds {self.streams[stream]} {date_args} {dir_arg}'
@@ -119,3 +126,9 @@ if __name__ == "__main__":
     cloud_cover_perc_range = [0,0]
     cloud_cover_variable = 'near_zenith_percent_cloud'
     #cloud_cover_variable = 'percent_cloud'
+
+    sgp_data = SGP_DATA(start_date,end_date)
+    sgp_data.group_data_download(cloud_cover_perc_range=cloud_cover_perc_range)
+
+
+

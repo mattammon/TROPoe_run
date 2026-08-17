@@ -18,7 +18,7 @@ FIG_DIR: Where any produced figures should be saved.
 SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
 """""
 
-GROUP_NAME = 'clear_sky_withSfc'
+GROUP_NAME = 'clear_sky_days'
 DATA_DIR = f'/data'
 FIG_DIR = f'{DATA_DIR}/FIGS'
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
