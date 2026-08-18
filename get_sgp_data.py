@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 
 class SGP_DATA:
     streams = {
-    'ch1':'sgpaerich1C1.b1',
-    'ch2':'sgpaerich2C1.b1',
+    'ch1':'sgpaerich1nf1turnC1.c1',
+    'ch2':'sgpaerich2nf1turnC1.c1',
     'eng':'sgpaeriengineerC1.b1',
     'sum':'sgpaerisummaryC1.b1',
     'asi':'sgpasiskycoverC1.b1',
@@ -122,7 +122,7 @@ class SGP_DATA:
 
 if __name__ == "__main__":
     start_date = '2025-01-01'
-    end_date = '2025-02-01'
+    end_date = '2026-01-01'
     cloud_cover_perc_range = [0,0]
     cloud_cover_variable = 'near_zenith_percent_cloud'
     #cloud_cover_variable = 'percent_cloud'

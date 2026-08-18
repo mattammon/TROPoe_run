@@ -10,10 +10,10 @@ from get_sgp_data import SGP_DATA
 
 ##########################################
 
-obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
+obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))[:40]
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
-bands = [1,4,8,9]
+bands = [1,8,9]
 
 ##########################################
 
