@@ -61,8 +61,14 @@ class SGP_DATA:
         for f in sonde_files:
             date_str = f[-19:-11]
             time_str = f[-10:-6]
-            asi_file = sorted(glob.glob(f'{ASI_DIR}/{MASTER_DATA_FOLDER}/{SITE}*{date_str}*'))[0]
-            ds_asi = xr.open_dataset(asi_file)
+            asi_files = sorted(glob.glob(f'{ASI_DIR}/{MASTER_DATA_FOLDER}/{SITE}*{date_str}*'))
+            if not asi_files:
+                continue
+            asi_file = asi_files[0]
+            try:
+                ds_asi = xr.open_dataset(asi_file)
+            except:
+                continue
             time_asi = ds_asi.time.data
             perc_cld = ds_asi[cc_var].data
             if cc_max <= 10 and cc_var=='near_zenith_percent_cloud':
@@ -121,8 +127,8 @@ class SGP_DATA:
 
 
 if __name__ == "__main__":
-    start_date = '2025-01-01'
-    end_date = '2026-01-01'
+    start_date = '2024-01-01'
+    end_date = '2025-01-01'
     cloud_cover_perc_range = [0,0]
     cloud_cover_variable = 'near_zenith_percent_cloud'
     #cloud_cover_variable = 'percent_cloud'
