@@ -10,11 +10,12 @@ from get_sgp_data import SGP_DATA
 
 ##########################################
 
-obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*.b1.2024*'))
+obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
-do_ch1 = True
-bands = [1,8,9]
+do_ch1 = False
+bands = [10]
+verbose='3'
 
 ##########################################
 
@@ -22,7 +23,7 @@ VIP_obj = VIP(in_group=True)
 
 for d in dates:
     if do_ch1 == True:
-        run_tropoe(d,VIP_obj,channel=1)
+        run_tropoe(d,VIP_obj,channel=1,verbose=verbose)
     for b in bands:
-        run_tropoe(d,VIP_obj,channel=2,band=b)
+        run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose)
     print(f'\nAll Retrievals for {d} Done!\n')
