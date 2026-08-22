@@ -14,8 +14,8 @@ obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
 do_ch1 = False
-bands = [10]
-verbose='3'
+bands = [12]
+verbose='1'
 
 ##########################################
 
