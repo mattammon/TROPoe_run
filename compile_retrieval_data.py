@@ -30,7 +30,7 @@ class Aggregate_Retrievals:
     def __init__(self,max_hgt,eval_bands,plot_bands):
 
         self.max_hgt = max_hgt
-        all_obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
+        all_obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
 
         obs_dts = []
         obs_snd_files = []
@@ -109,7 +109,7 @@ class Aggregate_Retrievals:
 
 
     def ch1_file(self,dt):
-        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/*Ch1.{dt[:8]}*'))
+        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*Ch1.{dt[:8]}*'))
         if len(files)>1:
             idx = np.argmin([abs(int(i[-9:-7]) - int(dt[8:10])) for i in files])
             file = files[idx]
@@ -120,7 +120,7 @@ class Aggregate_Retrievals:
         return file
 
     def ch2_files(self,dt,bands):
-        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/*Ch2*.{dt}*'))
+        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*Ch2*.{dt}*'))
         bands_done = np.unique([s[(s.rindex('B')+1):-19] for s in files])
         bands_not_done = [f'{b}' for b in bands if f'{b}' not in bands_done]
         if len(bands_not_done)>0:

@@ -33,7 +33,7 @@ setup script.
 
 SITE = 'sgp' #Only site currently supported
 
-FIG_SUBDIR = f'{FIG_DIR}/{SITE}'
+FIG_SUBDIR = f'{FIG_DIR}/{SITE}/{GROUP_NAME}'
 SONDE_DIR = f'{DATA_DIR}/radiosonde/{SITE}'
 ASI_DIR = f'{DATA_DIR}/asi/{SITE}'
 CH1_DIR = f'{DATA_DIR}/irs_ch1/{SITE}'

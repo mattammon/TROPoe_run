@@ -10,8 +10,8 @@ from config import *
 # ==========================================
 # 1. SETUP AND DATA EXTRACTION
 # ==========================================
-Ch2_bands_toEval = [1,2,3,4,5,6,7,8,9,10,11,12]
-Ch2_bands_toPlot = [1,2,3,4,5,6,7,8,9,10,11,12]
+Ch2_bands_toEval = [1,4,8,9,11,12,13]
+Ch2_bands_toPlot = [1,4,8,9,11,12,13]
 
 max_height_eval = 3
 max_height_plot = 3
@@ -188,8 +188,8 @@ ax2.grid(axis='y', linestyle='--', alpha=0.8)
 ax2.set_xticks(positions)
 ax2.set_xticklabels(models,size=12,rotation=30,ha='right')
 
-max_T_rmse = np.nanmax(rmse_matrices["T"])
-max_Td_rmse = np.nanmax(rmse_matrices["Td"])
+max_T_rmse = np.nanpercentile(rmse_matrices["T"],95)
+max_Td_rmse = np.nanpercentile(rmse_matrices["Td"],95)
 
 ax1.set_ylim(0, max_T_rmse * 1.01)
 ax2.set_ylim(0, max_Td_rmse * 1.01)

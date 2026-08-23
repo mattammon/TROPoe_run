@@ -6,7 +6,7 @@ from config import *
 from utils import *
 
 def obs_sonde(date,time,max_hgt):
-    file = sorted(glob.glob(f'{SONDE_DIR}/*{date}.{time}*'))[0]
+    file = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*{date}.{time}*'))[0]
     snd_ds = xr.open_dataset(file)
     hgt = snd_ds.alt.data
     hgt = hgt - hgt[0]
