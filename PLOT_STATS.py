@@ -226,17 +226,18 @@ for date in dates:
     ax1.plot(obs_T, obs_hgt, color='black', linewidth=3, linestyle='--', label='Observed', zorder=10)
     ax2.plot(obs_Td, obs_hgt, color='black', linewidth=3, linestyle='--', label='Observed', zorder=10)
 
-    ax1.set_title(f"Temperature (T) Profiles", fontsize=12, fontweight='bold')
-    ax1.set_xlabel("T", fontsize=11)
+    ax1.set_title(f"Retrieved T Profiles", fontsize=12, fontweight='bold')
+    ax1.set_xlabel("T (C)", fontsize=11)
     ax1.set_ylabel("Height (km)", fontsize=11)
     ax1.grid(True, linestyle=':', alpha=0.7)
 
-    ax2.set_title(f"Dewpoint (Td) Profiles", fontsize=12, fontweight='bold')
-    ax2.set_xlabel("Td", fontsize=11)
+    ax2.set_title(f"Retrieved Td Profiles", fontsize=12, fontweight='bold')
+    ax2.set_xlabel("Td (C)", fontsize=11)
     ax2.grid(True, linestyle=':', alpha=0.7)
 
-    fig.suptitle(f"Vertical Profiles for {date}", fontsize=16, fontweight='bold', y=0.98)
-    ax2.legend(loc='upper right', bbox_to_anchor=(1.45, 1.0), title="Models")
+    fig.suptitle(f"TROPoe Retrievals for {date[:-4]} at {date[-4:]}Z",
+                fontsize=16, fontweight='bold', y=0.98)
+    ax2.legend(loc='upper right', fontsize='large', bbox_to_anchor=(1.45, 1.0))
 
     plt.tight_layout()
     plt.subplots_adjust(right=0.85, top=0.9)
