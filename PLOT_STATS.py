@@ -17,9 +17,7 @@ Ch2_bands_toPlot = [1,4,8,9,11,13]
 max_height_eval = 3
 max_height_plot = 3
 
-EVAL = Aggregate_Retrievals(max_height_eval,
-                            Ch2_bands_toEval,
-                            Ch2_bands_toPlot)
+EVAL = Aggregate_Retrievals(max_height_eval,Ch2_bands_toEval)
 
 dates = EVAL.good_dts
 

@@ -2,8 +2,8 @@
 """
 Edit these parameters if running as standalone script:
 """
-Ch2_bands_compile = [1,2,6,11,12]
-max_height = 5 #km
+Ch2_bands_compile = [1]
+max_height = 3 #km
 
 #################################
 
@@ -26,7 +26,7 @@ from spectralBands import *
 
 class Aggregate_Retrievals:
 
-    def __init__(self,max_hgt,eval_bands,plot_bands):
+    def __init__(self,max_hgt,eval_bands):
 
         self.max_hgt = max_hgt
         all_obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
