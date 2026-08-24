@@ -52,6 +52,11 @@ class Aggregate_Retrievals:
 
         self.good_dts = []
 
+        if 'clear' in GROUP_NAME:
+            self.do_lwp_filter = True
+        else:
+            self.do_lwp_filter = False
+
         for i,d in enumerate(self.obs_snd_files):
             dt = self.obs_dts[i]
 
@@ -93,7 +98,7 @@ class Aggregate_Retrievals:
     def ret_profiles_compile(self,dt,ch2Bands=[None]):
         curr_ret_data = defaultdict(dict)
         ch1_f, ch2_fs = self.retrieval_files(dt,ch2Bands)
-        curr_ret_data['Ch1'] = self.tropoe_profiles(ch1_f,show_lwp=True)
+        curr_ret_data['Ch1'] = self.tropoe_profiles(ch1_f,check_lwp=self.do_lwp_filter)
         for f,b in enumerate(ch2Bands):
             curr_ret_data[f'Ch2_B{b}'] = self.tropoe_profiles(ch2_fs[f])
         return curr_ret_data
@@ -157,7 +162,7 @@ class Aggregate_Retrievals:
             q = q[:max_hgt_idx]
         return {'hgt':hgt, 'T':T, 'Td':Td, 'q':q, 'P':P}
 
-    def tropoe_profiles(self,file,show_lwp=False):
+    def tropoe_profiles(self,file,check_lwp=False):
         max_hgt=self.max_hgt
         ds = xr.open_dataset(file)
         hgt = ds.height.data
@@ -176,15 +181,20 @@ class Aggregate_Retrievals:
         # q = ds.waterVapor.data[tropoe_time_idx,:]
         # err_q = ds.sigma_waterVapor.data[tropoe_time_idx,:]
         # err_T = ds.sigma_temperature.data[tropoe_time_idx,:]
-        if show_lwp:
-            self.lwp_check(ds)
+        if check_lwp:
+            self.lwp_filter(ds)
         ds.close()
         return {'hgt':hgt, 'T':T, 'Td':Td, 'q':q, 'P':P}
 
-    def lwp_check(self,ds):
+    def lwp_filter(self,ds):
         lwp = ds.lwp.data[0]
         lwp_unc = ds.sigma_lwp.data[0]
-        print(lwp,lwp_unc)
+        ds.close()
+        if lwp < 1 or lwp < lwp_unc:
+            clear = True
+        else:
+            raise ValueError("Retrieved LWP is too high!")
+        return
 
 
 if __name__ == "__main__":
