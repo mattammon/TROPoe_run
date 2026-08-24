@@ -78,18 +78,13 @@ def datetime_to_decimal_hours(
     return decimal_times
 
 
-class TEST:
-    def __init__(self,a):
-        func_dict = {
-            'hello':self.hello,
-            'goodbye':self.goodbye,
-        }
+import math
 
-        if a in func_dict:
-            func_dict[a]()
+def rh_to_mixing_ratio(rh, t_c, p_hpa):
+    # np.exp automatically handles both single numbers and arrays
+    e_s = 6.112 * np.exp((17.67 * t_c) / (t_c + 243.5))
+    e = (rh / 100.0) * e_s
+    w_kg_kg = 0.622 * (e / (p_hpa - e))
 
-    def hello(self):
-        print('HELLO')
+    return w_kg_kg * 1000.0
 
-    def goodbye(self):
-        print('GOODBYE')

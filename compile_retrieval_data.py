@@ -69,9 +69,14 @@ class Aggregate_Retrievals:
                 Td_obs_interp = np.interp(retrieval_dict['Ch1']['hgt'],
                                          obs_dict['hgt'],
                                          obs_dict['Td'])
+                q_obs_interp = np.interp(retrieval_dict['Ch1']['hgt'],
+                                         obs_dict['hgt'],
+                                         obs_dict['q'])
 
                 obs_dict['T'] = T_obs_interp
                 obs_dict['Td'] = Td_obs_interp
+                obs_dict['q'] = q_obs_interp
+
                 self.profile_data['observed_snd'][dt] = obs_dict
                 print(f'{dt} Retrievals Succeeded!')
             except:
@@ -139,8 +144,10 @@ class Aggregate_Retrievals:
         if ds.alt.units == 'm':
             hgt = hgt/1000
         T = ds.tdry.data
-        Td = dew_point(T,ds.rh.data)
+        rh = ds.rh.data
+        Td = dew_point(T,rh)
         P = ds.pres.data
+        q = rh_to_mixing_ratio(rh, T, P)
         ds.close()
         if max_hgt is not None:
             max_hgt_idx = CVI(hgt,max_hgt) + 2
@@ -148,7 +155,8 @@ class Aggregate_Retrievals:
             T = T[:max_hgt_idx]
             Td = Td[:max_hgt_idx]
             P = P[:max_hgt_idx]
-        return {'hgt':hgt, 'T':T, 'Td':Td, 'P':P}
+            q = q[:max_hgt_idx]
+        return {'hgt':hgt, 'T':T, 'Td':Td, 'q':q, 'P':P}
 
     def tropoe_profiles(self,file):
         max_hgt=self.max_hgt
@@ -157,18 +165,20 @@ class Aggregate_Retrievals:
         P = ds.pressure.data[0]
         T = ds.temperature.data[0]
         Td = ds.dewpt.data[0]
+        q = ds.waterVapor.data[0]
         if max_hgt is not None:
             max_hgt_idx = CVI(hgt,max_hgt) + 2
             hgt = hgt[:max_hgt_idx]
             T = T[:max_hgt_idx]
             Td = Td[:max_hgt_idx]
             P = P[:max_hgt_idx]
+            q = q[:max_hgt_idx]
         # rh = ds.rh.data[tropoe_time_idx,:]
         # q = ds.waterVapor.data[tropoe_time_idx,:]
         # err_q = ds.sigma_waterVapor.data[tropoe_time_idx,:]
         # err_T = ds.sigma_temperature.data[tropoe_time_idx,:]
         ds.close()
-        return {'hgt':hgt, 'T':T, 'Td':Td, 'P':P}
+        return {'hgt':hgt, 'T':T, 'Td':Td, 'q':q, 'P':P}
 
 
 if __name__ == "__main__":

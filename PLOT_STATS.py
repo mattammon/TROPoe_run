@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -10,8 +11,8 @@ from config import *
 # ==========================================
 # 1. SETUP AND DATA EXTRACTION
 # ==========================================
-Ch2_bands_toEval = [1,4,8,9,11,12,13]
-Ch2_bands_toPlot = [1,4,8,9,11,12,13]
+Ch2_bands_toEval = [1,4,8,9,11,13]
+Ch2_bands_toPlot = [1,4,8,9,11,13]
 
 max_height_eval = 3
 max_height_plot = 3
@@ -24,7 +25,7 @@ dates = EVAL.good_dts
 
 models = ['Ch1']
 models.extend([f'Ch2_B{b}' for b in Ch2_bands_toPlot])
-variables = ["T", "Td"]
+variables = ["T", "Td", "q"]
 
 profile_data_dict = EVAL.profile_data
 
@@ -38,7 +39,8 @@ forecast_data = profile_data_dict['retrieval_snd']
 # Shape: (Number of Models, Number of Cases)
 rmse_matrices = {
     "T": np.zeros((len(models), len(dates))),
-    "Td": np.zeros((len(models), len(dates)))
+    "Td": np.zeros((len(models), len(dates))),
+    "q": np.zeros((len(models), len(dates)))
 }
 
 for v, var in enumerate(variables):
@@ -145,7 +147,7 @@ for var in variables:
     cax2 = divider.append_axes("right", size="3%", pad=0.9)
     cbar1 = fig.colorbar(im_base, cax=cax1, extend = 'both', shrink=0.8)
     cbar2 = fig.colorbar(im_exp, cax=cax2, extend = 'both', shrink=0.8)
-    cbar1.set_label(f"Absolute {var} RMSE (Ch1)", size = 14)
+    cbar1.set_label(f"{var} RMSE (Ch1)", size = 14)
     cbar2.set_label(f"RMSE Diff (Ch2 - Ch1)", size = 14)
     cbar1.ax.tick_params(labelsize=12)
     cbar2.ax.tick_params(labelsize=12)
@@ -161,7 +163,8 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 9), sharex=True)
 positions = np.arange(len(models))
 
 T_data = [rmse_matrices["T"][i, :][~np.isnan(rmse_matrices["T"][i, :])] for i in range(len(models))]
-Td_data = [rmse_matrices["Td"][i, :][~np.isnan(rmse_matrices["Td"][i, :])] for i in range(len(models))]
+#Td_data = [rmse_matrices["Td"][i, :][~np.isnan(rmse_matrices["Td"][i, :])] for i in range(len(models))]
+q_data = [rmse_matrices["q"][i, :][~np.isnan(rmse_matrices["q"][i, :])] for i in range(len(models))]
 
 ax1.boxplot(T_data, positions=positions, widths=0.6, patch_artist=True,
            boxprops=dict(facecolor="tab:blue", alpha=0.7, edgecolor="black"),
@@ -174,25 +177,25 @@ ax1.set_title(f"TROPoe Retrieved T Profile RMSE Distributions by Band: {len(date
 ax1.set_ylabel(f"0-{max_height_eval} km Vertically Accumulated T RMSE (C)")
 ax1.grid(axis='y', linestyle='--', alpha=0.8)
 
-ax2.boxplot(Td_data, positions=positions, widths=0.6, patch_artist=True,
+ax2.boxplot(q_data, positions=positions, widths=0.6, patch_artist=True,
            boxprops=dict(facecolor="tab:orange", alpha=0.7, edgecolor="black"),
            medianprops=dict(color="darkred", linewidth=2),
            showfliers = False)
-ax2.axhline(np.nanmedian(Td_data[0]), linestyle='--', c='k')
+ax2.axhline(np.nanmedian(q_data[0]), linestyle='--', c='k')
 
-ax2.set_title(f"TROPoe Retrieved Td Profile RMSE Distributions by Band: {len(dates)} {group_titles[GROUP_NAME]} Cases",
+ax2.set_title(f"TROPoe Retrieved q Profile RMSE Distributions by Band: {len(dates)} {group_titles[GROUP_NAME]} Cases",
                 fontsize=13, fontweight='bold')
-ax2.set_ylabel(f"0-{max_height_eval} km Vertically Accumulated Td RMSE (C)")
+ax2.set_ylabel(f"0-{max_height_eval} km Vertically Accumulated q RMSE (g/kg)")
 ax2.grid(axis='y', linestyle='--', alpha=0.8)
 
 ax2.set_xticks(positions)
 ax2.set_xticklabels(models,size=12,rotation=30,ha='right')
 
 max_T_rmse = np.nanpercentile(rmse_matrices["T"],95)
-max_Td_rmse = np.nanpercentile(rmse_matrices["Td"],95)
+max_q_rmse = np.nanpercentile(rmse_matrices["q"],95)
 
-ax1.set_ylim(0, max_T_rmse * 1.01)
-ax2.set_ylim(0, max_Td_rmse * 1.01)
+ax1.set_ylim(0, max_T_rmse * 1.5)
+ax2.set_ylim(0, max_q_rmse * 1.5)
 
 plt.tight_layout()
 plt.savefig(f'{FIG_SUBDIR}/RMSE_Boxplots_Distributions.png')
@@ -239,6 +242,7 @@ for date in dates:
 
     plt.tight_layout()
     plt.subplots_adjust(right=0.85, top=0.9)
+    os.makedirs(f'{FIG_SUBDIR}/Profile_Plots', exist_ok=True)
     plt.savefig(f'{FIG_SUBDIR}/Profile_Plots/Vertical_Profiles_{date}.png', bbox_inches='tight')
     plt.close(fig)
 
