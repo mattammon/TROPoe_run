@@ -22,7 +22,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from utils import *
 from config import *
 from spectralBands import *
-from profile_data import *
 
 
 class Aggregate_Retrievals:
