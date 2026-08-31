@@ -243,7 +243,7 @@ class GOES:
                 break
 
 def group_plot():
-    obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/*sonde*'))
+    obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
     dates = [f'{file[-19:-11]}' for file in obs_snd_files]
     hrs = [f'{file[-10:-8]}' for file in obs_snd_files]
     mns = [f'{file[-8:-6]}' for file in obs_snd_files]

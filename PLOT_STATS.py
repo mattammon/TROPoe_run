@@ -11,8 +11,8 @@ from config import *
 # ==========================================
 # 1. SETUP AND DATA EXTRACTION
 # ==========================================
-Ch2_bands_toEval = [1,4,8,9,11,13]
-Ch2_bands_toPlot = [1,4,8,9,11,13]
+Ch2_bands_toEval = [1,3,4,5,8,9,11,12,13,14,15]
+Ch2_bands_toPlot = [1,3,4,5,8,9,11,12,13,14,15]
 
 max_height_eval = 3
 max_height_plot = 3
