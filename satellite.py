@@ -26,6 +26,13 @@ warnings.filterwarnings("ignore")
 class GOES:
     def __init__(self, dt, band=2, goes=19):
         date = datetime.strptime(dt, "%Y%m%d")
+
+        # Check if the requested date is prior to GOES-19 operations (April 7, 2025)
+        goes_19_operational = datetime(2025, 4, 7)
+        if goes == 19 and date < goes_19_operational:
+            print(f"Requested date {dt} is before GOES-19 was operational. Falling back to GOES-16.")
+            goes = 16
+
         self.dt = dt
         self.doy = int(date.strftime("%j"))
         self.goes = goes
@@ -34,9 +41,9 @@ class GOES:
         self.band = band
         self.is_ir = False
         self.cmap = truncate_colormap("Greys_r", minval=0.1)
-        self.site_loc=site_coordinates[SITE]
-        self.area=[self.site_loc[0]-4, self.site_loc[0]+4,
-                   self.site_loc[1]-3, self.site_loc[1]+3]
+        self.site_loc = site_coordinates[SITE]
+        self.area = [self.site_loc[0]-4, self.site_loc[0]+4,
+                     self.site_loc[1]-3, self.site_loc[1]+3]
 
     def goes_projection(self, ds):
         goes_proj = ds.goes_imager_projection
@@ -114,9 +121,9 @@ class GOES:
         band_str = "IR (Band 13)" if self.is_ir else "Visible (Band 2)"
         file_band_str = "IR" if self.is_ir else "VIS"
 
-        ax.set_title(f"GOES-19 {band_str} Imagery: {self.timestamp}")
-        img_name = f"GOES-{self.goes}_{file_band_str}_{self.dt}{hr}{mn}"
-        img_loc = SAT_IMAGERY_DIR
+        ax.set_title(f"GOES-{self.goes} {band_str} Imagery: {self.timestamp}")
+        img_name = f"{self.dt}{hr}{mn}_GOES-{self.goes}_{file_band_str}"
+        img_loc = f'{SAT_IMAGERY_DIR}/{GROUP_NAME}'
 
         # Make the directory if it doesn't already exist
         os.makedirs(img_loc, exist_ok=True)
@@ -151,7 +158,11 @@ class GOES:
 
         # 2. Fetch the appropriate file
         keys = self.files(hr)
+        if not keys:
+            raise FileNotFoundError(f"No GOES-{self.goes} files found for {self.dt} at hour {hr}Z.")
         idx = round((int(mn) / 60) * len(keys))
+        # Protect against index out of bounds if the requested minute is 59 and file length is short
+        idx = min(idx, len(keys) - 1)
         key = keys[idx]
         ds = self.data(key)
         self.timestamp = ds.time_coverage_start
@@ -219,10 +230,13 @@ class GOES:
 
     def files(self, hour, product="ABI-L1b-RadC"):
         yr = self.date.year
-        prefix = f"{product}/{yr}/{self.doy:03.0f}/{int(hour):02.0f}"
-        prefix = f"{prefix}/OR_{product}-M6C{self.band:02.0f}_G19"
+        # Stop prefix before the mode (M6/M3) to accommodate older files when the satellite was in Mode 3 or Mode 4
+        prefix = f"{product}/{yr}/{self.doy:03.0f}/{int(hour):02.0f}/OR_{product}-"
         s3_keys = self.get_s3_keys(prefix)
-        keys = [key for key in s3_keys]
+
+        # Filter returned keys dynamically using self.goes and self.band
+        target_suffix = f"C{self.band:02.0f}_G{self.goes:02d}"
+        keys = [key for key in s3_keys if target_suffix in key]
         return keys
 
     def get_s3_keys(self, prefix):
@@ -233,6 +247,8 @@ class GOES:
             kwargs["Prefix"] = prefix
         while True:
             resp = s3_client.list_objects_v2(**kwargs)
+            if "Contents" not in resp:
+                break
             for obj in resp["Contents"]:
                 key = obj["Key"]
                 if key.startswith(prefix):
@@ -243,17 +259,17 @@ class GOES:
                 break
 
 def group_plot():
-    obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
-    dates = [f'{file[-19:-11]}' for file in obs_snd_files]
-    hrs = [f'{file[-10:-8]}' for file in obs_snd_files]
-    mns = [f'{file[-8:-6]}' for file in obs_snd_files]
+    retrieval_files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*_Ch2_B15*.nc'))
+    dates = [f'{file[-18:-10]}' for file in retrieval_files]
+    hrs = [f'{file[-9:-7]}' for file in retrieval_files]
+    mns = [f'{file[-7:-5]}' for file in retrieval_files]
 
     for i, d in enumerate(dates):
         try:
             sat = GOES(d)
             sat.rad_image(hrs[i], mns[i])
-        except:
-            print(f'DATA UNAVAILABLE FOR {d} at {hrs[i]}:{mns[i]}!')
+        except Exception as e:
+            print(f'DATA UNAVAILABLE FOR {d} at {hrs[i]}:{mns[i]}! Error: {e}')
             pass
 
 
@@ -268,4 +284,3 @@ if __name__ == "__main__":
         sat.rad_image(args.h, args.m)
     else:
         group_plot()
-

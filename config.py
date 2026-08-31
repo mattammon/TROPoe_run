@@ -43,7 +43,7 @@ ENG_DIR = f'{DATA_DIR}/irs_eng/{SITE}'
 SFC_DIR = f'{DATA_DIR}/met/{SITE}'
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{SITE}'
 MASTER_DATA_FOLDER = 'ALL'
-SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}/{MASTER_DATA_FOLDER}'
+SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}'
 
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
 RUN_DIR = f'{DATA_DIR}/script_repo'
