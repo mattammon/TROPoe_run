@@ -20,7 +20,7 @@ SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
 
 GROUP_NAME = 'clear_sky_days'
 DATA_DIR = f'/data'
-FIG_DIR = f'{DATA_DIR}/FIGS'
+FIG_DIR = f'{DATA_DIR}/FIGS/temp'
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
 
 ###############################################################
