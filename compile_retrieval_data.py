@@ -26,9 +26,15 @@ from spectralBands import *
 
 class Aggregate_Retrievals:
 
-    def __init__(self,max_hgt,eval_bands):
+    def __init__(self,max_hgt,eval_bands,include_information=False,
+                 information_source='auto',information_no_model=False):
 
         self.max_hgt = max_hgt
+        if information_source not in ('auto', 'kernel', 'cdfs'):
+            raise ValueError('information_source must be auto, kernel, or cdfs')
+        self.include_information = include_information
+        self.information_source = information_source
+        self.information_no_model = information_no_model
         all_obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
 
         obs_dts = []
@@ -64,8 +70,6 @@ class Aggregate_Retrievals:
 
             try:
                 retrieval_dict = self.ret_profiles_compile(dt,ch2Bands=eval_bands)
-                self.profile_data['retrieval_snd'][dt] = retrieval_dict
-                self.good_dts.append(dt)
 
                 T_obs_interp = np.interp(retrieval_dict['Ch1']['hgt'],
                                          obs_dict['hgt'],
@@ -82,10 +86,11 @@ class Aggregate_Retrievals:
                 obs_dict['q'] = q_obs_interp
 
                 self.profile_data['observed_snd'][dt] = obs_dict
+                self.profile_data['retrieval_snd'][dt] = retrieval_dict
+                self.good_dts.append(dt)
                 print(f'{dt} Retrievals Succeeded!')
-            except:
-                print(f'{dt} Retrievals Failed!')
-                pass
+            except Exception as error:
+                print(f'{dt} Retrievals Failed: {error}')
 
         # for i, snd in enumerate(snd_files):
         #     ch1, ch2s = EVAL.retrieval_files(dts[i])
@@ -164,12 +169,22 @@ class Aggregate_Retrievals:
 
     def tropoe_profiles(self,file,check_lwp=False):
         max_hgt=self.max_hgt
-        ds = xr.open_dataset(file)
-        hgt = ds.height.data
-        P = ds.pressure.data[0]
-        T = ds.temperature.data[0]
-        Td = ds.dewpt.data[0]
-        q = ds.waterVapor.data[0]
+        information = None
+        with xr.open_dataset(file) as ds:
+            if check_lwp:
+                self.lwp_filter(ds)
+            hgt = ds.height.values.copy()
+            P = ds.pressure.values[0].copy()
+            T = ds.temperature.values[0].copy()
+            Td = ds.dewpt.values[0].copy()
+            q = ds.waterVapor.values[0].copy()
+            if self.include_information:
+                from information_content import read_information
+                # Match the record used by the existing RMSE analysis. Keep the
+                # entire diagnostic grid for midpoint cells crossing max_hgt.
+                information = read_information(ds, time_index=0,
+                                               source=self.information_source,
+                                               no_model=self.information_no_model)
         if max_hgt is not None:
             max_hgt_idx = CVI(hgt,max_hgt) + 2
             hgt = hgt[:max_hgt_idx]
@@ -177,19 +192,15 @@ class Aggregate_Retrievals:
             Td = Td[:max_hgt_idx]
             P = P[:max_hgt_idx]
             q = q[:max_hgt_idx]
-        # rh = ds.rh.data[tropoe_time_idx,:]
-        # q = ds.waterVapor.data[tropoe_time_idx,:]
-        # err_q = ds.sigma_waterVapor.data[tropoe_time_idx,:]
-        # err_T = ds.sigma_temperature.data[tropoe_time_idx,:]
-        if check_lwp:
-            self.lwp_filter(ds)
-        ds.close()
-        return {'hgt':hgt, 'T':T, 'Td':Td, 'q':q, 'P':P}
+        profile = {'hgt':hgt, 'T':T, 'Td':Td, 'q':q, 'P':P,
+                   'source_file':str(file)}
+        if information is not None:
+            profile['information'] = information
+        return profile
 
     def lwp_filter(self,ds):
         lwp = ds.lwp.data[0]
         lwp_unc = ds.sigma_lwp.data[0]
-        ds.close()
         if lwp < 1 or lwp < lwp_unc:
             clear = True
         else:
@@ -200,4 +211,3 @@ class Aggregate_Retrievals:
 if __name__ == "__main__":
     EVAL = Aggregate_Retrievals(max_height,Ch2_bands_compile)
     #profile_data_dict = EVAL.profile_data
-

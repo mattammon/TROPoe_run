@@ -22,7 +22,18 @@ Ch2_bands_toPlot = [1,3,13,14,15,16,17]
 max_height_eval = 3
 max_height_plot = 3
 
-EVAL = Aggregate_Retrievals(max_height_eval,Ch2_bands_toEval)
+# Information diagnostics share the retrievals/cases already read for RMSE.
+plot_information = True
+information_max_height = 3.0
+information_bin_width = 0.1  # km; common bins for different native height grids
+information_source = 'auto'  # 'kernel', 'cdfs', or prefer kernel when available
+information_no_model = False  # True requires *_no_model output fields
+information_per_case = False
+
+EVAL = Aggregate_Retrievals(max_height_eval,Ch2_bands_toEval,
+                          include_information=plot_information,
+                          information_source=information_source,
+                          information_no_model=information_no_model)
 
 dates = EVAL.good_dts
 
@@ -34,6 +45,15 @@ profile_data_dict = EVAL.profile_data
 
 truth_data = profile_data_dict['observed_snd']
 forecast_data = profile_data_dict['retrieval_snd']
+
+if plot_information:
+    from PLOT_INFORMATION import plot_information_profiles
+    plot_information_profiles(EVAL, models, max_height=information_max_height,
+                              bin_width=information_bin_width,
+                              per_case=information_per_case)
+
+if not dates:
+    raise SystemExit('No complete retrieval/sounding cases; check the messages above.')
 
 # ==========================================
 # 2. COMPUTE ABSOLUTE RMSE (WITH NAN MASKING)

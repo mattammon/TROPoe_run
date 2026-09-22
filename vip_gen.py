@@ -10,7 +10,7 @@ class VIP:
     def __init__(self,sfc_block=True,irs_type=1,recenter=1,
                  mwr_type=0,cbh_type=1,add_tropoe=0,
                  model_block=False,default_pres=980.0,default_cbh=2.0,
-                 in_group=False):
+                 in_group=False,output_akernal=1):
 
         self.sfc_block = sfc_block
         self.irs_type = irs_type
@@ -21,6 +21,9 @@ class VIP:
         self.model_block = model_block
         self.default_pres = default_pres
         self.default_cbh = default_cbh
+        if output_akernal not in (0, 1, 2):
+            raise ValueError('output_akernal must be 0, 1, or 2')
+        self.output_akernal = output_akernal
 
         if in_group is True:
             self.ret_subdir = GROUP_NAME
@@ -107,6 +110,7 @@ class VIP:
             f.write(f'output_rootname = tropoeOutput_Ch{irs_channel}{vip_kwargs["band_label"]}      # String with the rootname of the output file\n')
             f.write(f'output_path = {RETRIEVAL_DIR}/{self.ret_subdir}          # Path where the output file will be placed\n')
             f.write('output_clobber = 2\n')
+            f.write(f'output_akernal = {self.output_akernal} # Save averaging kernel for information-content analysis\n')
             f.write('\n')
             f.write(f'spectral_bands = {vip_kwargs["spectral_bands"]} #{vip_kwargs["band_label2"]}\n')
             f.write('\n')
@@ -115,7 +119,6 @@ class VIP:
             f.write('\n')
             f.write(f'recenter_prior = {self.recenter}\n')
             f.close()
-
 
 
 
