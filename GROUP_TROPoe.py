@@ -6,13 +6,14 @@ import xarray as xr  # Added to read the Ch1 NetCDF file
 import numpy as np   # Added to find the closest time match
 
 from config import *
+from cloud_screening import selected_sounding_files
 from utils import *
 from vip_gen import VIP
 from SINGLE_TROPoe import run_tropoe
 
 ##########################################
 
-obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
+obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANIFEST, CLOUD_SCREEN_CATEGORY)
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
 do_ch1 = False
@@ -23,7 +24,7 @@ verbose='1'
 
 VIP_obj = VIP(in_group=True)
 
-if 'clear' in GROUP_NAME:
+if APPLY_RETRIEVAL_LWP_FILTER:
     for d in dates:
         if do_ch1 == True:
             run_tropoe(d, VIP_obj, channel=1, verbose=verbose)

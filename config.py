@@ -19,6 +19,12 @@ SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
 """""
 
 GROUP_NAME = 'clear_sky_days'
+# Path printed by get_sgp_data.py. None preserves legacy group-folder selection.
+CLOUD_SCREEN_MANIFEST = None
+CLOUD_SCREEN_CATEGORY = 'clear_sky'
+# Keep legacy behavior only for legacy cohorts. Cloud manifests are independent
+# of retrieval outcomes; set True explicitly to add the old Ch1 LWP gate.
+APPLY_RETRIEVAL_LWP_FILTER = (not CLOUD_SCREEN_MANIFEST and 'clear' in GROUP_NAME)
 DATA_DIR = f'/data'
 FIG_DIR = f'{DATA_DIR}/FIGS/temp'
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'

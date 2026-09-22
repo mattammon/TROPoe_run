@@ -1,140 +1,285 @@
-from config import *
-import os
-import glob
+"""Download and classify SGP sounding cases without deleting source data.
+
+Run ``python get_sgp_data.py --help``; see CLOUD_SCREENING.md for policy details.
+"""
+import argparse
+from collections import Counter, OrderedDict
+from dataclasses import asdict
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import uuid
+
 import pandas as pd
 import xarray as xr
-import numpy as np
-from datetime import datetime, timedelta
+
+import config
+from arm_download import ARMClient, CatalogError
+from cloud_screening import (CATEGORIES, ScreenPolicy, dataset_times, evaluate_case,
+                             filename_time, read_asi, read_radiance)
+
+
+def parse_date(value):
+    value = str(value)
+    if not re.fullmatch(r'\d{8}|\d{4}-\d{2}-\d{2}', value):
+        raise ValueError('Dates must be YYYYMMDD or YYYY-MM-DD')
+    return pd.to_datetime(value, format='%Y%m%d' if '-' not in value else '%Y-%m-%d')
+
+
+def index_files(directory, stream):
+    """Include legacy group folders; prefer ALL for duplicate basenames."""
+    candidates = sorted(Path(directory).glob(f'*/{stream}.*'))
+    candidates.sort(key=lambda p: (p.parent.name != config.MASTER_DATA_FOLDER, str(p)))
+    result = {}
+    for p in candidates:
+        if p.is_file() and p.suffix.lower() in ('.nc', '.cdf'):
+            result.setdefault(p.name, p.resolve())
+    return result
+
+
+class ObservationCache:
+    """Read only one spectral element; keep at most six daily frames in memory."""
+    def __init__(self, paths, reader):
+        self.by_day = {}
+        self.reader = reader
+        self.cache = OrderedDict()
+        self.errors = {}
+        for path in paths:
+            try:
+                day = filename_time(path).normalize()
+            except ValueError:
+                self.errors[str(path)] = 'filename_timestamp_unreadable'
+                continue
+            self.by_day.setdefault(day, []).append(path)
+
+    def around(self, time, minutes):
+        frames, files = [], []
+        start = (time-pd.Timedelta(minutes=minutes/2)).normalize()
+        end = (time+pd.Timedelta(minutes=minutes/2)).normalize()
+        # Adjacent file days also cover files crossing UTC midnight.
+        for day in pd.date_range(start-pd.Timedelta(days=1), end+pd.Timedelta(days=1)):
+            for path in self.by_day.get(day, []):
+                key = str(path)
+                files.append(key)
+                if key not in self.cache:
+                    try:
+                        self.cache[key] = self.reader(path)
+                    except Exception as exc:
+                        self.errors[key] = f'{type(exc).__name__}: {exc}'
+                        self.cache[key] = pd.DataFrame()
+                    if len(self.cache) > 6:
+                        self.cache.popitem(last=False)
+                else:
+                    self.cache.move_to_end(key)
+                frames.append(self.cache[key])
+        return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(),
+                {f: self.errors[f] for f in files if f in self.errors})
 
 
 class SGP_DATA:
-    streams = {
-    'ch1':'sgpaerich1nf1turnC1.c1',
-    'ch2':'sgpaerich2nf1turnC1.c1',
-    'eng':'sgpaeriengineerC1.b1',
-    'sum':'sgpaerisummaryC1.b1',
-    'asi':'sgpasiskycoverC1.b1',
-    'sonde':'sgpsondewnpnC1.b1',
-    'sfc':'sgpmetE13.b1'
-    }
-    #### ARM Profile ####
-    username = 'ammo0000'
-    token = '1135d911aebbb142'
-    #####################
+    streams = {'ch1': 'sgpaerich1nf1turnC1.c1', 'ch2': 'sgpaerich2nf1turnC1.c1',
+               'eng': 'sgpaeriengineerC1.b1', 'sum': 'sgpaerisummaryC1.b1',
+               'asi': 'sgpasiskycoverC1.b1', 'sonde': 'sgpsondewnpnC1.b1',
+               'sfc': 'sgpmetE13.b1'}
 
-    def __init__(self,sdate,edate):
-        self.login = f'-u {self.username}:{self.token}'
+    def __init__(self, sdate, edate, *, directories=None, client=None):
+        self.start, self.end = parse_date(sdate), parse_date(edate)
+        if self.end < self.start:
+            raise ValueError('End date precedes start date')
+        if config.SITE != 'sgp':
+            raise ValueError('This downloader supports SGP only')
+        self.start_date, self.end_date = self.start.strftime('%Y-%m-%d'), self.end.strftime('%Y-%m-%d')
+        self.directories = directories or {
+            'sonde': config.SONDE_DIR, 'asi': config.ASI_DIR, 'ch1': config.CH1_DIR,
+            'ch2': config.CH2_DIR, 'eng': config.ENG_DIR, 'sum': config.SUM_DIR, 'sfc': config.SFC_DIR}
+        self.client = client
+        self.download_log = []
 
-        if "-" in sdate:
-            self.start_date = sdate
-        else:
-            self.start_date = f'{sdate[:4]}-{sdate[4:6]}-{sdate[6:]}'
+    def dataset_download(self, stream, stream_dir, sdate, edate):
+        if self.client is None:
+            self.client = ARMClient()
+        try:
+            records = self.client.download(self.streams[stream], sdate, edate,
+                                           Path(stream_dir)/config.MASTER_DATA_FOLDER)
+        except CatalogError as exc:
+            self.download_log.append({'stream': stream, 'start': sdate, 'end': edate,
+                                      'status': 'catalog_failed', 'error': str(exc)})
+            raise
+        self.download_log.append({'stream': stream, 'start': sdate, 'end': edate,
+                                  'status': 'catalog_complete', 'files': records})
+        return records
 
-        if "-" in edate:
-            self.end_date = edate
-        else:
-            self.end_date = f'{edate[:4]}-{edate[4:6]}-{edate[6:]}'
+    def download_data_retrieval(self, sdate, edate):
+        for key in ('ch1', 'ch2', 'sum', 'eng', 'sfc'):
+            records = self.dataset_download(key, self.directories[key], sdate, edate)
+            if any(r['status'] == 'unavailable' for r in records) or not records:
+                raise RuntimeError(f'Retrieval input download incomplete for {key} on {sdate}')
 
     def single_data_download(self):
-        self.download_data_retrieval(self.start_date,self.end_date)
+        self.download_data_retrieval(self.start_date, self.end_date)
 
+    def group_data_download(self, cloud_cover_perc_range=None,
+                            cloud_cover_variable='near_zenith_percent_cloud', **kwargs):
+        if cloud_cover_perc_range not in (None, [0, 0], (0, 0)) or cloud_cover_variable != 'near_zenith_percent_cloud':
+            raise ValueError('Legacy range filtering is replaced by ScreenPolicy; see CLOUD_SCREENING.md')
+        return self.screen_cases(**kwargs)
 
-    def group_data_download(self,cloud_cover_perc_range=None,
-                            cloud_cover_variable='near_zenith_percent_cloud'):
-        self.group_dir_setup(GROUP_NAME)
-
-        if "clear_sky" in GROUP_NAME and cloud_cover_perc_range==None:
-            cloud_cover_perc_range = [0,0]
-
-        if cloud_cover_perc_range is not None:
-            check_cloud_cover = True
-            cc_min = cloud_cover_perc_range[0]
-            cc_max = cloud_cover_perc_range[1]
-            self.dataset_download("asi",ASI_DIR,self.start_date,self.end_date)
-
-        self.dataset_download("sonde",SONDE_DIR,self.start_date,self.end_date)
-        self.cloud_cover_filter(cc_min,cc_max,cloud_cover_variable)
-
-
-    def cloud_cover_filter(self,cc_min,cc_max,cc_var):
-        sonde_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/{SITE}sonde*'))
-        for f in sonde_files:
-            date_str = f[-19:-11]
-            time_str = f[-10:-6]
-            asi_files = sorted(glob.glob(f'{ASI_DIR}/{MASTER_DATA_FOLDER}/{SITE}*{date_str}*'))
-            if not asi_files:
-                continue
-            asi_file = asi_files[0]
-            try:
-                ds_asi = xr.open_dataset(asi_file)
-            except:
-                continue
-            time_asi = ds_asi.time.data
-            perc_cld = ds_asi[cc_var].data
-            if cc_max <= 10 and cc_var=='near_zenith_percent_cloud':
-                perc_cld_full = ds_asi['percent_cloud'].data
-            else:
-                perc_cld_full = None
-            ds_asi.close()
-
-            dt = datetime.strptime(f'{date_str}{time_str}','%Y%m%d%H%M')
-            tdiffs = abs(pd.to_datetime(time_asi) - dt)
-            if min(tdiffs) < pd.to_timedelta('15min'):
-                idx = np.argmin(tdiffs)
-                if (perc_cld_full is None or perc_cld_full[idx] <= 10) and (cc_min <= perc_cld[idx] <= cc_max):
-                    sdate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
-                    edate = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}'
-                    self.download_data_retrieval(sdate,edate)
-                else:
-                    os.system(f'rm {f}')
-            else:
-                os.system(f'rm {f}')
-
-
-    def dataset_download(self,stream,stream_dir,sdate,edate):
-        date_args = f'-s {sdate} -e {edate}'
-        if stream == "sonde":
-            dir_arg = f'-o {stream_dir}/{GROUP_NAME}'
-        else:
-            dir_arg = f'-o {stream_dir}/{MASTER_DATA_FOLDER}'
-        args = f'{self.login} -ds {self.streams[stream]} {date_args} {dir_arg}'
-        os.system(f'python {RUN_DIR}/armlive_getfiles/src/getFiles.py {args}')
-
-
-    def download_data_retrieval(self,sdate,edate):
-        self.dataset_download("ch1",CH1_DIR,sdate,edate)
-        self.dataset_download("ch2",CH2_DIR,sdate,edate)
-        self.dataset_download("sum",SUM_DIR,sdate,edate)
-        self.dataset_download("eng",ENG_DIR,sdate,edate)
-        self.dataset_download("sfc",SFC_DIR,sdate,edate)
-
-
-    def group_dir_setup(self,group):
-        subdir = group
-
-        directories = [FIG_SUBDIR,SONDE_DIR,RETRIEVAL_DIR]
-
-        for directory in directories:
-            directory = f'{directory}/{subdir}'
-            if not os.path.isdir(directory):
+    def screen_cases(self, *, policy=None, offline=False, output_dir=None, retrieval_data='clear_sky'):
+        policy = policy or ScreenPolicy()
+        if retrieval_data not in ('clear_sky', 'all', 'none'):
+            raise ValueError('retrieval_data must be clear_sky, all, or none')
+        catalog_sondes = []
+        if not offline:
+            # A failed sounding catalog must not masquerade as a complete inventory.
+            catalog_sondes = self.dataset_download('sonde', self.directories['sonde'], self.start_date, self.end_date)
+            first = (self.start-pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+            last = (self.end+pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+            for key in ('asi', 'ch1'):
                 try:
-                    os.makedirs(directory, exist_ok=True)
-                    print(f"Created/Verified: {directory}")
-                except PermissionError:
-                    print(f"Permission denied: {directory}. Try updating DATA_DIR in config.py to a local path.")
-                except Exception as e:
-                    print(f"Error creating {directory}: {e}")
+                    self.dataset_download(key, self.directories[key], first, last)
+                except CatalogError:
+                    pass  # Persist failure; missing observations cannot establish clear sky.
+        indices = {key: index_files(directory, self.streams[key]) for key, directory in self.directories.items()}
+        sondes = dict(indices['sonde'])
+        for record in catalog_sondes:
+            sondes.setdefault(record['filename'], Path(record['path']))
+        longitude, latitude = config.site_coordinates['sgp']
+        asi = ObservationCache(indices['asi'].values(), lambda p: read_asi(p, policy, latitude, longitude))
+        rad = ObservationCache(indices['ch1'].values(), lambda p: read_radiance(p, policy))
+        cases, inventory_errors = [], []
+        for name, path in sorted(sondes.items()):
+            try:
+                time = filename_time(name)
+            except ValueError:
+                inventory_errors.append({'file': str(path), 'reason': 'filename_timestamp_unreadable'})
+                continue
+            if not self.start <= time < self.end+pd.Timedelta(days=1):
+                continue
+            a, a_errors = asi.around(time, policy.context_minutes)
+            r, r_errors = rad.around(time, policy.context_minutes)
+            case = evaluate_case(time, a, r, policy)
+            case.update(case_id=time.strftime('%Y%m%dT%H%M%S')+'_'+name,
+                        sounding_file=str(path), sounding_filename=name, time_source='ARM_filename',
+                        read_errors={**a_errors, **r_errors})
+            try:
+                with xr.open_dataset(path) as ds:
+                    times = dataset_times(ds)
+                    if len(times) == 0 or pd.isna(times[0]):
+                        raise ValueError('Sounding has no valid launch time')
+                    case['sounding_first_observation_time'] = times[0].isoformat()
+                    if abs((times[0]-time).total_seconds()) > 300:
+                        raise ValueError('Sounding observation and filename times differ by more than 5 minutes')
+            except Exception as exc:
+                case['category'], case['reason'] = 'uncertain', 'sounding_unavailable_or_time_invalid'
+                case['read_errors'][str(path)] = f'{type(exc).__name__}: {exc}'
+            case['radiance_wavenumbers'] = sorted(r.actual_wavenumber.dropna().unique().tolist()) if not r.empty else []
+            case['qc_fields'] = {kind: sorted(frame.qc_fields.unique().tolist()) if not frame.empty else []
+                                 for kind, frame in [('asi', a), ('radiance', r)]}
+            case['asi_uncertainty_fields'] = sorted(a.uncertainty_fields.unique().tolist()) if not a.empty else []
+            cases.append(case)
+
+        # Download other raw streams once per selected day; never use retrieval success as a cloud label.
+        wanted_days = sorted({c['sounding_time'][:10] for c in cases
+                              if retrieval_data == 'all' or (retrieval_data == 'clear_sky' and c['category'] == 'clear_sky')})
+        if not offline:
+            for day in wanted_days:
+                for key in ('ch2', 'sum', 'eng', 'sfc'):
+                    try:
+                        self.dataset_download(key, self.directories[key], day, day)
+                    except CatalogError:
+                        pass
+            indices = {key: index_files(directory, self.streams[key]) for key, directory in self.directories.items()}
+        datasets_by_day = {}
+        for key, entries in indices.items():
+            datasets_by_day[key] = {}
+            for name, path in entries.items():
+                try:
+                    file_day = filename_time(name).normalize()
+                except ValueError:
+                    continue
+                datasets_by_day[key].setdefault(file_day, []).append(str(path))
+        for case in cases:
+            day = pd.Timestamp(case['sounding_time']).normalize()
+            case['datasets'] = {'sonde': [case['sounding_file']]}
+            for key in self.streams:
+                if key != 'sonde':
+                    offsets = (-1, 0, 1) if key in ('asi', 'ch1') else (0,)
+                    case['datasets'][key] = sorted({p for offset in offsets
+                        for p in datasets_by_day[key].get(day+pd.Timedelta(days=offset), [])})
+        policy_json = json.dumps(asdict(policy), sort_keys=True)
+        policy_hash = hashlib.sha256(policy_json.encode()).hexdigest()[:12]
+        root = Path(output_dir) if output_dir else Path(config.DATA_DIR)/'cloud_screening'/config.SITE
+        run_name = f'{self.start:%Y%m%d}_{self.end:%Y%m%d}_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{policy_hash}_{uuid.uuid4().hex[:8]}'
+        run_dir = root/run_name
+        run_dir.mkdir(parents=True, exist_ok=False)
+        for category in CATEGORIES:
+            (run_dir/category).mkdir()
+        for case in cases:
+            source = Path(case['sounding_file'])
+            if source.is_file():
+                try:
+                    (run_dir/case['category']/source.name).symlink_to(source)
+                except OSError as exc:
+                    case['organization_error'] = str(exc)
+        rows = []
+        for case in cases:
+            row = {key: case[key] for key in ('case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'category', 'reason')}
+            row['policy_hash'] = policy_hash
+            row['read_errors'] = json.dumps(case['read_errors'], sort_keys=True)
+            for kind, evidence in case['evidence'].items():
+                row[kind+'_state'], row[kind+'_reason'] = evidence['state'], evidence['reason']
+                for window in ('core', 'context'):
+                    for key, value in evidence[window].items():
+                        if key != 'files':
+                            row[f'{kind}_{window}_{key}'] = value
+            row['datasets'] = json.dumps(case['datasets'], sort_keys=True)
+            rows.append(row)
+        # Write the completion marker last. Interrupted runs have no metadata.json.
+        pd.DataFrame(rows, columns=None if rows else ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'category', 'reason']).to_csv(run_dir/'manifest.csv', index=False)
+        (run_dir/'cases.json').write_text(json.dumps(cases, indent=2, allow_nan=False)+'\n')
+        (run_dir/'policy.json').write_text(json.dumps(asdict(policy), indent=2)+'\n')
+        (run_dir/'downloads.json').write_text(json.dumps(self.download_log, indent=2)+'\n')
+        try:
+            revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent, stderr=subprocess.DEVNULL, text=True).strip()
+        except (OSError, subprocess.CalledProcessError):
+            revision = 'unavailable'
+        metadata = {'schema_version': 1, 'created_utc': datetime.now(timezone.utc).isoformat(),
+                    'start_date_inclusive': self.start_date, 'end_date_inclusive': self.end_date,
+                    'scope': 'locally_available_soundings' if offline else 'ARM_live_catalog_and_local_soundings',
+                    'catalog_scope_note': 'ARM Live Data covers online files; not an assertion of historical archive completeness.',
+                    'git_revision': revision, 'policy_hash': policy_hash, 'radiance_units': 'mW/(m2 sr cm-1)',
+                    'counts': {k: Counter(c['category'] for c in cases)[k] for k in CATEGORIES},
+                    'inventory_errors': inventory_errors, 'retrieval_data_requested': retrieval_data,
+                    'offline': offline, 'manifest': str((run_dir/'manifest.csv').resolve())}
+        (run_dir/'metadata.json').write_text(json.dumps(metadata, indent=2)+'\n')
+        print(json.dumps(metadata['counts']))
+        print(f"Manifest: {(run_dir/'manifest.csv').resolve()}")
+        return run_dir/'manifest.csv'
 
 
-if __name__ == "__main__":
-    start_date = '2024-01-01'
-    end_date = '2025-01-01'
-    cloud_cover_perc_range = [0,0]
-    cloud_cover_variable = 'near_zenith_percent_cloud'
-    #cloud_cover_variable = 'percent_cloud'
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('start', nargs='?', help='First UTC date, inclusive (YYYY-MM-DD or YYYYMMDD)')
+    parser.add_argument('end', nargs='?', help='Last UTC date, inclusive')
+    parser.add_argument('--offline', action='store_true', help='Classify local files without credentials or network calls')
+    parser.add_argument('--policy', type=Path, help='JSON policy overrides (unlisted fields retain defaults)')
+    parser.add_argument('--output-dir', type=Path, help='Parent directory for a new immutable screening run')
+    parser.add_argument('--retrieval-data', choices=('clear_sky', 'all', 'none'), default='clear_sky')
+    parser.add_argument('--write-default-policy', type=Path, help='Write a policy template and exit')
+    args = parser.parse_args()
+    if args.write_default_policy:
+        with args.write_default_policy.open('x') as out:
+            out.write(json.dumps(asdict(ScreenPolicy()), indent=2)+'\n')
+        return
+    if not args.start or not args.end:
+        parser.error('start and end dates are required')
+    policy = ScreenPolicy.from_json(args.policy) if args.policy else ScreenPolicy()
+    SGP_DATA(args.start, args.end).screen_cases(policy=policy, offline=args.offline,
+        output_dir=args.output_dir, retrieval_data=args.retrieval_data)
 
-    sgp_data = SGP_DATA(start_date,end_date)
-    sgp_data.group_data_download(cloud_cover_perc_range=cloud_cover_perc_range)
 
-
-
+if __name__ == '__main__':
+    main()

@@ -21,6 +21,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from utils import *
 from config import *
+from cloud_screening import selected_sounding_files
 from spectralBands import *
 
 
@@ -35,7 +36,7 @@ class Aggregate_Retrievals:
         self.include_information = include_information
         self.information_source = information_source
         self.information_no_model = information_no_model
-        all_obs_snd_files = sorted(glob.glob(f'{SONDE_DIR}/{GROUP_NAME}/*sonde*'))
+        all_obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANIFEST, CLOUD_SCREEN_CATEGORY)
 
         obs_dts = []
         obs_snd_files = []
@@ -58,7 +59,7 @@ class Aggregate_Retrievals:
 
         self.good_dts = []
 
-        if 'clear' in GROUP_NAME:
+        if APPLY_RETRIEVAL_LWP_FILTER:
             self.do_lwp_filter = True
         else:
             self.do_lwp_filter = False
