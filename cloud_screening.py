@@ -18,9 +18,9 @@ class ScreenPolicy:
     context_minutes: float = 60.
     core_minutes: float = 10.
     retrieval_round_minutes: int = 15
-    coverage_bin_seconds: int = 60
+    coverage_bin_seconds: int = 180
     min_coverage: float = 0.8
-    max_gap_seconds: float = 180.
+    max_gap_seconds: float = 600.
     min_samples: int = 3
     min_cloud_samples: int = 2
     asi_zenith_field: str = 'near_zenith_percent_cloud'
@@ -31,7 +31,7 @@ class ScreenPolicy:
     asi_cloud_total_min: float = 20.
     asi_max_sza: float = 80.
     asi_require_qc: bool = True
-    asi_max_uncertainty: float = 5.  # percentage points, when supplied
+    asi_max_uncertainty: float = 10.  # percentage points, when supplied
     asi_zenith_qc: str = 'qc_near_zenith_percent_cloud'
     asi_total_qc: str = 'qc_percent_cloud'
     asi_zenith_uncertainty: str = ''  # Optional explicit source field mappings

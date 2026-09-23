@@ -13,11 +13,11 @@ os.makedirs(FIG_SUBDIR, exist_ok=True)
 # ==========================================
 # 1. SETUP AND DATA EXTRACTION
 # ==========================================
-# Ch2_bands_toEval = [1,3,4,5,8,9,11,13,14,15,16,17]
-# Ch2_bands_toPlot = [1,3,4,5,8,9,11,13,14,15,16,17]
+Ch2_bands_toEval = [1,3,4,5,8,9,11,13,14,15,16,17]
+Ch2_bands_toPlot = [1,3,4,5,8,9,11,13,14,15,16,17]
 
-Ch2_bands_toEval = [1,3,13,14,15,16,17]
-Ch2_bands_toPlot = [1,3,13,14,15,16,17]
+#Ch2_bands_toEval = [1,3,13,14,15,16,17]
+#Ch2_bands_toPlot = [1,3,13,14,15,16,17]
 
 max_height_eval = 3
 max_height_plot = 3
