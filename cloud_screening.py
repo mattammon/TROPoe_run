@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass
 import json
 import re
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -39,13 +40,13 @@ class ScreenPolicy:
     wavenumber_tolerance: float = 0.5
     radiance_field: str = 'mean_rad'
     radiance_require_qc: bool = True
-    radiance_clear_mean_max: float | None = None
-    radiance_clear_std_max: float | None = None
-    radiance_clear_p95_max: float | None = None
+    radiance_clear_mean_max: Optional[float] = None
+    radiance_clear_std_max: Optional[float] = None
+    radiance_clear_p95_max: Optional[float] = None
     # Crossing clear limits alone is ambiguous. These independently calibrated
     # higher limits are needed to assign radiance evidence as not_clear_sky.
-    radiance_cloud_mean_min: float | None = None
-    radiance_cloud_std_min: float | None = None
+    radiance_cloud_mean_min: Optional[float] = None
+    radiance_cloud_std_min: Optional[float] = None
     clear_rule: str = 'asi'  # asi, radiance, both; contradictions always uncertain
 
     def __post_init__(self):

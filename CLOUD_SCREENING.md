@@ -4,7 +4,7 @@
 
 ## Run
 
-Dependencies: Python 3.10+, numpy, pandas, xarray, and a NetCDF backend such as netCDF4. Directory settings remain in `config.py`. All dates and timestamps are UTC; both date endpoints are inclusive.
+Dependencies: numpy, pandas, xarray, and a NetCDF backend such as netCDF4. Python 3.10+ is recommended; the screening code uses `Optional[float]` annotations so older Python environments do not fail when importing `ScreenPolicy`. Use package versions compatible with your Python interpreter. Directory settings remain in `config.py`. All dates and timestamps are UTC; both date endpoints are inclusive.
 
 ```bash
 # Download screening inputs and retrieval inputs for the selected clear cases.
