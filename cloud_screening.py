@@ -33,6 +33,7 @@ class ScreenPolicy:
     asi_cloud_zenith_min: float = 5.
     asi_cloud_total_min: float = 20.
     asi_max_sza: float = 80.
+    asi_first_pass: bool = True  # Any qualifying sample establishes clear sky
     asi_require_qc: bool = False  # ASISKYCOVER may supply uncertainty instead of QC flags
     asi_max_uncertainty: float = 10.  # percentage points, when supplied
     asi_zenith_qc: str = 'qc_near_zenith_percent_cloud'
@@ -185,6 +186,39 @@ def _read_summary(path, times, valid):
 
 
 def read_asi(path, policy, latitude, longitude):
+    if not policy.asi_first_pass:
+        return _read_asi_strict(path, policy, latitude, longitude)
+    with xr.open_dataset(path) as ds:
+        times = dataset_times(ds)
+        n = len(times)
+        zenith = _series(ds, policy.asi_zenith_field, n)
+        total = _series(ds, policy.asi_total_field, n)
+        # Missing/fill values cannot satisfy a physical cloud-percentage criterion.
+        for values in (zenith, total):
+            values[(values < 0) | (values > 100)] = np.nan
+        sza = solar_zenith(times, latitude, longitude)
+        valid = np.isfinite(sza) & (sza <= policy.asi_max_sza)
+        qc = [name for name in (policy.asi_zenith_qc, policy.asi_total_qc, 'qc_time', 'qc_flag') if name in ds]
+        uncertainty_names = []
+        for field, explicit in ((policy.asi_zenith_field, policy.asi_zenith_uncertainty),
+                                (policy.asi_total_field, policy.asi_total_uncertainty)):
+            try:
+                values, name = _uncertainty(ds, field, explicit, n)
+                logger.info('%s: %s uncertainty=%s; %d samples exceed %g%% (diagnostic only)',
+                            Path(path).name, field, name, int((values > policy.asi_max_uncertainty).sum()), policy.asi_max_uncertainty)
+            except (ValueError, TypeError) as exc:
+                name = 'unreadable'
+                logger.warning('%s: optional uncertainty diagnostic unavailable: %s', path, exc)
+            uncertainty_names.append(name)
+        logger.info('%s: ASI FIRST PASS; QC flags %s ignored; only solar zenith <= %g degrees gates samples. Cloud fractions are checked during case selection.',
+                    Path(path).name, qc, policy.asi_max_sza)
+        _read_summary(path, times, valid)
+        return pd.DataFrame({'time': times, 'zenith': zenith, 'total': total, 'sza': sza,
+                             'valid': valid, 'file': str(Path(path).resolve()),
+                             'qc_fields': ','.join(qc), 'uncertainty_fields': ','.join(uncertainty_names)})
+
+
+def _read_asi_strict(path, policy, latitude, longitude):
     with xr.open_dataset(path) as ds:
         times = dataset_times(ds)
         n = len(times)
@@ -344,10 +378,29 @@ def evaluate_case(time, asi, radiance, policy):
                         kind, name, start, end, w['n_total'], w['n_valid'],
                         100*w['coverage'], w['max_gap_seconds'],
                         'PASS' if w['adequate'] else 'FAIL: '+w['adequacy_failures'])
+            if kind == 'asi' and policy.asi_first_pass:
+                logger.info('ASI %s coverage check is diagnostic only in first-pass mode', name)
         state, reason = 'uncertain', 'insufficient_valid_coverage'
         enough = all(w['adequate'] for w in windows.values())
         core, context = samples['core'], samples['context']
-        if kind == 'asi':
+        if kind == 'asi' and policy.asi_first_pass:
+            # Use raw window samples so duplicate conflicts and bin adequacy
+            # remain diagnostic only, never vetoing a qualifying observation.
+            start, end = ranges['context']
+            eligible = frame[(frame.time >= start) & (frame.time <= end) & frame.valid] if not frame.empty else frame
+            clear = ((eligible.zenith.between(0, policy.asi_clear_zenith_max)) &
+                     (eligible.total.between(0, policy.asi_clear_total_max))) if not eligible.empty else pd.Series(dtype=bool)
+            clear_count = int(clear.sum())
+            cloudy = ((eligible.zenith.between(policy.asi_cloud_zenith_min, 100)) |
+                      (eligible.total.between(policy.asi_cloud_total_min, 100))) if not eligible.empty else pd.Series(dtype=bool)
+            if clear_count:
+                state, reason = 'clear_sky', 'asi_first_pass_clear_sample'
+            elif cloudy.any():
+                state, reason = 'not_clear_sky', 'asi_first_pass_cloud_evidence_without_clear_sample'
+            else:
+                state, reason = 'uncertain', 'asi_first_pass_no_qualifying_sample'
+            logger.info('ASI first pass: %d solar-angle-eligible samples, %d meet BOTH cloud limits; coverage/QC/uncertainty do not veto', len(eligible), clear_count)
+        elif kind == 'asi':
             cloudy = ((core.zenith >= policy.asi_cloud_zenith_min) | (core.total >= policy.asi_cloud_total_min)).sum() if not core.empty else 0
             if cloudy >= policy.min_cloud_samples:
                 state, reason = 'not_clear_sky', 'repeated_cloud_detection_in_core'
@@ -371,7 +424,9 @@ def evaluate_case(time, asi, radiance, policy):
                     reason = 'radiance_thresholds_not_configured' if not thresholds_set else 'radiance_ambiguous'
         evidence[kind] = {'state': state, 'reason': reason, **windows}
     states = {e['state'] for e in evidence.values()}
-    if any(e[w]['conflicting_timestamps'] for e in evidence.values() for w in ('core', 'context')):
+    if policy.asi_first_pass and policy.clear_rule == 'asi':
+        category, reason = evidence['asi']['state'], evidence['asi']['reason']
+    elif any(e[w]['conflicting_timestamps'] for e in evidence.values() for w in ('core', 'context')):
         category, reason = 'uncertain', 'conflicting_duplicate_observations'
     elif 'clear_sky' in states and 'not_clear_sky' in states:
         category, reason = 'uncertain', 'conflicting_instrument_evidence'

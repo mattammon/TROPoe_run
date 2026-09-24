@@ -20,7 +20,7 @@ class ASIProductTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d)/'asi.nc'
             xr.Dataset(data, coords={'time': pd.date_range('2024-06-01T18:00', periods=3, freq='15s')}).to_netcdf(path)
-            return read_asi(path, ScreenPolicy(), 36.6, -97.5)
+            return read_asi(path, ScreenPolicy(asi_first_pass=False), 36.6, -97.5)
 
     def test_native_percentages_without_qc(self):
         result = self.read()

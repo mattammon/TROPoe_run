@@ -50,7 +50,7 @@ def rad_nc(path, center=T, wave=985., units='mW/(m^2 sr cm^-1)'):
 
 class PolicyTests(unittest.TestCase):
     def setUp(self):
-        self.p = ScreenPolicy()
+        self.p = ScreenPolicy(asi_first_pass=False)
         self.empty = pd.DataFrame()
 
     def result(self, asi=None, rad=None, policy=None, time=T):
@@ -133,25 +133,25 @@ class ReaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp)/'a.nc'
             asi_nc(p)
-            self.assertTrue(read_asi(p, ScreenPolicy(), 36.60611, -97.484726).valid.all())
+            self.assertTrue(read_asi(p, ScreenPolicy(asi_first_pass=False), 36.60611, -97.484726).valid.all())
             asi_nc(p, qc=False)
-            self.assertFalse(read_asi(p, ScreenPolicy(), 36.60611, -97.484726).valid.any())
+            self.assertFalse(read_asi(p, ScreenPolicy(asi_first_pass=False), 36.60611, -97.484726).valid.any())
             asi_nc(p, center=pd.Timestamp('2024-06-01T06:00:00'))
-            self.assertFalse(read_asi(p, ScreenPolicy(), 36.60611, -97.484726).valid.any())
+            self.assertFalse(read_asi(p, ScreenPolicy(asi_first_pass=False), 36.60611, -97.484726).valid.any())
         self.assertGreater(solar_zenith([pd.Timestamp('2024-06-01T06:00:00')], 36.60611, -97.484726)[0], 90)
 
     def test_radiance_spectral_selection_units_and_qc(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp)/'r.nc'; rad_nc(p, wave=984.9)
-            f = read_radiance(p, ScreenPolicy())
+            f = read_radiance(p, ScreenPolicy(asi_first_pass=False))
             self.assertTrue(f.valid.all()); self.assertTrue((f.actual_wavenumber == 984.9).all())
             self.assertAlmostEqual(f.radiance.mean(), 12.)
             rad_nc(p, units='W/(m^2 sr cm^-1)')
-            self.assertAlmostEqual(read_radiance(p, ScreenPolicy()).radiance.mean(), 12000.)
+            self.assertAlmostEqual(read_radiance(p, ScreenPolicy(asi_first_pass=False)).radiance.mean(), 12000.)
             rad_nc(p, wave=990.)
-            with self.assertRaises(ValueError): read_radiance(p, ScreenPolicy())
+            with self.assertRaises(ValueError): read_radiance(p, ScreenPolicy(asi_first_pass=False))
             rad_nc(p, units='Kelvin')
-            with self.assertRaises(ValueError): read_radiance(p, ScreenPolicy())
+            with self.assertRaises(ValueError): read_radiance(p, ScreenPolicy(asi_first_pass=False))
 
 
 class DownloadTests(unittest.TestCase):

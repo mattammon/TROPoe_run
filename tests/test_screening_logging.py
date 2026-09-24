@@ -16,7 +16,7 @@ class LoggingTests(unittest.TestCase):
                         'percent_cloud': ('time', [0., 0., 0.])},
                        coords={'time': pd.date_range('2024-06-01T18:00', periods=3, freq='1min')}).to_netcdf(path)
             with self.assertLogs('cloud_screening', level='INFO') as logs:
-                frame = read_asi(path, ScreenPolicy(asi_require_qc=True), 36.6, -97.5)
+                frame = read_asi(path, ScreenPolicy(asi_first_pass=False, asi_require_qc=True), 36.6, -97.5)
             self.assertFalse(frame.valid.any())
             output = '\n'.join(logs.output)
             for message in ('required QC field qc_percent_cloud MISSING', 'no recognized zenith QC or uncertainty', 'NO VALID OBSERVATIONS'):
@@ -24,7 +24,7 @@ class LoggingTests(unittest.TestCase):
 
     def test_empty_window_records_all_failed_requirements(self):
         start = pd.Timestamp('2024-06-01T18:00')
-        stats, _ = window_stats(pd.DataFrame(), start, start+pd.Timedelta(minutes=60), ['radiance'], ScreenPolicy())
+        stats, _ = window_stats(pd.DataFrame(), start, start+pd.Timedelta(minutes=60), ['radiance'], ScreenPolicy(asi_first_pass=False))
         self.assertFalse(stats['adequate'])
         for cause in ('valid_samples=', 'coverage=', 'max_gap='):
             self.assertIn(cause, stats['adequacy_failures'])

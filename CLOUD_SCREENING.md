@@ -135,3 +135,26 @@ with these defaults. Do not pass an old `--policy` file unless you intend to
 override them. The 10% uncertainty cutoff remains a configurable research choice,
 not a calibrated guarantee of clear sky. Nighttime/solar-angle checks still apply;
 radiance thresholds still require calibration.
+
+### Current default: permissive ASI first pass
+
+`asi_first_pass = True` supersedes the strict ASI quality behavior described
+above. Within the sounding-centered context window (default ±30 minutes), **one
+sample** meeting both `asi_clear_zenith_max` and `asi_clear_total_max` qualifies
+the case as clear sky, provided its computed solar zenith angle is at most
+`asi_max_sza`. Both cloud limits must pass on the same observation. Cloud limits
+remain unchanged (near-zenith 0%, full-sky at most 10% by default).
+
+ASI QC flags, uncertainty percentages, minimum sample counts, gaps, bin coverage,
+core-window availability, and conflicting duplicate samples do not veto this
+first-pass decision. Coverage and uncertainty diagnostics remain logged. Missing
+or nonphysical cloud percentages cannot establish clear sky. With the default
+`clear_rule = 'asi'`, radiance evidence is recorded but does not veto ASI selection.
+A clear sample takes precedence over cloudy samples elsewhere in the window.
+Without a clear sample, cloud-threshold evidence produces `not_clear_sky`;
+otherwise the case is `uncertain`. These labels are preliminary candidate labels.
+
+Set `asi_first_pass = False` in `ScreenPolicy` to restore strict ASI screening.
+Explicit `clear_rule = 'radiance'` or `'both'` still uses the corresponding evidence
+combination rules. Sounding-file availability/time validation remains separate.
+No policy file is required for the default first-pass workflow.
