@@ -33,7 +33,7 @@ class ScreenPolicy:
     asi_cloud_zenith_min: float = 5.
     asi_cloud_total_min: float = 20.
     asi_max_sza: float = 80.
-    asi_require_qc: bool = True
+    asi_require_qc: bool = False  # ASISKYCOVER may supply uncertainty instead of QC flags
     asi_max_uncertainty: float = 10.  # percentage points, when supplied
     asi_zenith_qc: str = 'qc_near_zenith_percent_cloud'
     asi_total_qc: str = 'qc_percent_cloud'
@@ -53,6 +53,9 @@ class ScreenPolicy:
     clear_rule: str = 'asi'  # asi, radiance, both; contradictions always uncertain
 
     def __post_init__(self):
+        for name in ('asi_zenith_qc', 'asi_total_qc'):
+            if 'uncertainty' in getattr(self, name).lower():
+                raise ValueError(name+' must name a QC flag, not an uncertainty percentage; use asi_zenith_uncertainty or asi_total_uncertainty')
         if self.clear_rule not in ('asi', 'radiance', 'both'):
             raise ValueError('clear_rule must be asi, radiance, or both')
         for name in ('context_minutes', 'core_minutes', 'coverage_bin_seconds',
@@ -148,7 +151,10 @@ def _series(ds, name, size):
 
 
 def _uncertainty(ds, field, explicit, size):
-    candidates = [explicit] if explicit else [f'{field}_uncertainty', f'uncertainty_{field}', f'unc_{field}']
+    known = {'near_zenith_percent_cloud': 'near_zenith_uncertainty_total',
+             'percent_cloud': 'uncertainty_total'}
+    candidates = [explicit] if explicit else [known.get(field, ''), f'{field}_uncertainty',
+                                               f'uncertainty_{field}', f'unc_{field}']
     for name in candidates:
         if name in ds:
             return _series(ds, name, size), name
@@ -201,8 +207,18 @@ def read_asi(path, policy, latitude, longitude):
         uz, uz_name = _uncertainty(ds, policy.asi_zenith_field, policy.asi_zenith_uncertainty, n)
         ut, ut_name = _uncertainty(ds, policy.asi_total_field, policy.asi_total_uncertainty, n)
         logger.info('%s: uncertainty fields: zenith=%s, total=%s', Path(path).name, uz_name, ut_name)
-        if 'not_available' in (uz_name, ut_name):
-            logger.warning('%s: uncertainty field not recognized; existing policy substitutes zero. Check explicit uncertainty mappings.', path)
+        for label, uncertainty_name, qc_name in (
+                ('zenith', uz_name, policy.asi_zenith_qc),
+                ('total', ut_name, policy.asi_total_qc)):
+            if uncertainty_name == 'not_available':
+                if qc_name not in qc_present:
+                    logger.warning('%s: no recognized %s QC or uncertainty; all samples rejected', path, label)
+                    valid[:] = False
+                else:
+                    logger.info('%s: %s uncertainty unavailable; using QC flags only', path, label)
+            elif qc_name not in qc_present and not policy.asi_require_qc:
+                logger.info('%s: %s QC flag absent; using %s <= %g percent',
+                            path, label, uncertainty_name, policy.asi_max_uncertainty)
         _check(valid, np.isfinite(uz) & np.isfinite(ut) & (uz >= 0) & (ut >= 0), 'invalid uncertainty', path)
         _check(valid, (uz <= policy.asi_max_uncertainty) & (ut <= policy.asi_max_uncertainty), 'uncertainty > %g percent' % policy.asi_max_uncertainty, path)
         sza = solar_zenith(times, latitude, longitude)

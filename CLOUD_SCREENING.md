@@ -118,3 +118,20 @@ Per-file rejection counts overlap: one sample may fail several checks.
 Classification rules and thresholds are unchanged. Missing required QC fields
 and unrecognized uncertainty fields are explicitly reported; logging does not
 correct field mappings or calibrate thresholds.
+
+### ASISKYCOVER defaults (no override file needed)
+
+The reader automatically recognizes `near_zenith_uncertainty_total` and
+`uncertainty_total` as percentages and applies `asi_max_uncertainty` (currently
+10%). ASI QC flags are optional by default: absent flags are supported when the
+corresponding uncertainty field exists. Existing QC flags still veto nonzero
+values. If either cloud fraction has neither a recognized QC flag nor an
+uncertainty field, the observations are rejected with an explicit warning.
+Missing uncertainty is no longer silently treated as affirmative quality evidence.
+Assigning an uncertainty field to an `_qc` setting raises a configuration error.
+
+Run `python get_sgp_data.py START END --offline` to reclassify downloaded files
+with these defaults. Do not pass an old `--policy` file unless you intend to
+override them. The 10% uncertainty cutoff remains a configurable research choice,
+not a calibrated guarantee of clear sky. Nighttime/solar-angle checks still apply;
+radiance thresholds still require calibration.
