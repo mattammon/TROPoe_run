@@ -8,6 +8,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
+import time as clock
 from pathlib import Path
 import re
 import subprocess
@@ -21,6 +23,8 @@ from arm_download import ARMClient, CatalogError
 from cloud_screening import (CATEGORIES, ScreenPolicy, dataset_times, evaluate_case,
                              filename_time, read_asi, read_radiance)
 
+
+logger = logging.getLogger(__name__)
 
 def parse_date(value):
     value = str(value)
@@ -66,13 +70,17 @@ class ObservationCache:
                 files.append(key)
                 if key not in self.cache:
                     try:
+                        logger.info('Reading observations: %s', path)
                         self.cache[key] = self.reader(path)
                     except Exception as exc:
+                        logger.error('Observation read failed: %s: %s: %s', path, type(exc).__name__, exc)
+                        logger.debug('Observation read traceback', exc_info=True)
                         self.errors[key] = f'{type(exc).__name__}: {exc}'
                         self.cache[key] = pd.DataFrame()
                     if len(self.cache) > 6:
                         self.cache.popitem(last=False)
                 else:
+                    logger.debug('Using cached observations: %s', path)
                     self.cache.move_to_end(key)
                 frames.append(self.cache[key])
         return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(),
@@ -99,17 +107,20 @@ class SGP_DATA:
         self.download_log = []
 
     def dataset_download(self, stream, stream_dir, sdate, edate):
+        logger.info('Download stage: %s [%s, %s] -> %s', stream, sdate, edate, stream_dir)
         if self.client is None:
             self.client = ARMClient()
         try:
             records = self.client.download(self.streams[stream], sdate, edate,
                                            Path(stream_dir)/config.MASTER_DATA_FOLDER)
         except CatalogError as exc:
+            logger.error('%s', exc)
             self.download_log.append({'stream': stream, 'start': sdate, 'end': edate,
                                       'status': 'catalog_failed', 'error': str(exc)})
             raise
         self.download_log.append({'stream': stream, 'start': sdate, 'end': edate,
                                   'status': 'catalog_complete', 'files': records})
+        logger.info('Download stage complete: %s; %s', stream, dict(Counter(r['status'] for r in records)))
         return records
 
     def download_data_retrieval(self, sdate, edate):
@@ -128,7 +139,12 @@ class SGP_DATA:
         return self.screen_cases(**kwargs)
 
     def screen_cases(self, *, policy=None, offline=False, output_dir=None, retrieval_data='clear_sky'):
+        started = clock.monotonic()
         policy = policy or ScreenPolicy()
+        logger.info('Screening UTC dates %s through %s; offline=%s; retrieval_data=%s', self.start_date, self.end_date, offline, retrieval_data)
+        logger.info('Effective policy: %s', json.dumps(asdict(policy), sort_keys=True))
+        if policy.radiance_clear_mean_max is None or policy.radiance_clear_std_max is None:
+            logger.warning('Radiance clear thresholds are not configured; radiances cannot establish clear sky')
         if retrieval_data not in ('clear_sky', 'all', 'none'):
             raise ValueError('retrieval_data must be clear_sky, all, or none')
         catalog_sondes = []
@@ -143,6 +159,7 @@ class SGP_DATA:
                 except CatalogError:
                     pass  # Persist failure; missing observations cannot establish clear sky.
         indices = {key: index_files(directory, self.streams[key]) for key, directory in self.directories.items()}
+        logger.info('Local inventory (all dates): %s', {k: len(v) for k, v in indices.items()})
         sondes = dict(indices['sonde'])
         for record in catalog_sondes:
             sondes.setdefault(record['filename'], Path(record['path']))
@@ -158,6 +175,7 @@ class SGP_DATA:
                 continue
             if not self.start <= time < self.end+pd.Timedelta(days=1):
                 continue
+            logger.info('Case %d: %s; sounding=%s', len(cases)+1, time, path)
             a, a_errors = asi.around(time, policy.context_minutes)
             r, r_errors = rad.around(time, policy.context_minutes)
             case = evaluate_case(time, a, r, policy)
@@ -173,17 +191,23 @@ class SGP_DATA:
                     if abs((times[0]-time).total_seconds()) > 300:
                         raise ValueError('Sounding observation and filename times differ by more than 5 minutes')
             except Exception as exc:
+                logger.error('Sounding validation failed: %s: %s: %s', path, type(exc).__name__, exc)
+                logger.debug('Sounding validation traceback', exc_info=True)
                 case['category'], case['reason'] = 'uncertain', 'sounding_unavailable_or_time_invalid'
                 case['read_errors'][str(path)] = f'{type(exc).__name__}: {exc}'
             case['radiance_wavenumbers'] = sorted(r.actual_wavenumber.dropna().unique().tolist()) if not r.empty else []
             case['qc_fields'] = {kind: sorted(frame.qc_fields.unique().tolist()) if not frame.empty else []
                                  for kind, frame in [('asi', a), ('radiance', r)]}
             case['asi_uncertainty_fields'] = sorted(a.uncertainty_fields.unique().tolist()) if not a.empty else []
+            logger.info('Case result: %s — %s; ASI=%s (%s); radiance=%s (%s)', case['category'], case['reason'], case['evidence']['asi']['state'], case['evidence']['asi']['reason'], case['evidence']['radiance']['state'], case['evidence']['radiance']['reason'])
             cases.append(case)
 
         # Download other raw streams once per selected day; never use retrieval success as a cloud label.
         wanted_days = sorted({c['sounding_time'][:10] for c in cases
                               if retrieval_data == 'all' or (retrieval_data == 'clear_sky' and c['category'] == 'clear_sky')})
+        logger.info('Screened %d cases; ancillary retrieval downloads selected for %d days (offline=%s)', len(cases), len(wanted_days), offline)
+        if not cases:
+            logger.warning('No soundings found within requested dates')
         if not offline:
             for day in wanted_days:
                 for key in ('ch2', 'sum', 'eng', 'sfc'):
@@ -214,6 +238,7 @@ class SGP_DATA:
         root = Path(output_dir) if output_dir else Path(config.DATA_DIR)/'cloud_screening'/config.SITE
         run_name = f'{self.start:%Y%m%d}_{self.end:%Y%m%d}_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{policy_hash}_{uuid.uuid4().hex[:8]}'
         run_dir = root/run_name
+        logger.info('Writing manifests and category links: %s', run_dir)
         run_dir.mkdir(parents=True, exist_ok=False)
         for category in CATEGORIES:
             (run_dir/category).mkdir()
@@ -223,6 +248,7 @@ class SGP_DATA:
                 try:
                     (run_dir/case['category']/source.name).symlink_to(source)
                 except OSError as exc:
+                    logger.warning('Could not link sounding %s: %s', source, exc)
                     case['organization_error'] = str(exc)
         rows = []
         for case in cases:
@@ -255,6 +281,9 @@ class SGP_DATA:
                     'inventory_errors': inventory_errors, 'retrieval_data_requested': retrieval_data,
                     'offline': offline, 'manifest': str((run_dir/'manifest.csv').resolve())}
         (run_dir/'metadata.json').write_text(json.dumps(metadata, indent=2)+'\n')
+        logger.info('Completed in %.1fs: %s', clock.monotonic()-started, metadata['counts'])
+        for kind in ('asi', 'radiance'):
+            logger.info('%s reason totals: %s', kind, dict(Counter(c['evidence'][kind]['reason'] for c in cases)))
         print(json.dumps(metadata['counts']))
         print(f"Manifest: {(run_dir/'manifest.csv').resolve()}")
         return run_dir/'manifest.csv'
@@ -269,7 +298,16 @@ def main():
     parser.add_argument('--output-dir', type=Path, help='Parent directory for a new immutable screening run')
     parser.add_argument('--retrieval-data', choices=('clear_sky', 'all', 'none'), default='clear_sky')
     parser.add_argument('--write-default-policy', type=Path, help='Write a policy template and exit')
+    parser.add_argument('--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO', help='Console verbosity (default: INFO)')
+    parser.add_argument('--log-file', type=Path, help='Append timestamped output to this file as well as the console')
     args = parser.parse_args()
+    handlers = [logging.StreamHandler()]
+    if args.log_file:
+        args.log_file.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(args.log_file, encoding='utf-8'))
+    logging.basicConfig(level=getattr(logging, args.log_level),
+                        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+                        handlers=handlers, force=True)
     if args.write_default_policy:
         with args.write_default_policy.open('x') as out:
             out.write(json.dumps(asdict(ScreenPolicy()), indent=2)+'\n')

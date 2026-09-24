@@ -1,6 +1,7 @@
 """Auditable three-state SGP cloud screening; see CLOUD_SCREENING.md."""
 from dataclasses import asdict, dataclass
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import xarray as xr
+
+logger = logging.getLogger(__name__)
 
 CATEGORIES = ('clear_sky', 'not_clear_sky', 'uncertain')
 
@@ -154,6 +157,27 @@ def _uncertainty(ds, field, explicit, size):
     return np.zeros(size), 'not_available'
 
 
+def _check(valid, passed, label, path):
+    """Log independent failure counts; a sample may fail multiple checks."""
+    passed = np.broadcast_to(passed, valid.shape)
+    rejected = int(np.count_nonzero(~passed))
+    if rejected:
+        logger.info('%s: %s rejects %d/%d samples (checks may overlap)',
+                    Path(path).name, label, rejected, len(valid))
+    valid &= passed
+
+
+def _read_summary(path, times, valid):
+    cadence = np.diff(times.asi8)/1e9
+    cadence = cadence[cadence > 0]
+    logger.info('%s: valid=%d/%d; UTC span=%s to %s; median positive cadence=%s s',
+                Path(path).name, int(valid.sum()), len(valid),
+                times[0] if len(times) else 'none', times[-1] if len(times) else 'none',
+                float(np.median(cadence)) if len(cadence) else 'unknown')
+    if not valid.any():
+        logger.warning('%s: NO VALID OBSERVATIONS; inspect rejection messages above', path)
+
+
 def read_asi(path, policy, latitude, longitude):
     with xr.open_dataset(path) as ds:
         times = dataset_times(ds)
@@ -161,23 +185,29 @@ def read_asi(path, policy, latitude, longitude):
         zenith = _series(ds, policy.asi_zenith_field, n)
         total = _series(ds, policy.asi_total_field, n)
         valid = np.isfinite(zenith) & np.isfinite(total) & (zenith >= 0) & (zenith <= 100) & (total >= 0) & (total <= 100)
+        logger.info('%s: invalid/nonfinite cloud fractions=%d/%d', Path(path).name, int((~valid).sum()), n)
         qc_present = []
         for name in (policy.asi_zenith_qc, policy.asi_total_qc):
             if name in ds:
-                valid &= _series(ds, name, n) == 0
+                _check(valid, _series(ds, name, n) == 0, 'QC '+name+' != 0', path)
                 qc_present.append(name)
             elif policy.asi_require_qc:
+                logger.warning('%s: required QC field %s MISSING; all samples rejected', path, name)
                 valid[:] = False
         # Global QC, if supplied, is an additional veto.
         for name in ('qc_time', 'qc_flag'):
             if name in ds:
-                valid &= _series(ds, name, n) == 0
+                _check(valid, _series(ds, name, n) == 0, 'QC '+name+' != 0', path)
         uz, uz_name = _uncertainty(ds, policy.asi_zenith_field, policy.asi_zenith_uncertainty, n)
         ut, ut_name = _uncertainty(ds, policy.asi_total_field, policy.asi_total_uncertainty, n)
-        valid &= np.isfinite(uz) & np.isfinite(ut) & (uz >= 0) & (ut >= 0)
-        valid &= (uz <= policy.asi_max_uncertainty) & (ut <= policy.asi_max_uncertainty)
+        logger.info('%s: uncertainty fields: zenith=%s, total=%s', Path(path).name, uz_name, ut_name)
+        if 'not_available' in (uz_name, ut_name):
+            logger.warning('%s: uncertainty field not recognized; existing policy substitutes zero. Check explicit uncertainty mappings.', path)
+        _check(valid, np.isfinite(uz) & np.isfinite(ut) & (uz >= 0) & (ut >= 0), 'invalid uncertainty', path)
+        _check(valid, (uz <= policy.asi_max_uncertainty) & (ut <= policy.asi_max_uncertainty), 'uncertainty > %g percent' % policy.asi_max_uncertainty, path)
         sza = solar_zenith(times, latitude, longitude)
-        valid &= sza <= policy.asi_max_sza
+        _check(valid, sza <= policy.asi_max_sza, 'solar zenith > %g degrees' % policy.asi_max_sza, path)
+        _read_summary(path, times, valid)
         return pd.DataFrame({'time': times, 'zenith': zenith, 'total': total, 'sza': sza,
                              'valid': valid, 'file': str(Path(path).resolve()),
                              'qc_fields': ','.join(qc_present), 'uncertainty_fields': f'{uz_name},{ut_name}'})
@@ -210,6 +240,7 @@ def read_radiance(path, policy):
             raise ValueError(f'Unrecognized radiance units: {units!r}; expected spectral RU')
         values = values*factor
         valid = np.isfinite(values)
+        logger.info('%s: selected wavenumber=%.4f cm-1; nonfinite radiances=%d', Path(path).name, wave[k], int((~valid).sum()))
         found = []
         for name in (f'qc_{policy.radiance_field}', 'missingDataFlag', 'qc_flag', 'qc_time'):
             if name not in ds:
@@ -220,13 +251,15 @@ def read_radiance(path, policy):
             flags = np.asarray(da.values, dtype=float)
             if flags.shape != values.shape:
                 raise ValueError(f'Unsupported QC dimensions for {name}')
-            valid &= flags == 0
+            _check(valid, flags == 0, 'QC '+name+' != 0', path)
             found.append(name)
         if policy.radiance_require_qc and not found:
+            logger.warning('%s: no recognized radiance QC field; all samples rejected', path)
             valid[:] = False
         for name in ('hatchOpen', 'hatch_open'):
             if name in ds:
-                valid &= _series(ds, name, len(times)) == 1
+                _check(valid, _series(ds, name, len(times)) == 1, 'hatch not open', path)
+        _read_summary(path, times, valid)
         return pd.DataFrame({'time': times, 'radiance': values, 'valid': valid,
                              'actual_wavenumber': wave[k], 'file': str(Path(path).resolve()),
                              'qc_fields': ','.join(found)})
@@ -255,6 +288,16 @@ def window_stats(frame, start, end, fields, policy):
              'max_gap_seconds': float(gaps.max()), 'files': sorted(set(selected.file)) if not selected.empty else []}
     stats['adequate'] = (not conflicting and len(valid) >= policy.min_samples and stats['coverage'] >= policy.min_coverage
                          and stats['max_gap_seconds'] <= policy.max_gap_seconds)
+    failures = []
+    if conflicting:
+        failures.append('conflicting_timestamps=%d' % conflicting)
+    if len(valid) < policy.min_samples:
+        failures.append('valid_samples=%d < %d' % (len(valid), policy.min_samples))
+    if stats['coverage'] < policy.min_coverage:
+        failures.append('coverage=%.3f < %.3f' % (stats['coverage'], policy.min_coverage))
+    if stats['max_gap_seconds'] > policy.max_gap_seconds:
+        failures.append('max_gap=%.1fs > %.1fs' % (stats['max_gap_seconds'], policy.max_gap_seconds))
+    stats['adequacy_failures'] = '; '.join(failures)
     for field in fields:
         a = valid[field].to_numpy() if not valid.empty else np.array([])
         for suffix, func in [('mean', np.mean), ('std', lambda x: np.std(x, ddof=1)),
@@ -280,6 +323,11 @@ def evaluate_case(time, asi, radiance, policy):
         windows, samples = {}, {}
         for name, (start, end) in ranges.items():
             windows[name], samples[name] = window_stats(frame, start, end, fields, policy)
+            w = windows[name]
+            logger.info('%s %s UTC [%s, %s]: total=%d valid=%d coverage=%.1f%% max_gap=%.1fs; %s',
+                        kind, name, start, end, w['n_total'], w['n_valid'],
+                        100*w['coverage'], w['max_gap_seconds'],
+                        'PASS' if w['adequate'] else 'FAIL: '+w['adequacy_failures'])
         state, reason = 'uncertain', 'insufficient_valid_coverage'
         enough = all(w['adequate'] for w in windows.values())
         core, context = samples['core'], samples['context']

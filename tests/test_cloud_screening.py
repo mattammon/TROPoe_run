@@ -82,7 +82,8 @@ class PolicyTests(unittest.TestCase):
         a.time = pd.date_range(T, periods=10, freq='1s')
         self.assertEqual(self.result(asi=a)['category'], 'uncertain')
         a = frame('asi').drop(index=range(10, 15))
-        self.assertEqual(self.result(asi=a)['category'], 'uncertain')
+        # Exercise a strict gap limit independently of operational defaults.
+        self.assertEqual(self.result(asi=a, policy=replace(self.p, max_gap_seconds=180))['category'], 'uncertain')
 
     def test_bad_quality_excluded(self):
         a = frame('asi'); a.valid = False

@@ -91,3 +91,30 @@ Run `python -m unittest discover -s tests -v`. Tests cover three-state decisions
 No live ARM download or scientific threshold validation was performed for this change. This first implementation does not ingest lidar, ceilometer, radar, microwave LWP, or aerosol products. Those are useful next independent checks, especially for thin cirrus, nighttime cases, and Channel-2 solar scattering. Keep the policy and date cohort fixed across Ch1/Ch2 band comparisons, and report both the category counts and subsequent retrieval failures.
 
 Reference: [Silber et al. (2026), ASISKYCOVER algorithm](https://doi.org/10.5194/amt-19-5457-2026), including near-zenith estimates, uncertainty characterization, and limitations at large solar zenith angles. The numerical screening policy here is a project choice rather than a threshold prescription from that article.
+
+### Console diagnostics and saved logs
+
+`get_sgp_data.py` emits timestamped INFO output by default: active policy,
+catalog requests and file counts, existing-file validation, downloads, local
+inventories, observation reads and cadence, QC/uncertainty/solar-angle rejection
+counts, each case's two coverage windows, classifications, and output location.
+Downloads report bytes every 15 seconds when chunks arrive. Network requests
+announce their timeout before waiting; a stalled request may remain quiet until
+its timeout. ARM credentials and request URLs are not logged.
+
+```bash
+python get_sgp_data.py 2024-01-01 2024-01-31 --log-file logs/screening.log
+python get_sgp_data.py 2024-01-01 2024-01-31 --offline --log-level DEBUG --log-file logs/screening-debug.log
+```
+
+Logs stream immediately to stderr and optionally append to `--log-file`.
+DEBUG adds cache reuse and local reader/validation tracebacks. Use
+`--log-level WARNING` for reduced output. Imported functions use standard Python
+logging; callers can enable it with `logging.basicConfig(level=logging.INFO)`.
+
+Each manifest also includes `{asi,radiance}_{core,context}_adequacy_failures`,
+listing failed sample-count, coverage, maximum-gap, or duplicate checks.
+Per-file rejection counts overlap: one sample may fail several checks.
+Classification rules and thresholds are unchanged. Missing required QC fields
+and unrecognized uncertainty fields are explicitly reported; logging does not
+correct field mappings or calibrate thresholds.
