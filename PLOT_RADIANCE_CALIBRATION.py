@@ -108,7 +108,8 @@ def plot_calibration(manifest, start, end, output_dir, window='context', mean_ma
     minutes = policy.get(window+'_minutes')
     window_title = f'{minutes:g}-minute {window}' if minutes is not None else window+' window'
     ax.set_title(f'985 cm$^{{-1}}$ radiance: {window_title}\n{date_bound(start):%Y-%m-%d} to {date_bound(end):%Y-%m-%d} (UTC)')
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(0,5)
+    ax.set_xlim(-5,40)
     ax.grid(alpha=.2)
     omitted = int((~cases.plot_available).sum())
     note = f'{len(cases)} cases in range; {len(plotted)} plotted; {omitted} missing mean/std. Colors use ASI evidence only.'
