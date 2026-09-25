@@ -158,3 +158,16 @@ Set `asi_first_pass = False` in `ScreenPolicy` to restore strict ASI screening.
 Explicit `clear_rule = 'radiance'` or `'both'` still uses the corresponding evidence
 combination rules. Sounding-file availability/time validation remains separate.
 No policy file is required for the default first-pass workflow.
+
+### Radiance fallback for uncertain ASI cases
+
+With the default `clear_rule = 'asi'`, an ASI `uncertain` case becomes `clear_sky`
+when the radiance evidence is `clear_sky`. The manifest reason is
+`asi_uncertain_radiance_clear_fallback`; the individual ASI and radiance evidence
+remain recorded separately. ASI `not_clear_sky` cases are not promoted by this
+fallback. Explicit `clear_rule = 'both'` still requires both instruments.
+
+Set `radiance_clear_mean_max` and `radiance_clear_std_max` in `ScreenPolicy` to
+your calibrated 985 cm-1 limits (and optionally `radiance_clear_p95_max`). They
+remain unset by default: no numerical thresholds are assumed. Radiance must pass
+its existing QC/coverage and threshold checks in both core and context windows.

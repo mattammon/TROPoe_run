@@ -51,7 +51,7 @@ class ScreenPolicy:
     # higher limits are needed to assign radiance evidence as not_clear_sky.
     radiance_cloud_mean_min: Optional[float] = None
     radiance_cloud_std_min: Optional[float] = None
-    clear_rule: str = 'asi'  # asi, radiance, both; contradictions always uncertain
+    clear_rule: str = 'asi'  # ASI with radiance fallback when ASI is uncertain; or radiance/both
 
     def __post_init__(self):
         for name in ('asi_zenith_qc', 'asi_total_qc'):
@@ -424,7 +424,11 @@ def evaluate_case(time, asi, radiance, policy):
                     reason = 'radiance_thresholds_not_configured' if not thresholds_set else 'radiance_ambiguous'
         evidence[kind] = {'state': state, 'reason': reason, **windows}
     states = {e['state'] for e in evidence.values()}
-    if policy.asi_first_pass and policy.clear_rule == 'asi':
+    if (policy.clear_rule == 'asi' and evidence['asi']['state'] == 'uncertain'
+            and evidence['radiance']['state'] == 'clear_sky'):
+        category, reason = 'clear_sky', 'asi_uncertain_radiance_clear_fallback'
+        logger.info('ASI uncertain; classifying clear sky because the configured radiance clear limits and coverage checks passed')
+    elif policy.asi_first_pass and policy.clear_rule == 'asi':
         category, reason = evidence['asi']['state'], evidence['asi']['reason']
     elif any(e[w]['conflicting_timestamps'] for e in evidence.values() for w in ('core', 'context')):
         category, reason = 'uncertain', 'conflicting_duplicate_observations'
