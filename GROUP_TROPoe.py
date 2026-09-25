@@ -16,8 +16,8 @@ from SINGLE_TROPoe import run_tropoe
 obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANIFEST, CLOUD_SCREEN_CATEGORY)
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
-do_ch1 = False
-bands = [17]
+do_ch1 = True
+bands = [1,2,3,4,5,6,7,8]
 verbose='1'
 
 ##########################################

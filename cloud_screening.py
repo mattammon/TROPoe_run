@@ -44,14 +44,14 @@ class ScreenPolicy:
     wavenumber_tolerance: float = 0.5
     radiance_field: str = 'mean_rad'
     radiance_require_qc: bool = True
-    radiance_clear_mean_max: Optional[float] = None
-    radiance_clear_std_max: Optional[float] = None
+    radiance_clear_mean_max: Optional[float] = 7
+    radiance_clear_std_max: Optional[float] = 0.3
     radiance_clear_p95_max: Optional[float] = None
     # Crossing clear limits alone is ambiguous. These independently calibrated
     # higher limits are needed to assign radiance evidence as not_clear_sky.
     radiance_cloud_mean_min: Optional[float] = None
     radiance_cloud_std_min: Optional[float] = None
-    clear_rule: str = 'asi'  # ASI with radiance fallback when ASI is uncertain; or radiance/both
+    clear_rule: str = 'both'  # ASI with radiance fallback when ASI is uncertain; or radiance/both
 
     def __post_init__(self):
         for name in ('asi_zenith_qc', 'asi_total_qc'):

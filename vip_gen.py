@@ -109,7 +109,7 @@ class VIP:
                 f.write('\n')
             f.write(f'output_rootname = tropoeOutput_Ch{irs_channel}{vip_kwargs["band_label"]}      # String with the rootname of the output file\n')
             f.write(f'output_path = {RETRIEVAL_DIR}/{self.ret_subdir}          # Path where the output file will be placed\n')
-            f.write('output_clobber = 2\n')
+            f.write('output_clobber = 0\n')
             f.write(f'output_akernal = {self.output_akernal} # Save averaging kernel for information-content analysis\n')
             f.write('\n')
             f.write(f'spectral_bands = {vip_kwargs["spectral_bands"]} #{vip_kwargs["band_label2"]}\n')
