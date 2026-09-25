@@ -18,9 +18,9 @@ FIG_DIR: Where any produced figures should be saved.
 SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
 """""
 
-GROUP_NAME = '/home/svcammon/TROPoe_run/data/cloud_screening/sgp/20220101_20251231/manifest_reclassified_7_Op3.csv'
+GROUP_NAME = 'clear_sky_days'
 # Path printed by get_sgp_data.py. None preserves legacy group-folder selection.
-CLOUD_SCREEN_MANIFEST = None
+CLOUD_SCREEN_MANIFEST = '/data/cloud_screening/sgp/20220101_20251231/manifest_reclassified_7_0p3.csv'
 CLOUD_SCREEN_CATEGORY = 'clear_sky'
 # Keep legacy behavior only for legacy cohorts. Cloud manifests are independent
 # of retrieval outcomes; set True explicitly to add the old Ch1 LWP gate.
