@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import math
+from numbers import Real
 import time as clock
 from pathlib import Path
 import re
@@ -25,6 +27,17 @@ from cloud_screening import (CATEGORIES, ScreenPolicy, dataset_times, evaluate_c
 
 
 logger = logging.getLogger(__name__)
+
+def json_safe(value):
+    """Represent unavailable/nonfinite diagnostics as standard JSON null."""
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, Real) and not math.isfinite(value):
+        return None
+    return value
+
 
 def parse_date(value):
     value = str(value)
@@ -265,7 +278,7 @@ class SGP_DATA:
             rows.append(row)
         # Write the completion marker last. Interrupted runs have no metadata.json.
         pd.DataFrame(rows, columns=None if rows else ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'category', 'reason']).to_csv(run_dir/'manifest.csv', index=False)
-        (run_dir/'cases.json').write_text(json.dumps(cases, indent=2, allow_nan=False)+'\n')
+        (run_dir/'cases.json').write_text(json.dumps(json_safe(cases), indent=2, allow_nan=False)+'\n')
         (run_dir/'policy.json').write_text(json.dumps(asdict(policy), indent=2)+'\n')
         (run_dir/'downloads.json').write_text(json.dumps(self.download_log, indent=2)+'\n')
         try:

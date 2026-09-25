@@ -350,9 +350,12 @@ def window_stats(frame, start, end, fields, policy):
     stats['adequacy_failures'] = '; '.join(failures)
     for field in fields:
         a = valid[field].to_numpy() if not valid.empty else np.array([])
+        a = a[np.isfinite(a)]
+        stats[f'{field}_n_finite'] = len(a)
         for suffix, func in [('mean', np.mean), ('std', lambda x: np.std(x, ddof=1)),
                              ('p95', lambda x: np.percentile(x, 95)), ('max', np.max)]:
-            stats[f'{field}_{suffix}'] = float(func(a)) if len(a) >= (2 if suffix == 'std' else 1) else None
+            value = float(func(a)) if len(a) >= (2 if suffix == 'std' else 1) else None
+            stats[f'{field}_{suffix}'] = value if value is not None and np.isfinite(value) else None
     return stats, valid
 
 

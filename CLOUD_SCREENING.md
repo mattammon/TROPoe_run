@@ -171,3 +171,17 @@ Set `radiance_clear_mean_max` and `radiance_clear_std_max` in `ScreenPolicy` to
 your calibrated 985 cm-1 limits (and optionally `radiance_clear_p95_max`). They
 remain unset by default: no numerical thresholds are assumed. Radiance must pass
 its existing QC/coverage and threshold checks in both core and context windows.
+
+### Missing diagnostic values and interrupted output writes
+
+Window statistics use finite values separately for each field and record
+`<field>_n_finite`. A field with no finite values has null statistics; standard
+deviation is null with fewer than two finite values. These diagnostic counts do
+not tighten the permissive ASI classification. JSON exports encode unavailable
+or nonfinite diagnostics as standard `null`, never NaN or Infinity.
+
+If an earlier run failed writing `cases.json`, its downloaded files are reusable.
+After updating, rerun the same date range with `--offline` to regenerate outputs
+without network requests. Use the new run's manifest; an interrupted run without
+`metadata.json` is incomplete. Offline mode reclassifies local files and does not
+reconstruct unavailable catalog-only sounding entries from the previous run.
