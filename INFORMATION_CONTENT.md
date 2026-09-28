@@ -210,3 +210,32 @@ units, and complete vertical coverage. It is not implemented in this first stage
   https://github.com/OAR-atmospheric-observations/TROPoe/blob/dcfc710889f24cbf3d243999cc878504d9ce8413/Output_Functions.py
 - Upstream cumulative DFS implementation (`compute_vres_from_akern`):
   https://github.com/OAR-atmospheric-observations/TROPoe/blob/dcfc710889f24cbf3d243999cc878504d9ce8413/Other_functions.py
+
+## Accumulated DFS versus RMSE
+
+`PLOT_STATS.py` also writes `FIG_SUBDIR/DFS_vs_RMSE/DFS_vs_RMSE.png`, with T and q
+panels. Each Ch1/Ch2 marker uses mean layer DFS on x and pooled layer RMSE on y.
+The layer top follows `max_height_eval`, not `information_max_height`.
+RMSE is the square root of the mean per-case layer MSE; each case is equally
+weighted. Within cases, squared errors are integrated using midpoint bins with
+thickness weights (`dfs_rmse_grid_step`, default 0.1 km). This definition can
+differ from the existing native-level RMSE charts. Bias is included.
+
+DFS uses conservative integration of the information diagnostic over the same
+0–top layer. Sounding values already on each case's Ch1 grid and each retrieval's
+own height grid are interpolated onto the bin midpoints without extrapolation or
+bridging missing values. Require finite coverage at every midpoint for every
+model. Cases missing DFS or RMSE coverage for any model are excluded from all
+models in that variable's panel. Kernel and cumulative-DFS fallback families
+cannot be mixed across models within one case; sources are recorded in CSV.
+
+`DFS_vs_RMSE_cases.csv` records per-case DFS/MSE/RMSE and source,
+`DFS_vs_RMSE_summary.csv` records plotted points and counts, and
+`DFS_vs_RMSE_exclusions.csv` explains omissions. T and q can have different paired
+case sets. `dfs_rmse_show_cases = True` overlays faint per-case points;
+`plot_dfs_rmse_enabled = False` disables the plot. Information diagnostics are
+loaded when this plot is enabled even if `plot_information = False`.
+
+Greater DFS and lower error are favorable together, but neither is a substitute
+for structural evaluation. DFS describes the configured observation inputs,
+including ancillary observations, and does not isolate spectral radiance alone.

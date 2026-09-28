@@ -23,6 +23,10 @@ max_height_eval = 2
 max_height_plot = 2
 
 # Taylor diagrams use a common height grid and paired samples across all models.
+plot_dfs_rmse_enabled = True
+dfs_rmse_grid_step = 0.1  # km; common layer-RMSE integration bins
+dfs_rmse_show_cases = False  # Optional faint per-case points
+
 plot_taylor = True
 taylor_variables = ('T', 'q')  # Add 'Td' if desired.
 taylor_grid_step = 0.1  # km; plotting/verification grid, not retrieval resolution
@@ -37,7 +41,7 @@ information_no_model = False  # True requires *_no_model output fields
 information_per_case = False
 
 EVAL = Aggregate_Retrievals(max_height_eval,Ch2_bands_toEval,
-                          include_information=plot_information,
+                          include_information=(plot_information or plot_dfs_rmse_enabled),
                           information_source=information_source,
                           information_no_model=information_no_model)
 
@@ -66,6 +70,12 @@ if plot_taylor:
     plot_taylor_profiles(EVAL, models, os.path.join(FIG_SUBDIR, 'Taylor'),
                          max_height=max_height_eval, grid_step=taylor_grid_step,
                          variables=taylor_variables, anomalies=taylor_anomalies)
+
+if plot_dfs_rmse_enabled:
+    from plot_dfs_rmse import plot_dfs_rmse
+    plot_dfs_rmse(EVAL, models, os.path.join(FIG_SUBDIR, 'DFS_vs_RMSE'),
+                  max_height=max_height_eval, grid_step=dfs_rmse_grid_step,
+                  show_cases=dfs_rmse_show_cases)
 
 # ==========================================
 # 2. COMPUTE ABSOLUTE RMSE (WITH NAN MASKING)
