@@ -50,3 +50,10 @@ identity, spectral definitions, fill values lacking NetCDF metadata, or accuracy
 Keep configurations with different priors/settings in separate output groups.
 Do not blindly rerun `pending.csv` without checking unreadable files and time
 matching: this script neither removes nor overwrites them.
+
+`summary.json` includes `completed_by_band`, for example
+`{"Ch1": 100, "Ch2_B17": 92}`. With a manifest, these are counts of unique
+selected case IDs with a usable match (including duplicate matches, counted once).
+Without a manifest, they count distinct usable profile timestamps per configuration
+across the scanned files. `completed_by_band_basis` records which definition was
+used. Requested configurations with no completed retrievals are included as zero.

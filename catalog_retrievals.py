@@ -123,6 +123,21 @@ def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
     return rows
 
 
+def completed_by_band(cases, profiles, bands, include_ch1, has_manifest):
+    """Count matched cases, or distinct usable profile times without a manifest."""
+    counts = {('Ch1' if channel == 1 else 'Ch2_B'+str(band)): set()
+              for channel, band in (([(1, '')] if include_ch1 else []) +
+                                    [(2, b) for b in sorted(set(bands))])}
+    for row in (cases if has_manifest else profiles):
+        key = 'Ch1' if int(row['channel']) == 1 else 'Ch2_B'+str(row['band'])
+        counts.setdefault(key, set())
+        if has_manifest and row['status'] in ('complete', 'duplicate'):
+            counts[key].add(row['case_id'])
+        elif not has_manifest and row['status'] == 'usable':
+            counts[key].add(row['time'])
+    return {key: len(values) for key, values in counts.items()}
+
+
 def write_csv(path, fields, rows):
     with path.open('w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -163,6 +178,9 @@ def main():
                    manifest=str(manifest.resolve()) if manifest else None, bands=args.bands, include_ch1=not args.no_ch1,
                    tolerance_seconds=args.tolerance_seconds, files=dict(Counter(r['status'] for r in files)),
                    profiles=dict(Counter(r['status'] for r in profiles)), cases=dict(Counter(r['status'] for r in cases)),
+                   completed_by_band=completed_by_band(cases, profiles, args.bands, not args.no_ch1, manifest is not None),
+                   completed_by_band_basis=('unique matched case IDs; duplicate outputs count once per case' if manifest else
+                                            'distinct usable profile times across scanned files'),
                    completion_definition='Readable time-matched profiles with finite T/q and increasing heights; not scientific QC or convergence certification.')
     (out/'summary.json').write_text(json.dumps(summary, indent=2, allow_nan=False)+'\n')
     LOG.info('Catalog saved: %s', out.resolve())
