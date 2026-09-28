@@ -17,7 +17,7 @@ obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANI
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
 do_ch1 = False
-bands = [9,10,11,12,13,14,15,16,17,18]
+bands = [2,6,7,10,18]
 verbose='1'
 
 ##########################################

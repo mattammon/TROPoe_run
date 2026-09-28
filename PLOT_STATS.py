@@ -19,12 +19,12 @@ Ch2_bands_toPlot = [1,3,4,5,8,9,11,13,14,15,16,17]
 #Ch2_bands_toEval = [1,3,13,14,15,16,17]
 #Ch2_bands_toPlot = [1,3,13,14,15,16,17]
 
-max_height_eval = 3
-max_height_plot = 3
+max_height_eval = 2
+max_height_plot = 2
 
 # Information diagnostics share the retrievals/cases already read for RMSE.
 plot_information = True
-information_max_height = 3.0
+information_max_height = 2.0
 information_bin_width = 0.1  # km; common bins for different native height grids
 information_source = 'auto'  # 'kernel', 'cdfs', or prefer kernel when available
 information_no_model = False  # True requires *_no_model output fields
