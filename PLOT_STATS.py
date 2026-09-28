@@ -22,6 +22,12 @@ Ch2_bands_toPlot = [1,3,4,5,8,9,11,13,14,15,16,17]
 max_height_eval = 2
 max_height_plot = 2
 
+# Taylor diagrams use a common height grid and paired samples across all models.
+plot_taylor = True
+taylor_variables = ('T', 'q')  # Add 'Td' if desired.
+taylor_grid_step = 0.1  # km; plotting/verification grid, not retrieval resolution
+taylor_anomalies = False  # True removes each model's mean profile across cases.
+
 # Information diagnostics share the retrievals/cases already read for RMSE.
 plot_information = True
 information_max_height = 2.0
@@ -54,6 +60,12 @@ if plot_information:
 
 if not dates:
     raise SystemExit('No complete retrieval/sounding cases; check the messages above.')
+
+if plot_taylor:
+    from taylor_diagram import plot_taylor_profiles
+    plot_taylor_profiles(EVAL, models, os.path.join(FIG_SUBDIR, 'Taylor'),
+                         max_height=max_height_eval, grid_step=taylor_grid_step,
+                         variables=taylor_variables, anomalies=taylor_anomalies)
 
 # ==========================================
 # 2. COMPUTE ABSOLUTE RMSE (WITH NAN MASKING)
