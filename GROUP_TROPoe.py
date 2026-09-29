@@ -8,7 +8,6 @@ from cloud_screening import selected_sounding_files
 from utils import *
 from vip_gen import VIP
 from SINGLE_TROPoe import run_tropoe
-from retrieval_names import completed_retrieval, retrieval_stamp
 
 ##########################################
 
@@ -23,6 +22,11 @@ catalog = pd.read_csv(f'{RETRIEVAL_DIR}/{GROUP_NAME}/catalog/files.csv')
 catalog_files = {os.path.basename(path) for path in catalog.loc[catalog['n_usable'] > 0, 'file']}
 
 ##########################################
+
+def completed_retrieval(date, channel, catalog_files, band=None):
+    root = f'tropoeOutput_Ch{channel}' + (f'_B{band}' if band is not None else '')
+    stem = f'{root}.{date[:8]}.{date[8:10]}'
+    return any(name.startswith(stem) for name in catalog_files)
 
 VIP_obj = VIP(in_group=True)
 
