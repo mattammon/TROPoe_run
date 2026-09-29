@@ -67,8 +67,8 @@ if APPLY_RETRIEVAL_LWP_FILTER:
 
         # If the script makes it here, the Ch1 retrieval passed the LWP check!
         for b in bands:
-                if not any(f'_Ch2_B{b}.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
-            run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose)
+            if not any(f'_Ch2_B{b}.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
+                run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose)
 
         print(f'\nAll Retrievals for {d} Done!\n')
 
@@ -78,6 +78,7 @@ else:
             if not any(f'_Ch1.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
                 run_tropoe(d,VIP_obj,channel=1,verbose=verbose)
         for b in bands:
+            print(f'_Ch2_B{b}.{d[:8]}.{d[8:12]}')
             if not any(f'_Ch2_B{b}.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
                 run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose)
         print(f'\nAll Retrievals for {d} Done!\n')
