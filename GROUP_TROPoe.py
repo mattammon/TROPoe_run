@@ -20,6 +20,8 @@ do_ch1 = False
 bands = [2,6,7,10,18]
 verbose='1'
 
+catalog_files = pd.read_csv(f'{RETRIEVAL_DIR}/{GROUP_NAME}/catalog/files.csv')['file']
+
 ##########################################
 
 VIP_obj = VIP(in_group=True)
@@ -27,7 +29,8 @@ VIP_obj = VIP(in_group=True)
 if APPLY_RETRIEVAL_LWP_FILTER:
     for d in dates:
         if do_ch1 == True:
-            run_tropoe(d, VIP_obj, channel=1, verbose=verbose)
+            if not any(f'_Ch1.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
+                run_tropoe(d, VIP_obj, channel=1, verbose=verbose)
 
         # ==========================================
         # LWP FILTER LOGIC
@@ -64,6 +67,7 @@ if APPLY_RETRIEVAL_LWP_FILTER:
 
         # If the script makes it here, the Ch1 retrieval passed the LWP check!
         for b in bands:
+                if not any(f'_Ch2_B{b}.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
             run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose)
 
         print(f'\nAll Retrievals for {d} Done!\n')
@@ -71,7 +75,9 @@ if APPLY_RETRIEVAL_LWP_FILTER:
 else:
     for d in dates:
         if do_ch1 == True:
-            run_tropoe(d,VIP_obj,channel=1,verbose=verbose)
+            if not any(f'_Ch1.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
+                run_tropoe(d,VIP_obj,channel=1,verbose=verbose)
         for b in bands:
-            run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose)
+            if not any(f'_Ch2_B{b}.{d[:8]}.{d[8:12]}' in f for f in catalog_files):
+                run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose)
         print(f'\nAll Retrievals for {d} Done!\n')
