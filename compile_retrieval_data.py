@@ -10,6 +10,9 @@ max_height = 3 #km
 
 import glob
 import sys,os
+from datetime import datetime, timedelta
+from pathlib import Path
+import re
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -23,6 +26,11 @@ from utils import *
 from config import *
 from cloud_screening import selected_sounding_files
 from spectralBands import *
+
+_OUTPUT_NAME = re.compile(
+    r'^tropoeOutput_Ch(?P<channel>[12])(?:_B(?P<band>\d+))?\.'
+    r'(?P<timestamp>\d{8}\.\d{6})\.(?:nc|cdf)$'
+)
 
 
 class Aggregate_Retrievals:
@@ -117,20 +125,45 @@ class Aggregate_Retrievals:
 
 
     def ch1_file(self,dt):
-        stamp = rounded_retrieval_time(dt).strftime('%Y%m%d.%H%M%S')
-        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch1.{stamp}.nc'))
-        if not files:
-            raise ValueError(f'No Channel-1 retrieval for {dt} (rounded to {stamp}).')
-        return files[0]
+        return self._nearest_retrieval(dt, 1)
 
     def ch2_files(self,dt,bands):
-        stamp = rounded_retrieval_time(dt).strftime('%Y%m%d.%H%M%S')
-        files = [sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch2_B{b}.{stamp}.nc'))
-                 for b in bands]
-        missing = [str(b) for b, matches in zip(bands, files) if not matches]
-        if missing:
-            raise ValueError(f'No Channel-2 retrieval for {dt} (rounded to {stamp}), band(s) {", ".join(missing)}.')
-        return [matches[0] for matches in files]
+        return [self._nearest_retrieval(dt, 2, b) for b in bands]
+
+    def _nearest_retrieval(self, dt, channel, band=None):
+        """Select an output in the case's quarter-hour bin, including .cdf files."""
+        if not hasattr(self, '_output_index'):
+            root = Path(RETRIEVAL_DIR) / GROUP_NAME
+            self._output_root = root
+            self._output_index = {}
+            self._unrecognized_ch1 = []
+            if root.is_dir():
+                for path in root.iterdir():
+                    match = _OUTPUT_NAME.fullmatch(path.name)
+                    if not path.is_file():
+                        continue
+                    if match is None:
+                        if 'Ch1' in path.name and len(self._unrecognized_ch1) < 3:
+                            self._unrecognized_ch1.append(path.name)
+                        continue
+                    key = (int(match['channel']), int(match['band']) if match['band'] else None)
+                    timestamp = datetime.strptime(match['timestamp'], '%Y%m%d.%H%M%S')
+                    self._output_index.setdefault(key, []).append((timestamp, str(path)))
+        target = rounded_retrieval_time(dt)
+        files = self._output_index.get((channel, band), [])
+        # Actual file timestamps may include seconds or be slightly offset.
+        # A half-bin window prevents matching the next quarter-hour case.
+        candidates = [(abs((stamp-target).total_seconds()), path) for stamp, path in files
+                      if abs((stamp-target).total_seconds()) < 450]
+        if candidates:
+            return min(candidates)[1]
+        label = f'Channel-{channel}' + (f' band {band}' if band is not None else '')
+        nearest = min(files, key=lambda item: abs((item[0]-target).total_seconds())) if files else None
+        detail = (f'nearest file is {nearest[1]} at {nearest[0]:%Y%m%d.%H%M%S}'
+                  if nearest else f'no matching {label} output files found in {self._output_root}')
+        if not nearest and channel == 1 and self._unrecognized_ch1:
+            detail += f'; other Ch1 filenames include {self._unrecognized_ch1}'
+        raise ValueError(f'No {label} retrieval for {dt} near {target:%Y%m%d.%H%M%S}; {detail}.')
 
     def obs_profiles(self,file):
         max_hgt=self.max_hgt
