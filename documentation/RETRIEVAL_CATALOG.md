@@ -8,7 +8,7 @@ python catalog_retrievals.py --bands 1 3 13 14 15 16 17
 
 Defaults read `RETRIEVAL_DIR/GROUP_NAME`, `CLOUD_SCREEN_MANIFEST`, and
 `CLOUD_SCREEN_CATEGORY` from `config.py`. Expected retrievals include Ch1 and
-every requested Ch2 band (default band: 17). Set `--no-ch1` for Ch2 only.
+every requested Ch2 band (default: bands 1 through 18). Set `--no-ch1` for Ch2 only.
 
 ```bash
 python catalog_retrievals.py --manifest /data/cloud_screening/sgp/manifest_reclassified_7_0p3.csv --bands 17 --no-ch1
@@ -31,7 +31,10 @@ Outputs under `<retrieval-dir>/catalog` (override with `--output-dir`):
 - `summary.json`: status counts, scan settings and completion definition.
 
 Each invocation rebuilds these reports from disk; it does not modify retrievals,
-run TROPoe, download inputs, or change the group runner's skip behavior.
+run TROPoe, or download inputs. `GROUP_TROPoe.py` reads `catalog/files.csv` once
+when it starts and skips a rounded quarter-hour output only when that file has
+at least one usable profile. Regenerate the catalog before restarting a batch;
+the running process will not see newly completed files in its existing snapshot.
 Repeated runs replace the catalog reports. Use a separate output directory to
 preserve a snapshot. No manifest is required for an inventory-only scan.
 

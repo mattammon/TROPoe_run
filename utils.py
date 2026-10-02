@@ -78,6 +78,20 @@ def datetime_to_decimal_hours(
     return decimal_times
 
 
+def rounded_retrieval_time(date):
+    """Return the quarter-hour time used by SINGLE_TROPoe for YYYYMMDDHHMM."""
+    dt = datetime.strptime(date, '%Y%m%d%H%M') + timedelta(minutes=7, seconds=30)
+    return dt.replace(minute=dt.minute // 15 * 15, second=0, microsecond=0)
+
+
+def completed_retrieval(date, channel, catalog_files, band=None):
+    """Check the catalog for a usable output at the case's rounded time."""
+    root = f'tropoeOutput_Ch{channel}' + (f'_B{band}' if band is not None else '')
+    stamp = rounded_retrieval_time(date).strftime('%Y%m%d.%H%M%S')
+    return any(name in catalog_files for name in
+               (f'{root}.{stamp}.nc', f'{root}.{stamp}.cdf'))
+
+
 import math
 
 def rh_to_mixing_ratio(rh, t_c, p_hpa):
@@ -87,4 +101,3 @@ def rh_to_mixing_ratio(rh, t_c, p_hpa):
     w_kg_kg = 0.622 * (e / (p_hpa - e))
 
     return w_kg_kg * 1000.0
-

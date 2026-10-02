@@ -111,40 +111,26 @@ class Aggregate_Retrievals:
 
 
     def retrieval_files(self,obs_dt,bands):
-        try:
-            Ch1_file = self.ch1_file(obs_dt)
-            ret_dt = Ch1_file[-18:-3]
-        except ValueError as error:
-            print(error)
-        try:
-            Ch2_files = self.ch2_files(ret_dt,bands)
-        except ValueError as error:
-            print(error)
+        Ch1_file = self.ch1_file(obs_dt)
+        Ch2_files = self.ch2_files(obs_dt,bands)
         return Ch1_file, Ch2_files
 
 
     def ch1_file(self,dt):
-        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*Ch1.{dt[:8]}*'))
-        if len(files)>1:
-            idx = np.argmin([abs(int(i[-9:-7]) - int(dt[8:10])) for i in files])
-            file = files[idx]
-        elif len(files)==1:
-            file = files[0]
-        else:
-            raise ValueError("No Channel-1 Retrieval Exists Yet.")
-        return file
+        stamp = rounded_retrieval_time(dt).strftime('%Y%m%d.%H%M%S')
+        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch1.{stamp}.nc'))
+        if not files:
+            raise ValueError(f'No Channel-1 retrieval for {dt} (rounded to {stamp}).')
+        return files[0]
 
     def ch2_files(self,dt,bands):
-        files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*Ch2*.{dt}*'))
-        bands_done = np.unique([s[(s.rindex('B')+1):-19] for s in files])
-        bands_not_done = [f'{b}' for b in bands if f'{b}' not in bands_done]
-        if len(bands_not_done)>0:
-            bnd = ", ".join(bands_not_done)
-            raise ValueError(f"Retrievals for desired Ch-2 band(s) {bnd} have not been done!")
-        files_bands = []
-        for b in bands:
-            files_bands.extend(file for file in files if f'B{b}.' in file)
-        return files_bands
+        stamp = rounded_retrieval_time(dt).strftime('%Y%m%d.%H%M%S')
+        files = [sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch2_B{b}.{stamp}.nc'))
+                 for b in bands]
+        missing = [str(b) for b, matches in zip(bands, files) if not matches]
+        if missing:
+            raise ValueError(f'No Channel-2 retrieval for {dt} (rounded to {stamp}), band(s) {", ".join(missing)}.')
+        return [matches[0] for matches in files]
 
     def obs_profiles(self,file):
         max_hgt=self.max_hgt

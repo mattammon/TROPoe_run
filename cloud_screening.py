@@ -1,4 +1,4 @@
-"""Auditable three-state SGP cloud screening; see CLOUD_SCREENING.md."""
+"""Auditable three-state SGP cloud screening; see documentation/CLOUD_SCREENING.md."""
 from dataclasses import asdict, dataclass
 import json
 import logging

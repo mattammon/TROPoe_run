@@ -23,11 +23,6 @@ catalog_files = {os.path.basename(path) for path in catalog.loc[catalog['n_usabl
 
 ##########################################
 
-def completed_retrieval(date, channel, catalog_files, band=None):
-    root = f'tropoeOutput_Ch{channel}' + (f'_B{band}' if band is not None else '')
-    stem = f'{root}.{date[:8]}.{date[8:10]}'
-    return any(name.startswith(stem) for name in catalog_files)
-
 VIP_obj = VIP(in_group=True)
 
 if APPLY_RETRIEVAL_LWP_FILTER:
@@ -40,7 +35,8 @@ if APPLY_RETRIEVAL_LWP_FILTER:
         # LWP FILTER LOGIC
         # ==========================================
         # 1. Find the Channel-1 file for the current date
-        ch1_files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch1.{retrieval_stamp(d)}00.nc'))
+        stamp = rounded_retrieval_time(d).strftime('%Y%m%d.%H%M%S')
+        ch1_files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch1.{stamp}.nc'))
 
         if not ch1_files:
             print(f"Skipping {d}: No Channel-1 retrieval file found.")

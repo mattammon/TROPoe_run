@@ -1,6 +1,6 @@
 """Download and classify SGP sounding cases without deleting source data.
 
-Run ``python get_sgp_data.py --help``; see CLOUD_SCREENING.md for policy details.
+Run ``python get_sgp_data.py --help``; see documentation/CLOUD_SCREENING.md for policy details.
 """
 import argparse
 from collections import Counter, OrderedDict
@@ -148,7 +148,7 @@ class SGP_DATA:
     def group_data_download(self, cloud_cover_perc_range=None,
                             cloud_cover_variable='near_zenith_percent_cloud', **kwargs):
         if cloud_cover_perc_range not in (None, [0, 0], (0, 0)) or cloud_cover_variable != 'near_zenith_percent_cloud':
-            raise ValueError('Legacy range filtering is replaced by ScreenPolicy; see CLOUD_SCREENING.md')
+            raise ValueError('Legacy range filtering is replaced by ScreenPolicy; see documentation/CLOUD_SCREENING.md')
         return self.screen_cases(**kwargs)
 
     def screen_cases(self, *, policy=None, offline=False, output_dir=None, retrieval_data='clear_sky'):
