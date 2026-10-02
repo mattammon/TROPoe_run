@@ -85,12 +85,9 @@ def rounded_retrieval_time(date):
 
 
 def completed_retrieval(date, channel, catalog_files, band=None):
-    """Check the catalog for a usable output at the case's rounded time."""
     root = f'tropoeOutput_Ch{channel}' + (f'_B{band}' if band is not None else '')
-    stamp = rounded_retrieval_time(date).strftime('%Y%m%d.%H%M%S')
-    return any(name in catalog_files for name in
-               (f'{root}.{stamp}.nc', f'{root}.{stamp}.cdf'))
-
+    stem = f'{root}.{date[:8]}.{date[8:10]}'
+    return any(name.startswith(stem) for name in catalog_files)
 
 import math
 
