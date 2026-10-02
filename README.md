@@ -19,5 +19,6 @@ instrument data are external to this repository.
 See [documentation/CLOUD_SCREENING.md](documentation/CLOUD_SCREENING.md),
 [documentation/RETRIEVAL_CATALOG.md](documentation/RETRIEVAL_CATALOG.md),
 and [documentation/INFORMATION_CONTENT.md](documentation/INFORMATION_CONTENT.md)
+and [documentation/PLOT_STATS_OUTPUT.md](documentation/PLOT_STATS_OUTPUT.md)
 for detailed workflows. `GROUP_TROPoe.py` and `PLOT_STATS.py` set their band
 lists near the top of each script.
