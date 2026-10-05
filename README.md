@@ -22,3 +22,20 @@ and [documentation/INFORMATION_CONTENT.md](documentation/INFORMATION_CONTENT.md)
 and [documentation/PLOT_STATS_OUTPUT.md](documentation/PLOT_STATS_OUTPUT.md)
 for detailed workflows. `GROUP_TROPoe.py` and `PLOT_STATS.py` set their band
 lists near the top of each script.
+
+
+## Interactive comparison app
+
+Explore bands, UTC date ranges, cloud classifications, ASI/radiance limits, and
+height layers without editing plotting scripts:
+
+```bash
+python -m pip install -r requirements-dashboard.txt
+python -m streamlit run TROPoe_APP.py --server.address 127.0.0.1
+```
+
+The app includes a labeled synthetic demo and loads your existing screening
+manifest, retrievals, and radiosondes. Views include profiles, RMSE comparisons,
+Taylor diagrams, DFS profiles, and DFS versus RMSE, with CSV/interactive HTML
+exports. See [the app guide](documentation/INTERACTIVE_APP.md) for setup, HPC SSH
+tunneling, matching rules, and scientific conventions.
