@@ -183,6 +183,7 @@ differ. Counts and exclusions are available below every plot.
 | Taylor diagram | Correlation, normalized standard deviation, centered RMSE contours, and a downloadable table with full RMSE and bias. Negative correlations are supported. |
 | Information content | Median cumulative DFS or DFS density with interquartile ranges; distributions of DFS integrated over the selected layer. |
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
+| 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
 | Cloud diagnostics | Choose numeric manifest diagnostics for either axis; color by final category and symbol by ASI classification. |
 | Case catalog | Inspect the filtered manifest and the actual retrieval record matched to each case/band. |
 
@@ -196,6 +197,40 @@ view or the **Sample counts, exclusions, and downloads** section. The PNG camera
 button exports a figure. **Export this figure → Prepare standalone HTML** creates
 an interactive offline figure, including the Plotly library. Exports describe the
 current selection; exports do not modify the original manifest.
+
+### 985 radiance scatter and case labels
+
+Select **985 radiance scatter** from the plot menu. The x-axis is the mean
+985 cm⁻¹ radiance and the y-axis its standard deviation, using the sidebar's
+**Screening window** (core or context). Click **Apply filters** after changing
+that window or the sidebar limits. The plot title identifies the selected window;
+vertical/horizontal lines label the exact mean/std limits. Active limits are
+green dashed lines, and shading marks their accepted region. Disabled limits
+remain gray dotted references explicitly labeled inactive. Units come from the
+manifest's original radiance dataset; this view does not reclassify cases.
+
+**Include cases outside radiance limits** is on by default so you can inspect
+points on both sides of the thresholds. Date, classification, and ASI filters
+still apply. Turn it off to apply enabled radiance limits to the displayed cohort.
+Missing/nonfinite radiance coordinates cannot be plotted and are counted in the
+caption. This plot reads manifest diagnostics and does not require a successful
+retrieval or selected band; each case appears once.
+
+Use **Group cases by** to choose final classification, ASI classification,
+radiance classification, season, month, year, or six-hour UTC time blocks.
+Seasons are meteorological DJF/MAM/JJA/SON, and all time categories use the UTC
+sounding time. **Visible categories** provides explicit toggles. You can also
+click legend entries to hide/show a group or double-click to isolate one.
+Legend visibility is a display setting; CSV exports follow the explicit Visible
+categories selection, including groups hidden only through the Plotly legend.
+
+Hover over a point for its readable case date/time, radiance mean/std, and
+classifications. Throughout the app, case selectors, chart axes/hover labels,
+and displayed case columns use dates such as **14 May 2024 · 18:59 UTC** instead
+of sounding filenames. Seconds appear when nonzero. Original case IDs remain
+internal join keys and are retained alongside the readable Case column in CSV
+exports, so distinct records are never merged because their labels look alike.
+Source-file paths remain available in provenance tables.
 
 ## Scientific conventions and differences from PLOT_STATS
 

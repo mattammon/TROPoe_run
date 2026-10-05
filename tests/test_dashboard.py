@@ -104,6 +104,72 @@ class DashboardTests(unittest.TestCase):
             self.assertGreater(len(fig.data), 0)
             self.assertIn('plotly', fig.to_html(include_plotlyjs=False))
 
+    def test_radiance_categories_thresholds_and_labels(self):
+        cases, _, _, _ = data.demo_data()
+        cases = cases.iloc[:4].copy()
+        cases['sounding_time'] = pd.to_datetime(['2025-01-01T01:00Z', '2025-04-01T07:00Z',
+                                               '2025-07-01T13:00Z', '2025-10-01T19:00Z'])
+        cases['case_id'] = ['case_sounding_%d.nc' % n for n in range(4)]
+        cases['radiance_core_radiance_mean'] = [1., 6., 8., np.inf]
+        cases['radiance_core_radiance_std'] = [.1, .2, .4, .5]
+        cases['radiance_context_radiance_mean'] = [2., 7., 9., 10.]
+        cases['radiance_context_radiance_std'] = [.2, .3, .5, .6]
+        meta = data.case_metadata(cases)
+        self.assertEqual(meta.Season.tolist(), data.GROUP_ORDERS['Season'])
+        self.assertEqual(meta['Time of day (UTC)'].tolist(), data.GROUP_ORDERS['Time of day (UTC)'])
+        self.assertEqual(meta.Case.iloc[0], '01 Jan 2025 · 01:00 UTC')
+        for group in ['Season', 'Month', 'Time of day (UTC)', 'Classification',
+                      'ASI classification', 'Radiance classification', 'Year']:
+            fig, frame = plots.radiance_plot(cases, 'core', group, 7., .3, True, True)
+            self.assertEqual(len(frame), 3)  # inf is excluded; out-of-limit context remains
+            self.assertEqual(sum(len(t.x) for t in fig.data), 3)
+            self.assertEqual(len(fig.layout.shapes), 3)
+            self.assertTrue(any(sh.x0 == 7 and sh.x1 == 7 for sh in fig.layout.shapes))
+            self.assertTrue(any(sh.y0 == .3 and sh.y1 == .3 for sh in fig.layout.shapes))
+            self.assertNotIn('.nc', fig.to_json())
+        _, spring = plots.radiance_plot(cases, 'context', 'Season', 7., .3, categories=['Spring (MAM)'])
+        self.assertEqual(spring['radiance_context_radiance_mean'].tolist(), [7.])
+        fig, empty = plots.radiance_plot(cases, 'core', 'Season', 7., .3, categories=[])
+        self.assertTrue(empty.empty)
+        self.assertEqual(len(fig.data), 0)
+        self.assertTrue(all('inactive' in a.text for a in fig.layout.annotations))
+        # Display names never replace the actual identity, even for same-time cases.
+        labels = dict(zip(cases.case_id, meta.Case))
+        displayed = data.display_cases(cases, labels)
+        self.assertNotIn('case_id', displayed)
+        self.assertEqual(data.display_cases(cases, labels, keep_id=True).case_id.tolist(), cases.case_id.tolist())
+
+    def test_streamlit_radiance_controls(self):
+        from streamlit.testing.v1 import AppTest
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
+        case_selector = next(s for s in app.selectbox if s.label == 'Case')
+        self.assertIn('UTC', case_selector.options[0])
+        self.assertNotIn('DEMO_', case_selector.options[0])
+        next(s for s in app.selectbox if s.label == 'Plot').select('985 radiance scatter').run()
+        self.assertFalse(app.exception)
+        for group in ['Season', 'Month', 'Time of day (UTC)', 'Classification']:
+            next(s for s in app.selectbox if s.label == 'Group cases by').select(group).run()
+            self.assertFalse(app.exception)
+        next(s for s in app.multiselect if s.label == 'Visible categories').set_value([]).run()
+        self.assertTrue(any('No cases with finite' in i.value for i in app.info))
+        next(s for s in app.multiselect if s.label == 'Visible categories').set_value(['Clear sky']).run()
+        next(c for c in app.checkbox if c.label == 'Limit 985 radiance mean').set_value(True)
+        next(c for c in app.checkbox if c.label == 'Limit 985 radiance standard deviation').set_value(True)
+        next(b for b in app.button if b.label == 'Apply filters').click().run()
+        next(c for c in app.checkbox if c.label == 'Include cases outside radiance limits').set_value(False).run()
+        self.assertFalse(app.exception)
+        # A nonexistent context window must give a helpful message, not crash.
+        next(s for s in app.selectbox if s.label == 'Screening window').select('context')
+        next(b for b in app.button if b.label == 'Apply filters').click().run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any('no context radiance' in w.value for w in app.warning))
+        # No band selection is necessary for manifest-only radiance diagnostics.
+        next(s for s in app.selectbox if s.label == 'Screening window').select('core')
+        next(s for s in app.multiselect if s.label == 'Bands').set_value([])
+        next(b for b in app.button if b.label == 'Apply filters').click().run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any(s.label == 'Group cases by' for s in app.selectbox))
+
     def test_streamlit_demo_and_real_loader(self):
         from streamlit.testing.v1 import AppTest
         app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()

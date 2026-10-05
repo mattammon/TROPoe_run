@@ -15,6 +15,45 @@ VARIABLES = {'T': ('Temperature', '°C', 'temperature'),
              'Td': ('Dew point', '°C', 'dewpt')}
 
 
+GROUP_ORDERS = {
+    'Season': ['Winter (DJF)', 'Spring (MAM)', 'Summer (JJA)', 'Autumn (SON)'],
+    'Month': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    'Time of day (UTC)': ['00–06 UTC', '06–12 UTC', '12–18 UTC', '18–24 UTC'],
+}
+CLASS_LABELS = {'clear_sky': 'Clear sky', 'not_clear_sky': 'Not clear sky',
+                'uncertain': 'Uncertain', 'unknown': 'Unknown'}
+
+
+def case_label(timestamp):
+    """Display UTC date/time while keeping original case IDs as join keys."""
+    t = pd.to_datetime(timestamp, utc=True)
+    return t.strftime('%d %b %Y · %H:%M' + (':%S' if t.second else '') + ' UTC')
+
+
+def case_metadata(cases):
+    result = cases.copy()
+    times = pd.to_datetime(result.sounding_time, utc=True)
+    result['Case'] = times.map(case_label)
+    result['Season'] = times.dt.month.map(lambda m: GROUP_ORDERS['Season'][(m % 12)//3])
+    result['Month'] = times.dt.month.map(lambda m: GROUP_ORDERS['Month'][m-1])
+    result['Time of day (UTC)'] = times.dt.hour.map(lambda h: GROUP_ORDERS['Time of day (UTC)'][h//6])
+    result['Year'] = times.dt.year.astype(str)
+    for column, label in [('category', 'Classification'), ('asi_state', 'ASI classification'),
+                          ('radiance_state', 'Radiance classification')]:
+        result[label] = result[column].map(lambda v: CLASS_LABELS.get(v, str(v)))
+    return result
+
+
+def display_cases(frame, labels, keep_id=False):
+    result = frame.copy()
+    if 'case_id' in result:
+        result['Case'] = result.case_id.map(labels).fillna('Unknown date')
+        if not keep_id:
+            result = result.drop(columns='case_id')
+        result = result[['Case']+[c for c in result if c != 'Case']]
+    return result
+
+
 def signature(path):
     p = Path(path).expanduser().resolve()
     s = p.stat()
@@ -277,7 +316,8 @@ def build_analysis(cases, models, profiles, observations, variable, edges, paire
         metrics['dfs'] = [infos.get((r.case_id, r.model), {}).get('dfs', np.nan) for r in metrics.itertuples()]
         metrics['dfs_source'] = [infos.get((r.case_id, r.model), {}).get('source', '') for r in metrics.itertuples()]
     return dict(metrics=metrics, curves=curves, information=infos, problems=pd.DataFrame(problems),
-                centers=centers, edges=edges, variable=variable)
+                centers=centers, edges=edges, variable=variable,
+                case_labels=dict(zip(cases.case_id, cases.sounding_time.map(case_label))))
 
 
 def demo_data():

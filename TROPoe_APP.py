@@ -41,6 +41,7 @@ def display_chart(fig, name):
 
 
 def download_table(label, df, filename, key):
+    df = data.display_cases(df, case_labels, keep_id=True)
     st.download_button(label, df.to_csv(index=False).encode(), filename, 'text/csv', key=key)
 
 
@@ -97,8 +98,11 @@ else:
     if loaded['catalog']:
         st.caption('Using catalog timestamps. New files appear after rebuilding the catalog and refreshing data.')
 
-if not available_models:
-    st.warning('No readable retrieval profiles were found. Inspect the scan errors below.')
+case_labels = dict(zip(cases.case_id, cases.sounding_time.map(data.case_label)))
+view = st.selectbox('Plot', ['Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
+                            'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Cloud diagnostics', 'Case catalog'])
+if not available_models and view != '985 radiance scatter':
+    st.warning('No readable retrieval profiles were found. Inspect the scan errors below, or select the 985 radiance scatter to explore the manifest.')
     st.dataframe(index_errors, **STRETCH)
     st.stop()
 
@@ -119,12 +123,15 @@ with st.sidebar:
         st.caption('Optional cloud-metric limits (manifest values; no reclassification).')
         window = st.selectbox('Screening window', ['core', 'context'])
         bounds = {}
+        radiance_limits = {}
         for stem, label, limit in [('asi_{}_total_mean', 'Total cloud cover (%)', 100.),
                                     ('asi_{}_zenith_mean', 'Near-zenith cloud cover (%)', 100.),
                                     ('radiance_{}_radiance_mean', '985 radiance mean', 7.),
                                     ('radiance_{}_radiance_std', '985 radiance standard deviation', 0.3)]:
             enabled = st.checkbox('Limit '+label, key=prefix+stem+'enabled')
             maximum = st.number_input('Maximum '+label, min_value=0., value=limit, key=prefix+stem+'maximum')
+            if stem.startswith('radiance_'):
+                radiance_limits[stem] = (maximum, enabled)
             if enabled:
                 bounds[stem.format(window)] = (-np.inf, maximum)
         include_missing = st.checkbox('Include missing cloud metrics', value=True)
@@ -136,7 +143,7 @@ with st.sidebar:
         no_model = st.checkbox('Use *_no_model DFS diagnostics', value=False)
         st.form_submit_button('Apply filters', type='primary')
 
-if not models:
+if not models and view != '985 radiance scatter':
     st.info('Select at least one band, then apply filters.')
     st.stop()
 if len(dates) != 2:
@@ -145,9 +152,49 @@ if len(dates) != 2:
 missing_columns = [c for c in bounds if c not in cases]
 if missing_columns:
     st.warning('The selected metric is absent from this manifest: '+', '.join(missing_columns))
-    if not include_missing:
+    if not include_missing and (view != '985 radiance scatter' or any(not c.startswith('radiance_') for c in missing_columns)):
         st.stop()
 bounds = {k: v for k, v in bounds.items() if k in cases}
+if view == '985 radiance scatter':
+    show_outside = st.checkbox('Include cases outside radiance limits', value=True,
+                               help='Retains cases rejected by active radiance limits for visual context. Dates, classifications, and ASI limits still apply.')
+    plot_bounds = {k: v for k, v in bounds.items() if not (show_outside and k.startswith('radiance_'))}
+    scatter_cases = data.filter_cases(cases, dates, selections, plot_bounds, include_missing)
+    fields = [f'radiance_{window}_radiance_mean', f'radiance_{window}_radiance_std']
+    absent = [f for f in fields if f not in cases]
+    if absent:
+        st.warning('This manifest has no '+window+' radiance mean/std pair: '+', '.join(absent)+'. Choose another screening window and apply filters.')
+        st.stop()
+    grouping = st.selectbox('Group cases by', ['Classification', 'Season', 'Month', 'Time of day (UTC)',
+                                              'ASI classification', 'Radiance classification', 'Year'])
+    metadata = data.case_metadata(scatter_cases)
+    available = set(metadata[grouping])
+    ordered = data.GROUP_ORDERS.get(grouping, sorted(available))
+    options = [g for g in ordered if g in available]
+    categories = st.multiselect('Visible categories', options, default=options,
+                               key=prefix+'radiance_categories_'+grouping+'_'+window)
+    mean_limit, mean_enabled = radiance_limits['radiance_{}_radiance_mean']
+    std_limit, std_enabled = radiance_limits['radiance_{}_radiance_std']
+    st.caption(f'{window.capitalize()} screening window · Mean ≤ {mean_limit:g} ({"active" if mean_enabled else "reference only"}) · '
+               f'Standard deviation ≤ {std_limit:g} ({"active" if std_enabled else "reference only"}). '
+               'Shading marks the region meeting active radiance limits; it does not change classifications.')
+    figure, plotted = plots.radiance_plot(scatter_cases, window, grouping, mean_limit, std_limit,
+                                          mean_enabled, std_enabled, categories)
+    display_chart(figure, '985_radiance')
+    st.caption(f'{len(plotted):,} plotted cases / {len(scatter_cases):,} cases before category toggles and missing-value removal. '
+               'Click a legend label to toggle its points; double-click to isolate it. Hover for the case date and diagnostics. '
+               'Season, month, and six-hour time blocks use the sounding time in UTC. Each case appears once, independent of retrieval availability.')
+    if plotted.empty:
+        st.info('No cases with finite radiance mean and standard deviation match these selections.')
+    download_table('Download plotted radiance cases', plotted, 'radiance_cases.csv', 'radiance_csv')
+    settings = pd.DataFrame([dict(window=window, mean_limit=mean_limit, std_limit=std_limit,
+                                  mean_active=mean_enabled, std_active=std_enabled, group_by=grouping,
+                                  visible_categories=', '.join(categories), include_outside_limits=show_outside,
+                                  start_date=str(dates[0]), end_date=str(dates[1]), filters=str(plot_bounds),
+                                  classifications=str(selections), include_missing=include_missing)])
+    download_table('Download radiance plot settings', settings, 'radiance_settings.csv', 'radiance_settings')
+    st.stop()
+
 selected = data.filter_cases(cases, dates, selections, bounds, include_missing)
 if selected.empty:
     st.warning('No cases match these filters. Broaden the dates or cloud filters.')
@@ -209,18 +256,16 @@ d.metric('DFS case-band pairs', f'{len(info):,}')
 st.caption(f"{'Paired' if paired else 'Available per band'} comparisons · {bottom:g}–{top:g} km AGL · {len(edges)-1} equal vertical bins. "
            'RMSE requires finite retrieval and sounding data throughout this layer. DFS has a separate cohort; sources stay labeled.')
 
-view = st.selectbox('Plot', ['Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
-                            'Information content', 'DFS vs RMSE', 'Cloud diagnostics', 'Case catalog'])
 if view == 'Vertical profiles':
-    case = st.selectbox('Case', selected.case_id.tolist())
+    case = st.selectbox('Case', selected.case_id.tolist(), format_func=case_labels.get)
     row = selected.set_index('case_id').loc[case]
-    st.caption(f"{row.sounding_time} · {row.category} · ASI: {row.asi_state} · radiance: {row.radiance_state}")
+    st.caption(f"{case_labels[case]} · {row.category} · ASI: {row.asi_state} · radiance: {row.radiance_state}")
     display_chart(plots.profile_plot(case, models, profiles, observations, variable, (bottom, top)), 'profiles')
     with st.expander('Source files and matched records'):
         if is_demo:
             st.write('Synthetic profiles; no source files.')
         else:
-            st.dataframe(matches.loc[matches.case_id == case], **STRETCH)
+            st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
     if not any((case, m) in profiles and variable in profiles[(case, m)] for m in models):
         st.warning('No selected retrieval profile is available for this case and variable.')
 elif view in ('RMSE comparisons', 'Vertical errors', 'Taylor diagram'):
@@ -273,10 +318,10 @@ elif view == 'Cloud diagnostics':
         n = (pd.to_numeric(selected[x], errors='coerce').notna() & pd.to_numeric(selected[y], errors='coerce').notna()).sum()
         st.caption(f'{n} / {len(selected)} cases have both plotted diagnostics. Missing metrics remain in the cohort when requested.')
 else:
-    st.dataframe(selected, **STRETCH, hide_index=True)
+    st.dataframe(data.display_cases(selected, case_labels), **STRETCH, hide_index=True)
     if not matches.empty:
         st.subheader('Matched retrieval records')
-        st.dataframe(matches, **STRETCH, hide_index=True)
+        st.dataframe(data.display_cases(matches, case_labels), **STRETCH, hide_index=True)
         download_table('Download matched records', matches, 'matched_records.csv', 'matches_csv')
 
 with st.expander('Sample counts, exclusions, and downloads'):
@@ -287,7 +332,7 @@ with st.expander('Sample counts, exclusions, and downloads'):
     st.dataframe(counts, **STRETCH, hide_index=True)
     st.caption('These counts describe data availability. The app does not apply convergence/QC, LWP, or config.bad_dts filters automatically.')
     if not issues.empty:
-        st.dataframe(issues, **STRETCH, hide_index=True)
+        st.dataframe(data.display_cases(issues, case_labels), **STRETCH, hide_index=True)
         download_table('Download exclusions', issues, 'exclusions.csv', 'issues_csv')
     if not index_errors.empty:
         st.write('Indexing errors')
