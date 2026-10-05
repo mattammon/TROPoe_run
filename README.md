@@ -27,9 +27,12 @@ lists near the top of each script.
 ## Interactive comparison app
 
 Explore bands, UTC date ranges, cloud classifications, ASI/radiance limits, and
-height layers without editing plotting scripts:
+height layers without editing plotting scripts. Install the app in an isolated
+environment, including when running inside the existing TROPoe Docker image:
 
 ```bash
+python -m venv "$HOME/.venvs/tropoe-dashboard"
+. "$HOME/.venvs/tropoe-dashboard/bin/activate"
 python -m pip install -r requirements-dashboard.txt
 python -m streamlit run TROPoe_APP.py --server.address 127.0.0.1
 ```

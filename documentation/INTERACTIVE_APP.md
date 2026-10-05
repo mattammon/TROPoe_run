@@ -7,12 +7,15 @@ service. The app does not launch retrievals or rewrite screening classifications
 
 ## Install and launch
 
-Use Python 3.9 or newer. Prefer a dedicated environment if your TROPoe driver
-requires older scientific packages:
+Use Python 3.9 or newer and a dedicated environment, including inside a TROPoe
+Docker container. Do not install the dashboard into the driver's existing
+Conda/base environment or with `pip --user`: older compiled scientific packages
+can conflict with the dashboard's NumPy/pandas dependencies. A default `venv`
+isolates both system and user-site packages (do not add `--system-site-packages`):
 
 ```bash
-python -m venv .venv-dashboard
-source .venv-dashboard/bin/activate
+python -m venv "$HOME/.venvs/tropoe-dashboard"
+. "$HOME/.venvs/tropoe-dashboard/bin/activate"
 python -m pip install -r requirements-dashboard.txt
 python -m streamlit run TROPoe_APP.py --server.address 127.0.0.1 --server.port 8501
 ```
@@ -37,6 +40,67 @@ Then open <http://localhost:8501> on your laptop. Replace the uppercase
 placeholders with your cluster addresses. Use your cluster's normal interactive
 allocation procedure to run the app on a compute node; the tunnel must reach the
 node actually running Streamlit. Keep the app bound to `127.0.0.1` for this setup.
+
+## Docker and dependency troubleshooting
+
+Inside a container, use the same isolated environment and bind Streamlit to
+`0.0.0.0`:
+
+```bash
+. "$HOME/.venvs/tropoe-dashboard/bin/activate"
+python -m streamlit run /data/script_repo/TROPoe_APP.py \
+  --server.address 0.0.0.0 --server.port 8501
+```
+
+Publish the port when creating the container with
+`-p 127.0.0.1:8501:8501`, preserve your existing data mounts, and SSH-tunnel to
+the **Docker host**. For example, from your laptop:
+
+```bash
+ssh -N -L 8501:127.0.0.1:8501 USER@DOCKER_HOST
+```
+
+Open <http://localhost:8501> on your laptop. The displayed server address
+`0.0.0.0` describes its listening interfaces; it is not the browser destination.
+Store/rebuild the virtual environment with the container; if its directory is
+not mounted, recreating the container removes that environment.
+
+### NumPy / xarray import failures
+
+Errors such as `_ARRAY_API not found`, `np.unicode_ was removed`, or
+"compiled using NumPy 1.x" indicate incompatible packages loaded together.
+For example, installing NumPy 2 in the user site while retaining xarray 2023.6,
+old numexpr/bottleneck, and SciPy 1.6.2 from the image causes these failures.
+Streamlit can print its URL before the app imports fail.
+
+Stop Streamlit with Ctrl-C and create/activate the isolated environment above,
+then install the requirements there. On Python 3.9 the requirements now constrain
+NumPy to 1.x. This is **not** sufficient to make installation into an old driver
+environment safe: SciPy 1.6.2 requires NumPy below 1.23, whereas the dashboard
+requires at least 1.24. Keep the environments separate.
+
+Verify the dashboard environment before restarting:
+
+```bash
+python -m pip check
+python -c "import sys, numpy, pandas, xarray, netCDF4; print(sys.executable); print(numpy.__version__, pandas.__version__, xarray.__version__)"
+```
+
+The executable should be under `$HOME/.venvs/tropoe-dashboard/bin`. A
+"Defaulting to user installation" message means the intended environment is not
+being used; stop and activate it before installing.
+
+Creating the new environment does not remove packages previously installed in
+`~/.local`. Those can still shadow the original driver's packages outside the
+virtual environment. To inspect the image's original stack without the user
+overlay, use its Python explicitly, for example:
+
+```bash
+PYTHONNOUSERSITE=1 /opt/miniconda/bin/python -c "import numpy, scipy; print(numpy.__version__, scipy.__version__)"
+```
+
+This is a diagnostic, not a full driver validation. Do not bulk-uninstall packages
+or upgrade the driver's SciPy merely to get the dashboard running.
 
 ## Connect your data
 
