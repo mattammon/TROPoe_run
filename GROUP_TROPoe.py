@@ -14,8 +14,8 @@ from SINGLE_TROPoe import run_tropoe
 obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANIFEST, CLOUD_SCREEN_CATEGORY)
 dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
-do_ch1 = True
-bands = [1,3,4,5,8,9,11,12,13,17]
+do_ch1 = False
+bands = [8,9,11,12,13,17]
 verbose='1'
 
 catalog = pd.read_csv(f'{RETRIEVAL_DIR}/{GROUP_NAME}/catalog/files.csv')

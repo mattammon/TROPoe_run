@@ -259,7 +259,7 @@ class GOES:
                 break
 
 def group_plot():
-    retrieval_files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*_Ch2_B15*.nc'))
+    retrieval_files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/*_Ch1*.nc'))
     dates = [f'{file[-18:-10]}' for file in retrieval_files]
     hrs = [f'{file[-9:-7]}' for file in retrieval_files]
     mns = [f'{file[-7:-5]}' for file in retrieval_files]
