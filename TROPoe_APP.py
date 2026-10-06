@@ -8,6 +8,7 @@ import streamlit as st
 
 import dashboard_data as data
 import dashboard_plots as plots
+from dashboard_vertical import plotly_size_kwargs, render_vertical
 
 st.set_page_config(page_title='TROPoe • Retrieval Explorer', page_icon='🌤️', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -32,7 +33,7 @@ def demo():
 
 
 def display_chart(fig, name):
-    st.plotly_chart(fig, **STRETCH, config={'displaylogo': False, 'toImageButtonOptions': {'format': 'png', 'scale': 2}})
+    st.plotly_chart(fig, **plotly_size_kwargs(st.plotly_chart), key=name, config={'displaylogo': False, 'toImageButtonOptions': {'format': 'png', 'scale': 2}})
     with st.expander('Export this figure'):
         if st.button('Prepare standalone HTML', key='prepare_'+name):
             st.download_button('Download interactive figure', fig.to_html(include_plotlyjs=True),
@@ -202,7 +203,7 @@ if selected.empty:
 
 # Analysis controls do not cause disk rereads: native profiles are cached.
 a, b, c, d = st.columns([2, 1, 1, 1])
-variable = a.selectbox('Variable', list(data.VARIABLES), format_func=lambda v: data.VARIABLES[v][0])
+variable = 'T' if view == 'Vertical errors' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
 bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.1, step=0.1)
 top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=3., step=0.1)
 spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
@@ -211,15 +212,16 @@ if bottom >= top:
     st.stop()
 edges = np.linspace(bottom, top, max(2, int(np.ceil((top-bottom)*1000/spacing)))+1)
 
+load_models = list(dict.fromkeys(models + (['Ch1'] if view == 'Vertical errors' else [])))
 problems = []
 if is_demo:
-    profiles = {k: v for k, v in all_profiles.items() if k[0] in set(selected.case_id) and k[1] in models}
+    profiles = {k: v for k, v in all_profiles.items() if k[0] in set(selected.case_id) and k[1] in load_models}
     observations = {k: v for k, v in all_observations.items() if k in set(selected.case_id)}
     if no_model or information_source == 'cdfs':
         # Demo only supplies Akernal; honor source controls rather than substitute.
         profiles = {k: dict(v, information={'variables': {}, 'errors': dict.fromkeys(['T', 'q'], 'Synthetic demo supplies only Akernal')}) for k, v in profiles.items()}
 else:
-    matches = data.match_cases(selected, index, models, tolerance)
+    matches = data.match_cases(selected, index, load_models, tolerance)
     shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
     if shared.any():
         st.warning('Some manifest cases match the same retrieval record. Inspect the matched-record catalog before treating cases as independent samples.')
@@ -243,6 +245,10 @@ else:
             problems.append(dict(case_id=row.case_id, model='Radiosonde', stage='sounding load', reason=str(exc)))
             LOG.warning('%s / radiosonde: %s', row.case_id, exc)
     progress.empty()
+
+if view == 'Vertical errors':
+    render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems)
+    st.stop()
 
 analysis = data.build_analysis(selected, models, profiles, observations, variable, edges, paired)
 metrics = analysis['metrics']
@@ -268,7 +274,7 @@ if view == 'Vertical profiles':
             st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
     if not any((case, m) in profiles and variable in profiles[(case, m)] for m in models):
         st.warning('No selected retrieval profile is available for this case and variable.')
-elif view in ('RMSE comparisons', 'Vertical errors', 'Taylor diagram'):
+elif view in ('RMSE comparisons', 'Taylor diagram'):
     if metrics.empty:
         st.warning('No complete radiosonde comparisons in this layer. Review exclusions below, reduce the layer, or turn off paired comparisons.')
     elif view == 'RMSE comparisons':
@@ -278,10 +284,6 @@ elif view in ('RMSE comparisons', 'Vertical errors', 'Taylor diagram'):
             baseline = st.selectbox('Subtract baseline', ['None']+models)
             baseline = None if baseline == 'None' else baseline
         display_chart(plots.rmse_plot(analysis, models, style, baseline), 'rmse')
-    elif view == 'Vertical errors':
-        model = st.selectbox('Band for vertical errors', metrics.model.unique())
-        mode = st.radio('Vertical error view', ['Case-height errors', 'Vertical RMSE'], horizontal=True)
-        display_chart(plots.error_plot(analysis, model, mode), 'vertical_errors')
     else:
         figure, table = plots.taylor_plot(analysis, models)
         display_chart(figure, 'taylor')
@@ -289,9 +291,7 @@ elif view in ('RMSE comparisons', 'Vertical errors', 'Taylor diagram'):
         st.dataframe(table, **STRETCH)
         download_table('Download Taylor statistics', table, 'taylor_statistics.csv', 'taylor_csv')
 elif view in ('Information content', 'DFS vs RMSE'):
-    if variable == 'Td':
-        st.info('DFS diagnostics are defined for temperature and water vapor. Select either variable above.')
-    elif info.empty:
+    if info.empty:
         st.warning('No valid DFS diagnostics cover this layer for the current cohort. Review source selection and exclusions below.')
     elif view == 'Information content':
         mode = st.radio('Information view', ['Cumulative profiles', 'Density profiles', 'Layer distributions'], horizontal=True)

@@ -159,7 +159,7 @@ explicit load error rather than reading a different record silently.
   metrics** to reject them when a numeric limit is active. A missing column is
   reported explicitly.
 - Click **Apply filters** to apply the sidebar selections together.
-- Select temperature, water vapor mixing ratio, or dew point; change the vertical
+- Select temperature or water vapor mixing ratio; change the vertical
   layer and requested bin size above the charts.
 
 Cloud-metric controls filter the existing manifest; they do not rerun the ASI
@@ -241,13 +241,13 @@ and interpolates from the original sounding grid for each comparison.
 - Heights are km AGL. Retrieval `height` is assumed AGL. Sounding `alt` is converted
   to AGL relative to its first launch altitude. Only successively increasing
   sounding levels are retained, excluding descent and repeated levels.
-- Temperature/dew point are °C and water vapor is mixing ratio in g/kg. Common
+- Temperature is °C and water vapor is mixing ratio in g/kg. Common
   K/°C, kg/kg/g/kg, and Pa/hPa units are converted. Missing retrieval units default
   to the repository's conventions. Unsupported units are reported.
 - Sounding mixing ratio and dew point use the same vapor-pressure formulas as
   `utils.py`. Invalid RH (outside 0–100%) does not supply valid moisture values.
 - The selected layer is divided into equal bins no wider than the requested bin
-  size, with at least two bins. T, q, and Td are linearly interpolated to bin
+  size, with at least two bins. T and q are linearly interpolated to bin
   centers. No extrapolation or interpolation across a nonfinite endpoint is used.
 - Per-case RMSE is `sqrt(mean((retrieved - observed)**2))` on those equally spaced
   centers. The entire selected layer must be finite for that case/variable/band.
@@ -287,3 +287,41 @@ Tests cover actual-time matching despite rounded filenames, multi-record reads,
 unit conversion, inclusive date ranges, missing cloud metrics, paired cohorts,
 nonfinite profiles/no extrapolation, missing soundings with valid DFS, every plot
 family, and interactions with both demo and file-backed Streamlit sources.
+
+
+## Vertical-error comparison page
+
+The page displays temperature and water-vapor vertical RMSE curves side by side,
+with one line per selected band. Sidebar band checkboxes control visibility only;
+the common case cohort and ranking remain unchanged when a line is hidden. Use
+the main Bands selection to change the compared cohort. This page always uses
+cases with complete T **and** q profiles in every selected band for its aggregate
+curves/table, regardless of the general paired-comparison checkbox.
+
+The table pools squared errors across all common cases and equal-height bin
+centers before taking the square root. It gives temperature RMSE (°C), mixing
+ratio RMSE (g/kg), and a dimensionless combined score:
+
+`combined = sqrt(((RMSE_T / std_observed_T)**2 + (RMSE_q / std_observed_q)**2) / 2)`
+
+Observed population standard deviations are computed over the same pooled
+radiosonde samples and shared by every band. This gives each variable equal
+weight in standardized units; raw °C and g/kg errors are not added. The bar chart
+orders bands from lowest to highest combined score. No score is assigned when
+either observed standard deviation is zero or the common cohort is empty.
+Changing the layer/cohort changes the normalization, so compare scores within a
+single selection. Missing bands retain rows with unavailable values.
+
+Below, a band selector controls both case-height heatmaps, and a case selector
+controls the adjacent line profiles. Each variable has three panels: signed
+selected-band error; each visible band's absolute error for the selected case;
+and signed selected-band error minus signed Ch1 error. At one case/height,
+absolute error equals pointwise RMSE. The difference heatmap uses matched cases
+and a shared height grid; positive values indicate a more positive error, not
+necessarily a larger error magnitude. Missing Ch1 values are blank. Ch1 is
+loaded as the reference even if not selected as a comparison band. These panels
+use available cases, with their Ch1 match counts shown separately from the joint
+aggregate cohort. A dotted line locates the selected case on the heatmaps.
+
+Dew point is no longer offered as a dashboard variable. CSV downloads include
+the pooled summary, per-case T/q metrics, and exclusions.

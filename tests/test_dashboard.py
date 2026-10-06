@@ -170,6 +170,52 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(s.label == 'Group cases by' for s in app.selectbox))
 
+    def test_vertical_joint_rmse_and_difference(self):
+        from dashboard_vertical import compare_variables, case_error_panels, plotly_size_kwargs
+        cases, models, profiles, obs = data.demo_data()
+        cases = cases.iloc[:2]
+        models = ['Ch1', 'Ch2_B1']
+        for case in cases.case_id:
+            for m, factor in zip(models, (1., 2.)):
+                profiles[(case, m)]['T'] = obs[case]['T']+factor
+                profiles[(case, m)]['q'] = obs[case]['q']+factor*3
+        analyses, common, table, scales = compare_variables(cases, models, profiles, obs, np.linspace(.1, 3, 30))
+        self.assertEqual(len(common), 2)
+        self.assertAlmostEqual(table.loc['Ch1', 'Temperature RMSE (°C)'], 1)
+        self.assertAlmostEqual(table.loc['Ch2_B1', 'Mixing ratio RMSE (g/kg)'], 6)
+        self.assertAlmostEqual(table.loc['Ch2_B1', 'Combined normalized RMSE'], 2*table.loc['Ch1', 'Combined normalized RMSE'])
+        fig, n, total = case_error_panels(analyses['T'], 'Ch2_B1', models, common[0], common)
+        np.testing.assert_allclose(np.asarray(fig.data[1].z), 1.)
+        self.assertEqual((n, total), (2, 2))
+        reference_only, _, _, _ = compare_variables(cases, ['Ch2_B1'], profiles, obs, np.linspace(.1, 3, 30))
+        _, n, total = case_error_panels(reference_only['T'], 'Ch2_B1', ['Ch2_B1'], common[0], common)
+        self.assertEqual((n, total), (2, 2))
+        del profiles[(common[0], 'Ch2_B1')]['q']
+        _, common, _, _ = compare_variables(cases, models, profiles, obs, np.linspace(.1, 3, 30))
+        self.assertEqual(len(common), 1)
+        def legacy(figure, use_container_width=True, **kwargs): pass
+        def modern(figure, width='stretch', **kwargs): pass
+        self.assertEqual(plotly_size_kwargs(legacy), {'use_container_width': True})
+        self.assertEqual(plotly_size_kwargs(modern), {'width': 'stretch'})
+
+    def test_vertical_page_interaction(self):
+        from streamlit.testing.v1 import AppTest
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
+        self.assertNotIn('Dew point', next(s for s in app.selectbox if s.label == 'Variable').options)
+        next(s for s in app.selectbox if s.label == 'Plot').select('Vertical errors').run()
+        self.assertFalse(app.exception)
+        before = app.dataframe[0].value.copy()
+        next(c for c in app.checkbox if c.key == 'vertical_visible_Ch1').set_value(False).run()
+        pd.testing.assert_frame_equal(before, app.dataframe[0].value)
+        next(s for s in app.selectbox if s.label == 'Band for case-height errors').select('Ch2_B6').run()
+        self.assertFalse(app.exception)
+        self.assertFalse(any('keyword arguments' in w.value for w in app.warning))
+        for c in app.checkbox:
+            if c.key and c.key.startswith('vertical_visible_'):
+                c.set_value(False)
+        app.run()
+        self.assertFalse(app.exception)
+
     def test_streamlit_demo_and_real_loader(self):
         from streamlit.testing.v1 import AppTest
         app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
@@ -188,11 +234,6 @@ class DashboardTests(unittest.TestCase):
         demo_cases = data.demo_data()[0]
         expected_count = int((demo_cases.radiance_core_radiance_mean <= 7).sum())
         self.assertEqual(app.metric[0].value, str(expected_count))
-        next(s for s in app.selectbox if s.label == 'Variable').select('Td').run()
-        next(s for s in app.selectbox if s.label == 'Plot').select('Information content').run()
-        self.assertFalse(app.exception)
-        self.assertTrue(any('DFS diagnostics' in i.value for i in app.info))
-        next(s for s in app.selectbox if s.label == 'Variable').select('T').run()
         next(r for r in app.radio if r.label == 'Source').set_value('Retrieval files').run()
         next(t for t in app.text_input if t.label == 'Screening manifest CSV').set_value(str(self.manifest))
         next(t for t in app.text_input if t.label == 'Retrieval directory').set_value(str(self.root))
