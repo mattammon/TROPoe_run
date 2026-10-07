@@ -118,6 +118,7 @@ class VIP:
             f.write(f'lbl_temp_dir = {DATA_DIR}/tmp2\n')
             f.write('\n')
             f.write(f'recenter_prior = {self.recenter}\n')
+            f.write(f'max_iterations = 6\n')
             f.close()
 
 
