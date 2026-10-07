@@ -48,7 +48,7 @@ RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{SITE}'
 MASTER_DATA_FOLDER = 'ALL'
 SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}'
 # Dashboard imports legacy CLOUD_SCREEN_MANIFEST if this is None.
-CLOUD_MASTER_MANIFEST = None
+CLOUD_MASTER_MANIFEST = '/data/cloud_screening/sgp/20220101_20251231/master_manifest.csv'
 # Durable across app/container restarts; keep this directory on a mounted volume.
 CLOUD_CLASSIFICATION_DIR = f'{DATA_DIR}/cloud_classification/{SITE}'
 # A saved runs/.../classification.csv used by GROUP_TROPoe and cataloging.
