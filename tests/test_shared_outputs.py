@@ -18,9 +18,9 @@ class SharedOutputTests(unittest.TestCase):
     def mode(self,path): return path.stat().st_mode & 0o777
     def test_atomic_and_dataframe_csv_ignore_restrictive_umask(self):
         path=self.root/'new'/'nested'/'todo.csv'
-        atomic_text(path,'case_id\nx\n')
+        atomic_text(path,'case_id\nx\n',catalog=True)
         self.assertEqual(self.mode(path),0o777)
-        self.assertEqual(self.mode(path.parent),0o755)
+        self.assertEqual(self.mode(path.parent),0o777)
         self.assertEqual(self.mode(path.parent.parent),0o755)
         shared_csv(pd.DataFrame({'case_id':['y']}),path,index=False)
         self.assertEqual(path.read_text(),'case_id\ny\n')
@@ -29,6 +29,12 @@ class SharedOutputTests(unittest.TestCase):
             with shared_output(path) as f:
                 f.write('partial'); raise RuntimeError('interrupted')
         self.assertEqual(path.read_text(),'case_id\ny\n')
+    def test_general_csv_does_not_grant_directory_write_access(self):
+        path=self.root/'figures'/'plot.csv'
+        shared_csv(pd.DataFrame({'x':[1]}),path,index=False)
+        self.assertEqual(self.mode(path),0o777)
+        self.assertEqual(self.mode(path.parent),0o755)
+
     def test_rule_names_repeated_runs_and_readable_metadata(self):
         master=self.root/'master.csv'
         frame=pd.DataFrame(dict(case_id=['x'],sounding_file=['x.cdf'],retrieval_time=['2025-01-01T00:00Z'],radiance_core_radiance_mean=[1.],radiance_core_radiance_std=[.1]))
@@ -40,10 +46,11 @@ class SharedOutputTests(unittest.TestCase):
         self.assertEqual(second.parent.name,first.parent.name+'__2')
         for path in [first,second]:
             self.assertEqual(self.mode(path),0o777)
-            self.assertEqual(self.mode(path.parent),0o755)
-            self.assertEqual(self.mode(path.parent.parent),0o755)
+            self.assertEqual(self.mode(path.parent),0o777)
+            self.assertEqual(self.mode(path.parent.parent),0o777)
             self.assertEqual(self.mode(path.parent/'settings.json'),0o644)
         self.assertEqual(self.mode(store.db),0o600)
+        self.assertEqual(self.mode(store.root),0o755)
     def test_existing_catalog_repair_preserves_data_and_skips_symlinks(self):
         old=self.root/'old'; old.mkdir(); child=old/'run'; child.mkdir()
         csv=child/'classification.csv'; csv.write_text('case_id,category\nx,clear_sky\n')
@@ -51,8 +58,9 @@ class SharedOutputTests(unittest.TestCase):
         before=csv.read_bytes()
         count,errors=repair(old)
         self.assertFalse(errors); self.assertGreater(count,0)
-        self.assertEqual(self.mode(old),0o755); self.assertEqual(self.mode(child),0o755)
+        self.assertEqual(self.mode(old),0o777); self.assertEqual(self.mode(child),0o777)
         self.assertEqual(self.mode(csv),0o777); self.assertEqual(csv.read_bytes(),before)
         self.assertEqual(self.mode(outside),0o700)
 
 if __name__=='__main__': unittest.main()
+

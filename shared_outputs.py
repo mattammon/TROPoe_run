@@ -5,8 +5,8 @@ from pathlib import Path
 import tempfile
 
 
-def shared_directory(path, exist_ok=True):
-    """Allow directory listing/traversal without granting new directory write access."""
+def shared_directory(path, exist_ok=True, writable=False):
+    """Grant traversal; explicitly selected catalog directories also get mode 777."""
     path = Path(path)
     missing = []
     ancestor = path
@@ -17,16 +17,17 @@ def shared_directory(path, exist_ok=True):
     for directory in reversed(missing):
         directory.chmod(0o755)
     mode = path.stat().st_mode & 0o7777
-    if mode | 0o555 != mode:
-        path.chmod(mode | 0o555)
+    desired = 0o777 if writable else mode | 0o555
+    if desired != mode:
+        path.chmod(desired)
     return path
 
 
 @contextmanager
-def shared_output(path):
+def shared_output(path, catalog=False):
     """Write a complete file atomically; CSVs get 777, other metadata gets 644."""
     path = Path(path)
-    shared_directory(path.parent)
+    shared_directory(path.parent, writable=catalog)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='',
@@ -42,11 +43,12 @@ def shared_output(path):
             os.unlink(temporary)
 
 
-def atomic_text(path, text):
-    with shared_output(path) as stream:
+def atomic_text(path, text, catalog=False):
+    with shared_output(path, catalog=catalog) as stream:
         stream.write(text)
 
 
-def shared_csv(frame, path, **kwargs):
-    with shared_output(path) as stream:
+def shared_csv(frame, path, catalog=False, **kwargs):
+    with shared_output(path, catalog=catalog) as stream:
         frame.to_csv(stream, **kwargs)
+

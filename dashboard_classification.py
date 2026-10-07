@@ -156,19 +156,19 @@ def save_run(master_path, frame, rules, store):
     result = classify(frame, rules, overrides)
     run_id = classification_directory_name(rules)
     root = store.root/'runs'
-    shared_directory(root)
+    shared_directory(root, writable=True)
     temporary = Path(tempfile.mkdtemp(prefix='.pending_', dir=root))
     settings = dict(schema_version=1, created_utc=now(), rules=asdict(rules),
                     master_manifest=str(Path(master_path).resolve()), master_sha256=fingerprint(master_path),
                     manual_revision=revision, counts=result.category.value_counts().to_dict(),
                     rule_definition='window mean ASI cloud percentages and radiance mean/std; inclusive maxima; missing evidence uncertain; manual override wins')
     try:
-        shared_csv(result[['case_id', 'category']], temporary/'classification.csv', index=False)
+        shared_csv(result[['case_id', 'category']], temporary/'classification.csv', index=False, catalog=True)
         atomic_text(temporary/'settings.json', json.dumps(settings, indent=2, allow_nan=False)+'\n')
         case_ids = set(frame.case_id)
         relevant = {k: v for k, v in overrides.items() if k in case_ids}
         atomic_text(temporary/'manual_overrides.json', json.dumps(relevant, indent=2)+'\n')
-        shared_directory(temporary)
+        shared_directory(temporary, writable=True)
         sequence = 1
         while True:
             destination = root/(run_id if sequence == 1 else run_id+'__'+str(sequence))
@@ -277,4 +277,5 @@ def satellite_images(root, sounding_time, retrieval_time=None, tolerance_minutes
         return []
     result = match_satellite_images(satellite_inventory(root), sounding_time, retrieval_time, tolerance_minutes)
     return [item['path'] for item in result['matches']]
+
 

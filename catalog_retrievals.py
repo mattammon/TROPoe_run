@@ -165,7 +165,7 @@ def completed_by_band(cases, profiles, bands, include_ch1, has_manifest):
 
 
 def write_csv(path, fields, rows):
-    with shared_output(path) as f:
+    with shared_output(path, catalog=True) as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
@@ -216,5 +216,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 

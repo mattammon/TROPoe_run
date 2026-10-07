@@ -22,6 +22,7 @@ def repair(root):
     if root.is_file():
         if root.suffix.lower() == '.csv':
             chmod(root, 0o777)
+            chmod(root.parent, 0o777)
         return changed, errors
     chmod(root, (root.stat().st_mode & 0o7777) | 0o555)
     for directory, subdirs, files in os.walk(root, followlinks=False, onerror=lambda exc: errors.append(str(exc))):
@@ -35,17 +36,22 @@ def repair(root):
                 continue
             if path.suffix.lower() == '.csv':
                 chmod(path, 0o777)
+                chmod(Path(directory), 0o777)
+                # Allow renaming classification run folders inside the selected
+                # catalog tree, without granting write access outside that tree.
+                parent = Path(directory).parent
+                if name == 'classification.csv' and (parent == root or root in parent.parents):
+                    chmod(parent, 0o777)
     return changed, errors
 
 
 def main():
     import config
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', type=Path, action='append', help='Directory to repair recursively; repeat for multiple roots. Defaults to configured catalog/figure directories.')
+    parser.add_argument('--root', type=Path, action='append', help='Directory to repair recursively; repeat for multiple roots. Defaults to classification, retrieval catalog, and retrieval to-do directories.')
     args = parser.parse_args()
-    roots = args.root or [Path(config.DATA_DIR)/'cloud_classification', Path(config.DATA_DIR)/'cloud_screening',
-                         Path(config.RETRIEVAL_DIR)/config.GROUP_NAME/'catalog', Path(config.FIG_SUBDIR),
-                         Path(config.CLOUD_CLASSIFICATION_DIR)]
+    roots = args.root or [Path(config.CLOUD_CLASSIFICATION_DIR),
+                         Path(config.RETRIEVAL_DIR)/config.GROUP_NAME/'catalog']
     if not args.root and getattr(config, 'RETRIEVAL_TODO_MANIFEST', None):
         roots.append(Path(config.RETRIEVAL_TODO_MANIFEST).parent)
     failures = []
@@ -62,3 +68,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

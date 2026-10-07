@@ -163,9 +163,12 @@ UTC creation time and full provenance.
 The master is not duplicated per selection. Prior snapshots are preserved.
 
 Generated on-disk CSVs use mode **777** (read/write/execute for all users).
-Output directories gain read/traverse access for all users, without adding new
-write permissions to those directories. Renaming or deleting a file owned by
-another user still requires directory write permission from its owner/admin.
+Classification, retrieval catalog, and retrieval to-do directories, including the
+classification `runs` directory, use
+**777** as well. Any user can rename, move, replace, or delete their catalog contents.
+Other output folders (including plots and raw-data screening) and newly created
+ancestor directories receive read/traverse access (755), without new directory
+write permissions.
 New classification JSON metadata uses **644**; manual-review database permissions
 are unchanged. Permissions are explicit even with a restrictive container umask.
 This applies to classification/master CSVs, retrieval catalogs, to-do/execution
@@ -177,11 +180,13 @@ To repair previously generated catalogs, run once as the file-owning user/contai
 python fix_catalog_permissions.py
 ```
 
-Defaults cover the configured cloud classification/screening, retrieval catalog,
-to-do and figure directories. For another directory use
+Defaults cover the configured classification, retrieval catalog, and to-do
+directories. For another directory use
 `python fix_catalog_permissions.py --root /path/to/catalogs`. The command reports
 permission failures, does not follow directory symlinks, and preserves names and
-contents. Existing timestamp-named runs retain their names so stored paths continue
+contents. It grants 777 to CSV-containing directories and parent directories of
+classification runs inside the selected tree; unrelated directories only gain
+read/traverse access. Existing timestamp-named runs retain their names so stored paths continue
 to work; descriptive naming applies to new saves.
 `manual_reviews.sqlite3` in the shared classification directory keeps every review,
 removal, timestamp, note, reviewer, and image path. Back it up along with the runs
@@ -482,6 +487,7 @@ aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+
 
 
 

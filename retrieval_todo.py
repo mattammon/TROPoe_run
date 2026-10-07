@@ -58,7 +58,7 @@ def pending_retrievals(cases, index, bands, classification_manifest, retrieval_d
 
 
 def save_todo(path, frame):
-    atomic_text(path, frame.to_csv(index=False))
+    atomic_text(path, frame.to_csv(index=False), catalog=True)
 
 
 class LiveInventory:
@@ -153,6 +153,7 @@ def execute_todo(path, retrieval_dir, run_one):
             result.update(status='failed', error=str(exc))
             LOG.exception('Retrieval failed: %s %s', row.case_id, row.model)
         results.append(result)
-        atomic_text(path.with_name(path.stem+'_last_run.csv'), pd.DataFrame(results).to_csv(index=False))
+        atomic_text(path.with_name(path.stem+'_last_run.csv'), pd.DataFrame(results).to_csv(index=False), catalog=True)
         LOG.info('%s: %s', row.model, result['status'])
     return results
+
