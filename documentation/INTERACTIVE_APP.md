@@ -246,9 +246,27 @@ Group points by classification, instrument classification, season, month, year,
 or six-hour UTC block. Click legend entries to toggle groups; double-click isolates
 one. Hover shows a readable UTC date and diagnostics. Click a point to open its
 satellite image in the adjacent panel, or use **Inspect case / satellite image**.
-PNG files are matched recursively beneath `SAT_IMAGERY_DIR` by the exact **sounding
-UTC minute** prefix `YYYYMMDDhhmm`. Multiple matches have an image selector; missing
-images never block classification or review. No nearest-time image is substituted.
+The default image directory is `SAT_IMAGERY_DIR/GROUP_NAME`; searches are recursive,
+so either the parent or the group directory can be supplied. PNG filenames must
+begin `YYYYMMDDhhmm`, for example `202503051920_GOES-16_VIS.png`.
+
+`satellite.py` generates these prefixes from **Ch1 retrieval filenames**, which
+can differ from sounding launch times and manifest retrieval times. The viewer
+tries the exact sounding minute, then the exact manifest retrieval minute. If
+neither exists, it finds the nearest filename time to the retrieval minute (or
+sounding minute if retrieval time is missing), within **Satellite filename time
+tolerance (minutes)**, default 15. Set zero for exact matching only. Equally close
+times and multiple images at the selected time are offered in the image selector.
+Nearby matches show a warning and signed offset; verify the time before reviewing.
+The filename represents the requested image time; the actual GOES scan time is
+shown in the image title.
+
+The panel reports the resolved search directory, both case times, the number of
+indexed PNGs, and the match basis. Missing directories and access errors are
+reported separately. The inventory is cached for up to 60 seconds; **Refresh
+satellite files** rescans immediately. After changing the directory in the sidebar,
+click **Load / refresh master data** to apply it. Paths must be visible inside the
+app's container. Missing images never block classification or manual review.
 
 Select **Manual classification**, optionally enter a review note/name, and click
 **Save persistent manual override**. On setup this updates the preview; on the
@@ -353,3 +371,4 @@ aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+

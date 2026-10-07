@@ -9,8 +9,13 @@ import streamlit as st
 import dashboard_data as data
 import dashboard_plots as plots
 from dashboard_classification import (ClassificationRules, ReviewStore, classify, fingerprint,
-                                      prepare_master, save_run, satellite_images)
+                                      prepare_master, save_run, satellite_inventory, match_satellite_images)
 from dashboard_vertical import plotly_size_kwargs
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def read_satellite_inventory(root):
+    return satellite_inventory(root)
 
 
 def inspect_case(frame, image_root, store, key, on_review=None):
@@ -23,13 +28,35 @@ def inspect_case(frame, image_root, store, key, on_review=None):
     row = frame.set_index('case_id').loc[case]
     st.write('**'+labels[case]+'**')
     st.caption(f"Automatic: {row.automatic_category} · Final: {row.category} · Source: {row.classification_source}")
-    paths = satellite_images(image_root, row.sounding_time)
+    image_root = str(Path(image_root).expanduser().resolve())
+    tolerance = st.number_input('Satellite filename time tolerance (minutes)', min_value=0.,
+                                max_value=60., value=15., step=1., key=key+'_sat_tolerance',
+                                help='Try the exact sounding and retrieval minutes first, then the closest filename time to retrieval_time within this limit. Zero disables nearby matching.')
+    if st.button('Refresh satellite files', key=key+'_refresh_satellite'):
+        read_satellite_inventory.clear()
+    st.caption('Searching recursively: '+image_root)
+    st.caption('Sounding UTC: '+str(row.sounding_time)+' · Retrieval UTC: '+str(row.get('retrieval_time', 'missing')))
     image = ''
-    if paths:
-        image = str(st.selectbox('Satellite image', paths, format_func=lambda p: p.name, key=key+'_image'))
-        st.image(image, caption=Path(image).name, **plotly_size_kwargs(st.image))
-    else:
-        st.info('No PNG with this case’s YYYYMMDDhhmm prefix was found in the satellite directory. You can still record a review.')
+    try:
+        inventory = read_satellite_inventory(image_root)
+        result = match_satellite_images(inventory, row.sounding_time, row.get('retrieval_time'), tolerance)
+        matches = result['matches']
+        st.caption(f'{len(inventory):,} timestamped PNGs indexed. Matching: {result["basis"]}.')
+        if matches:
+            paths = [item['path'] for item in matches]
+            chosen = st.selectbox('Satellite image', paths, format_func=lambda p: p.name, key=key+'_image_'+case)
+            image = str(chosen)
+            matched = next(item for item in matches if item['path'] == chosen)
+            st.caption(f'Filename time: {matched["time"]:%d %b %Y · %H:%M UTC}; offset {matched["offset_minutes"]:+g} min from {result["reference_time"]:%H:%M UTC}. The actual GOES scan time is in the image title.')
+            if result['basis'].startswith('nearest'):
+                st.warning('Nearby-time match: verify the image time before recording a manual classification.')
+            st.image(image, caption=Path(image).name, **plotly_size_kwargs(st.image))
+        elif not inventory:
+            st.info('No PNGs beginning YYYYMMDDhhmm were found. Check the directory and its visibility inside the app/container, then refresh satellite files.')
+        else:
+            st.info(f'No exact sounding/retrieval image or nearby image within {tolerance:g} minutes was found. You can still record a review.')
+    except (OSError, ValueError) as exc:
+        st.error('Satellite image lookup/display failed: '+str(exc))
     current, _ = store.snapshot()
     if case in current:
         st.caption('Saved manual review: '+current[case]['category']+' · '+current[case]['created_utc']+' · '+current[case]['note'])
@@ -102,12 +129,14 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             root = st.text_input('Retrieval directory', default_root)
             catalog = st.text_input('Catalog profiles.csv (optional)', '')
             sonde = st.text_input('Sounding search directory (optional)', default_sonde)
-            image_root = st.text_input('Satellite PNG directory', default_images)
+            image_root = st.text_input('Satellite PNG directory', default_images,
+                                       help='Search includes subdirectories. Click Load / refresh master data to apply a changed path; it must be visible inside the app/container.')
             output = st.text_input('Classification and manual-review directory', default_output,
                                    help='Use the same persistent directory for future runs so manual overrides carry forward.')
             load = st.form_submit_button('Load / refresh master data', type='primary')
     if load or ('cloud_loaded' not in st.session_state and Path(default_manifest or '__missing__').is_file()):
         try:
+            read_satellite_inventory.clear()
             master = prepare_master(manifest)
             cases = data.read_manifest(master)
             # Master on disk has no classes; read_manifest adds placeholders only in memory.
@@ -184,3 +213,4 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         else:
             st.rerun()
     st.stop()
+

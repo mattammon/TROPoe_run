@@ -212,10 +212,60 @@ def read_selection_manifest(manifest, classification=None):
     return joined
 
 
-def satellite_images(root, sounding_time):
-    """Match the case's exact UTC minute; retain all images sharing that prefix."""
-    root = Path(root).expanduser()
+def satellite_inventory(root):
+    """Read timestamped PNG names recursively, including GROUP_NAME subdirectories.
+
+    The prefix is the requested image time, not necessarily the actual GOES scan
+    time. satellite.py's group_plot obtains it from the Ch1 output filename.
+    """
+    root = Path(root).expanduser().resolve()
     if not root.is_dir():
+        raise FileNotFoundError('Satellite directory is not available: '+str(root))
+    inventory = []
+    # os.walk exposes permission errors that Path.rglob can silently suppress.
+    def failed(exc):
+        raise exc
+    for directory, _, files in os.walk(root, onerror=failed):
+        for name in files:
+            if Path(name).suffix.lower() != '.png' or not name[:12].isdigit():
+                continue
+            stamp = pd.to_datetime(name[:12], format='%Y%m%d%H%M', utc=True, errors='coerce')
+            if not pd.isna(stamp):
+                inventory.append((stamp, Path(directory)/name))
+    return sorted(inventory, key=lambda item: (item[0], str(item[1])))
+
+
+def match_satellite_images(inventory, sounding_time, retrieval_time=None, tolerance_minutes=0):
+    """Prefer exact launch/retrieval minutes, then nearest to retrieval (or launch).
+
+    Tied nearest timestamps are all returned for explicit image selection. Never
+    pick an unbounded nearest image; zero tolerance disables the nearby fallback.
+    """
+    if not np.isfinite(tolerance_minutes) or tolerance_minutes < 0:
+        raise ValueError('Satellite time tolerance must be finite and nonnegative')
+    targets = []
+    for label, value in [('sounding', sounding_time), ('retrieval', retrieval_time)]:
+        stamp = pd.to_datetime(value, utc=True, errors='coerce')
+        if stamp is not None and not pd.isna(stamp):
+            targets.append((label, stamp.floor('min')))
+    for label, stamp in targets:
+        matches = [dict(path=p, time=t, offset_minutes=0.) for t, p in inventory if t == stamp]
+        if matches:
+            return dict(matches=matches, basis='exact '+label+' minute', reference_time=stamp)
+    if not targets:
+        return dict(matches=[], basis='invalid case times', reference_time=None)
+    label, target = targets[-1]  # Retrieval when available, otherwise sounding.
+    candidates = [(abs((stamp-target).total_seconds())/60., stamp, path) for stamp, path in inventory]
+    best = min((distance for distance, _, _ in candidates), default=float('inf'))
+    matches = [dict(path=path, time=stamp, offset_minutes=(stamp-target).total_seconds()/60.)
+               for distance, stamp, path in candidates
+               if distance == best and distance <= tolerance_minutes]
+    return dict(matches=matches, basis='nearest to '+label+' minute', reference_time=target)
+
+
+def satellite_images(root, sounding_time, retrieval_time=None, tolerance_minutes=0):
+    """Compatibility helper returning paths; nearby matching is explicit opt-in."""
+    if not Path(root).expanduser().is_dir():
         return []
-    prefix = pd.to_datetime(sounding_time, utc=True).strftime('%Y%m%d%H%M')
-    return sorted(p for p in root.rglob(prefix+'*') if p.is_file() and p.suffix.lower() == '.png')
+    result = match_satellite_images(satellite_inventory(root), sounding_time, retrieval_time, tolerance_minutes)
+    return [item['path'] for item in result['matches']]
