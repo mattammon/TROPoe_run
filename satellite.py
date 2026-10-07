@@ -8,6 +8,7 @@ import math
 import sys, os
 from datetime import datetime
 import glob
+import tempfile
 
 import boto3
 import cartopy
@@ -101,7 +102,8 @@ class GOES:
 
         return zenith
 
-    def rad_image(self, hr, mn):
+    def rad_image(self, hr, mn, output_dir=None):
+        hr, mn = f"{int(hr):02d}", f"{int(mn):02d}"
         irs_loc = self.site_loc
         data = self.single_rad(hr, mn)
         print("Data successfully retrieved!")
@@ -123,14 +125,23 @@ class GOES:
 
         ax.set_title(f"GOES-{self.goes} {band_str} Imagery: {self.timestamp}")
         img_name = f"{self.dt}{hr}{mn}_GOES-{self.goes}_{file_band_str}"
-        img_loc = f'{SAT_IMAGERY_DIR}/{GROUP_NAME}'
+        img_loc = output_dir if output_dir is not None else SAT_IMAGERY_DIR
 
         # Make the directory if it doesn't already exist
         os.makedirs(img_loc, exist_ok=True)
 
         plt.tight_layout()
         figname = f"{img_loc}/{img_name}.png"
-        plt.savefig(figname)
+        # Publish only complete PNGs so another app session cannot read a partial file.
+        handle, temporary = tempfile.mkstemp(prefix='.satellite_', suffix='.png', dir=img_loc)
+        os.close(handle)
+        try:
+            fig.savefig(temporary)
+            os.replace(temporary, figname)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+            plt.close(fig)
         print(f'Image successfully saved to: {figname}')
 
     def single_rad(self, hr, mn):
@@ -187,7 +198,8 @@ class GOES:
 
     def data(self, key):
         bucket_path = f"https://{self.bucket}.s3.amazonaws.com/{key}"
-        resp = requests.get(bucket_path)
+        resp = requests.get(bucket_path, timeout=60)
+        resp.raise_for_status()
         file_name = key.split("/")[-1].split(".")[0]
         nc4_ds = netCDF4.Dataset(file_name, memory=resp.content)
         store = xr.backends.NetCDF4DataStore(nc4_ds)
@@ -279,8 +291,10 @@ if __name__ == "__main__":
         parser.add_argument("datestr", help="Date in format YYYYMMDD")
         parser.add_argument("h", help="Hour of desired time (UTC)")
         parser.add_argument("m", help="Minute of desired time (UTC)")
+        parser.add_argument("--output-dir", default=None, help="PNG directory (default: SAT_IMAGERY_DIR, without a group subdirectory)")
         args = parser.parse_args()
         sat = GOES(args.datestr)
-        sat.rad_image(args.h, args.m)
+        sat.rad_image(args.h, args.m, output_dir=args.output_dir)
     else:
         group_plot()
+

@@ -10,6 +10,7 @@ import dashboard_data as data
 import dashboard_plots as plots
 from dashboard_classification import (ClassificationRules, ReviewStore, classify, fingerprint,
                                       prepare_master, save_run, satellite_inventory, match_satellite_images)
+from dashboard_satellite import generate_satellite_image
 from dashboard_vertical import plotly_size_kwargs
 
 
@@ -24,7 +25,9 @@ def inspect_case(frame, image_root, store, key, on_review=None):
     selected_key = key+'_case'
     if st.session_state.get(selected_key) not in labels:
         st.session_state[selected_key] = frame.case_id.iloc[0]
-    case = st.selectbox('Inspect case / satellite image', list(labels), format_func=labels.get, key=selected_key)
+    def request_image():
+        st.session_state[key+'_image_request'] = st.session_state[selected_key]
+    case = st.selectbox('Inspect case / satellite image', list(labels), format_func=labels.get, key=selected_key, on_change=request_image)
     row = frame.set_index('case_id').loc[case]
     st.write('**'+labels[case]+'**')
     st.caption(f"Automatic: {row.automatic_category} · Final: {row.category} · Source: {row.classification_source}")
@@ -38,9 +41,35 @@ def inspect_case(frame, image_root, store, key, on_review=None):
     st.caption('Sounding UTC: '+str(row.sounding_time)+' · Retrieval UTC: '+str(row.get('retrieval_time', 'missing')))
     image = ''
     try:
-        inventory = read_satellite_inventory(image_root)
+        inventory = read_satellite_inventory(image_root) if Path(image_root).exists() else []
         result = match_satellite_images(inventory, row.sounding_time, row.get('retrieval_time'), tolerance)
         matches = result['matches']
+        request = st.session_state.pop(key+'_image_request', None)
+        attempt_key = (image_root, str(case), str(row.sounding_time))
+        attempts = st.session_state.setdefault('satellite_generation_attempts', {})
+        retry = False
+        if not matches:
+            retry = st.button('Retry satellite generation' if attempt_key in attempts else 'Generate satellite image',
+                              key=key+'_generate_'+case)
+        if not matches and (retry or (request == case and attempt_key not in attempts)):
+            # Record before launching: ordinary Streamlit reruns must not repeat downloads.
+            attempts[attempt_key] = {'ok': False, 'log': 'Generation started.'}
+            with st.spinner('Generating satellite image for '+data.case_label(row.sounding_time)+'…'):
+                try:
+                    log = generate_satellite_image(row.sounding_time, image_root)
+                    attempts[attempt_key] = {'ok': True, 'log': log}
+                except Exception as exc:
+                    attempts[attempt_key] = {'ok': False, 'log': str(exc)}
+            read_satellite_inventory.clear()
+            inventory = read_satellite_inventory(image_root) if Path(image_root).exists() else []
+            result = match_satellite_images(inventory, row.sounding_time, row.get('retrieval_time'), tolerance)
+            matches = result['matches']
+        if attempt_key in attempts:
+            outcome = attempts[attempt_key]
+            if not outcome['ok'] and not matches:
+                st.error('Satellite generation failed. See the output below; use Retry satellite generation after resolving the error.')
+            with st.expander('Satellite generation output', expanded=not outcome['ok'] and not matches):
+                st.code(outcome['log'], language='text')
         st.caption(f'{len(inventory):,} timestamped PNGs indexed. Matching: {result["basis"]}.')
         if matches:
             paths = [item['path'] for item in matches]
@@ -111,6 +140,7 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                     event_token = json.dumps(points, sort_keys=True, default=str)
                     if st.session_state.get(key+'_last_event') != event_token and picked in set(preview.case_id):
                         st.session_state[key+'_case'] = picked
+                        st.session_state[key+'_image_request'] = picked
                         st.session_state[key+'_last_event'] = event_token
             st.caption(f'{len(plotted):,} / {len(preview):,} cases have finite radiance mean/std. All cases are classified; missing-coordinate cases remain accessible in the case selector. Click a point to inspect it.')
         else:
@@ -213,4 +243,5 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         else:
             st.rerun()
     st.stop()
+
 

@@ -246,7 +246,7 @@ Group points by classification, instrument classification, season, month, year,
 or six-hour UTC block. Click legend entries to toggle groups; double-click isolates
 one. Hover shows a readable UTC date and diagnostics. Click a point to open its
 satellite image in the adjacent panel, or use **Inspect case / satellite image**.
-The default image directory is `SAT_IMAGERY_DIR/GROUP_NAME`; searches are recursive,
+The default image directory is `SAT_IMAGERY_DIR`; searches are recursive,
 so either the parent or the group directory can be supplied. PNG filenames must
 begin `YYYYMMDDhhmm`, for example `202503051920_GOES-16_VIS.png`.
 
@@ -267,6 +267,32 @@ reported separately. The inventory is cached for up to 60 seconds; **Refresh
 satellite files** rescans immediately. After changing the directory in the sidebar,
 click **Load / refresh master data** to apply it. Paths must be visible inside the
 app's container. Missing images never block classification or manual review.
+
+When you click a scatter point (or change the case selector) and no image matches
+the lookup rules, the app automatically runs `satellite.py` for that case's
+**sounding UTC date, hour, and minute**, not its rounded retrieval time. Existing
+exact or accepted nearby matches are reused. Generated PNGs go directly into the
+selected satellite directory (default `SAT_IMAGERY_DIR`), without `GROUP_NAME`.
+The image inventory refreshes and the result appears beside the plot immediately.
+The initial default case does not trigger downloads until selected; it also has a
+**Generate satellite image** button.
+
+Generation runs in a separate headless Python process, with a 180-second timeout.
+A spinner indicates work; **Satellite generation output** contains logs/errors.
+Failed requests are not repeated on ordinary reruns or threshold changes in the
+same session; use **Retry satellite generation** after resolving the error. The
+process needs network access to GOES and the dependencies used by `satellite.py`
+(including boto3, Cartopy, Matplotlib, netCDF4, requests, and its `utils.py` imports).
+It uses the dashboard's Python by default. If the satellite script already works
+in another environment, set `TROPOE_SATELLITE_PYTHON` to that Python executable
+before launching Streamlit. The existing day/night and GOES selection behavior
+is retained. Images are written atomically to avoid displaying partial PNGs.
+
+Single-time command-line use is also supported:
+
+```bash
+python satellite.py 20250305 19 13 --output-dir /data/satellite/sgp
+```
 
 Select **Manual classification**, optionally enter a review note/name, and click
 **Save persistent manual override**. On setup this updates the preview; on the
@@ -371,4 +397,5 @@ aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+
 
