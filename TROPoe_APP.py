@@ -226,25 +226,32 @@ else:
     if shared.any():
         st.warning('Some manifest cases match the same retrieval record. Inspect the matched-record catalog before treating cases as independent samples.')
     profiles, observations = {}, {}
-    progress = st.progress(0, text='Loading selected profiles…')
-    for n, row in enumerate(matches.itertuples(), 1):
-        if row.file:
+    matched = matches.loc[matches.file.ne('')]
+    st.caption(f'{len(selected):,} filtered cases × {len(load_models)} bands = {len(matches):,} possible case–band pairs; '
+               f'{len(matched):,} pairs have a time-matched retrieval record. A file can contain multiple records.')
+    if len(matched):
+        progress = st.progress(0, text='Loading matched retrieval records…')
+        for n, row in enumerate(matched.itertuples(), 1):
             try:
                 profiles[(row.case_id, row.model)] = read_profile(data.signature(row.file), row.profile_index,
                                                                  row.matched_time, information_source, no_model)
             except Exception as exc:
                 problems.append(dict(case_id=row.case_id, model=row.model, stage='retrieval load', reason=str(exc)))
                 LOG.warning('%s / %s: %s', row.case_id, row.model, exc)
-        if n % 25 == 0 or n == len(matches):
-            progress.progress(n/len(matches), text=f'Loading retrieval {n:,} / {len(matches):,}')
-    for row in selected.itertuples():
+            if n % 25 == 0 or n == len(matched):
+                progress.progress(n/len(matched), text=f'Loading matched retrieval {n:,} / {len(matched):,}')
+        progress.empty()
+    sounding_progress = st.progress(0, text='Loading radiosondes…')
+    for n, row in enumerate(selected.itertuples(), 1):
         try:
             path = data.sounding_path(row.sounding_file, Path(loaded['manifest']).parent, loaded['sonde_root'])
             observations[row.case_id] = read_observation(data.signature(path))
         except Exception as exc:
             problems.append(dict(case_id=row.case_id, model='Radiosonde', stage='sounding load', reason=str(exc)))
             LOG.warning('%s / radiosonde: %s', row.case_id, exc)
-    progress.empty()
+        if n % 25 == 0 or n == len(selected):
+            sounding_progress.progress(n/len(selected), text=f'Loading radiosonde {n:,} / {len(selected):,}')
+    sounding_progress.empty()
 
 if view == 'Vertical errors':
     render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems)
