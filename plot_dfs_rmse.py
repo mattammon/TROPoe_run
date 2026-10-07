@@ -1,4 +1,5 @@
 """Layer-integrated DFS versus sounding RMSE on a common paired case set."""
+from shared_outputs import shared_csv, shared_directory
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -43,7 +44,7 @@ def plot_dfs_rmse(evaluation, models, output_dir, max_height=3., grid_step=.1,
             except (KeyError, ValueError) as exc:
                 exclusions.append(dict(case=date, variable=variable, reason=str(exc)))
     data = pd.DataFrame(rows, columns=['case','model','variable','source','layer_top_km','layer_dfs','mse','rmse'])
-    out = Path(output_dir); out.mkdir(parents=True, exist_ok=True)
+    out = Path(output_dir); shared_directory(out)
     summary = []
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
     for ax, variable, unit in zip(axes, ('T','q'), ('°C','g/kg')):
@@ -72,8 +73,9 @@ def plot_dfs_rmse(evaluation, models, output_dir, max_height=3., grid_step=.1,
     fig.text(.5,.01,'Each marker summarizes the same cases across models within its panel. More DFS does not by itself imply greater accuracy.',ha='center',fontsize=9)
     fig.tight_layout(rect=(0,.05,1,.95))
     fig.savefig(out/'DFS_vs_RMSE.png',dpi=180,bbox_inches='tight');plt.close(fig)
-    data.to_csv(out/'DFS_vs_RMSE_cases.csv',index=False)
-    pd.DataFrame(summary,columns=['variable','model','n_cases','layer_top_km','grid_step_km','mean_layer_dfs','pooled_rmse','sources']).to_csv(out/'DFS_vs_RMSE_summary.csv',index=False)
-    pd.DataFrame(exclusions,columns=['case','variable','reason']).to_csv(out/'DFS_vs_RMSE_exclusions.csv',index=False)
+    shared_csv(data, out/'DFS_vs_RMSE_cases.csv',index=False)
+    shared_csv(pd.DataFrame(summary,columns=['variable','model','n_cases','layer_top_km','grid_step_km','mean_layer_dfs','pooled_rmse','sources']), out/'DFS_vs_RMSE_summary.csv',index=False)
+    shared_csv(pd.DataFrame(exclusions,columns=['case','variable','reason']), out/'DFS_vs_RMSE_exclusions.csv',index=False)
     print(f'DFS/RMSE plot saved: {out}/DFS_vs_RMSE.png; excluded case-variable combinations: {len(exclusions)}')
     return data, summary
+

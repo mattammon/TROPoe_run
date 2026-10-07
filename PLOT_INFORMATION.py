@@ -3,6 +3,7 @@
 Run through PLOT_STATS.py, from a notebook, or with --bands on this script.
 See INFORMATION_CONTENT.md for scientific definitions and output descriptions.
 """
+from shared_outputs import shared_csv, shared_directory
 
 from pathlib import Path
 import json
@@ -48,14 +49,14 @@ def plot_information_profiles(evaluation, models=None, max_height=3.0,
         raise ValueError('models must be unique with Ch1 first')
     edges = np.r_[np.arange(0., max_height, bin_width), max_height]
     directory = Path(output_dir or Path(FIG_SUBDIR)/'Information_Content')
-    directory.mkdir(parents=True, exist_ok=True)
+    shared_directory(directory)
     # Put each requested comparison in its own directory to avoid stale plots
     # when switching bands or height limits.
     source_mode = getattr(evaluation, 'information_source', 'auto')
     observation_mode = 'no_model' if getattr(evaluation, 'information_no_model', False) else 'all_obs'
     tag = f"{'-'.join(models)}_0-{max_height:g}km_dz{bin_width:g}_{source_mode}_{observation_mode}"
     directory = directory / tag
-    directory.mkdir(parents=True, exist_ok=True)
+    shared_directory(directory)
     # Remove only this reporter's reproducible products, so a failed/empty
     # rerun cannot leave old figures or profile tables looking current.
     for pattern in ('*_information_profiles.png', '*_layer_dfs.png',
@@ -137,11 +138,11 @@ def plot_information_profiles(evaluation, models=None, max_height=3.0,
     summary = pd.DataFrame(rows, columns=['case', 'model', 'variable', 'source', 'layer_top_km',
                                           'layer_dfs', 'delta_dfs_vs_ch1', 'z50_layer_km',
                                           'z90_layer_km', 'negative_native_dfs'])
-    manifest.to_csv(directory/'information_manifest.csv', index=False)
-    summary.to_csv(directory/'information_summary.csv', index=False)
+    shared_csv(manifest, directory/'information_manifest.csv', index=False)
+    shared_csv(summary, directory/'information_summary.csv', index=False)
     if native_rows:
-        pd.DataFrame(native_rows).to_csv(directory/'information_native_profiles.csv', index=False)
-        pd.DataFrame(binned_rows).to_csv(directory/'information_binned_profiles.csv', index=False)
+        shared_csv(pd.DataFrame(native_rows), directory/'information_native_profiles.csv', index=False)
+        shared_csv(pd.DataFrame(binned_rows), directory/'information_binned_profiles.csv', index=False)
     paths = []
     for variable, cases in paired.items():
         if not cases:
@@ -193,7 +194,7 @@ def plot_information_profiles(evaluation, models=None, max_height=3.0,
         paths.append(path)
         if per_case:
             case_dir = directory/'Cases'
-            case_dir.mkdir(exist_ok=True)
+            shared_directory(case_dir)
             for date, case in cases.items():
                 fig, axes = plt.subplots(1, 2, figsize=(9, 5), sharey=True)
                 for model in models:
@@ -254,3 +255,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

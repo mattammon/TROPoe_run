@@ -1,6 +1,7 @@
 """Inventory TROPoe files and compare usable T/q profiles with expected cases."""
 import argparse
 import csv
+from shared_outputs import shared_output, shared_directory
 import json
 import logging
 from pathlib import Path
@@ -164,7 +165,7 @@ def completed_by_band(cases, profiles, bands, include_ch1, has_manifest):
 
 
 def write_csv(path, fields, rows):
-    with path.open('w', newline='') as f:
+    with shared_output(path) as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
@@ -194,7 +195,7 @@ def main():
     files, profiles = scan(args.retrieval_dir)
     cases = expected_cases(manifest, profiles, args.bands, not args.no_ch1, args.category, args.tolerance_seconds) if manifest else []
     out = args.output_dir or args.retrieval_dir/'catalog'
-    out.mkdir(parents=True, exist_ok=True)
+    shared_directory(out)
     write_csv(out/'files.csv', FILE_FIELDS, files)
     write_csv(out/'profiles.csv', PROFILE_FIELDS, profiles)
     write_csv(out/'cases.csv', CASE_FIELDS, cases)
@@ -215,4 +216,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 

@@ -2,6 +2,7 @@
 
 Run ``python get_sgp_data.py --help``; see documentation/CLOUD_SCREENING.md for policy details.
 """
+from shared_outputs import shared_csv, shared_directory
 import argparse
 from collections import Counter, OrderedDict
 from dataclasses import asdict
@@ -248,7 +249,7 @@ class SGP_DATA:
         run_name = f'{self.start:%Y%m%d}_{self.end:%Y%m%d}_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{policy_hash}_{uuid.uuid4().hex[:8]}'
         run_dir = root/run_name
         logger.info('Writing unclassified master diagnostics: %s', run_dir)
-        run_dir.mkdir(parents=True, exist_ok=False)
+        shared_directory(run_dir, exist_ok=False)
         rows = []
         for case in cases:
             row = {key: case[key] for key in ('case_id', 'sounding_time', 'retrieval_time', 'sounding_file')}
@@ -262,7 +263,7 @@ class SGP_DATA:
             row['datasets'] = json.dumps(case['datasets'], sort_keys=True)
             rows.append(row)
         # Write the completion marker last. Interrupted runs have no metadata.json.
-        pd.DataFrame(rows, columns=None if rows else ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file']).to_csv(run_dir/'manifest.csv', index=False)
+        shared_csv(pd.DataFrame(rows, columns=None if rows else ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file']), run_dir/'manifest.csv', index=False)
         (run_dir/'cases.json').write_text(json.dumps(json_safe(cases), indent=2, allow_nan=False)+'\n')
         (run_dir/'policy.json').write_text(json.dumps(asdict(policy), indent=2)+'\n')
         (run_dir/'downloads.json').write_text(json.dumps(self.download_log, indent=2)+'\n')
@@ -317,3 +318,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

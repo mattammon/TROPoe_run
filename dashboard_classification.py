@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
-import uuid
+import errno
+from shared_outputs import atomic_text, shared_csv, shared_directory
 
 import numpy as np
 import pandas as pd
@@ -20,21 +21,6 @@ CLASS_COLUMNS = {'category', 'classification', 'reason', 'asi_state', 'asi_reaso
 
 def now():
     return datetime.now(timezone.utc).isoformat()
-
-
-def atomic_text(path, text):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as f:
-        tmp = f.name
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    try:
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
 
 
 def fingerprint(path):
@@ -124,7 +110,7 @@ class ReviewStore:
     """SQLite transactions preserve concurrent reviews and their complete audit history."""
     def __init__(self, root):
         self.root = Path(root).expanduser().resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+        shared_directory(self.root)
         self.db = self.root/'manual_reviews.sqlite3'
         with self.connect() as conn:
             conn.execute('CREATE TABLE IF NOT EXISTS reviews (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id TEXT NOT NULL, category TEXT, note TEXT NOT NULL, image_path TEXT NOT NULL, reviewer TEXT NOT NULL, created_utc TEXT NOT NULL)')
@@ -156,26 +142,48 @@ class ReviewStore:
             return pd.read_sql_query('SELECT * FROM reviews ORDER BY id', conn)
 
 
+def classification_directory_name(rules):
+    """Readable criteria; exact values are also retained in settings.json."""
+    number = lambda value: str(float(value)).removesuffix('.0')
+    asi = ('ASI-z'+number(rules.asi_zenith_max)+'-t'+number(rules.asi_total_max)) if rules.use_asi else 'ASI-off'
+    rad = ('RAD-m'+number(rules.radiance_mean_max)+'-s'+number(rules.radiance_std_max)) if rules.use_radiance else 'RAD-off'
+    return '_'.join([rules.window, asi, rad, rules.combine])
+
+
 def save_run(master_path, frame, rules, store):
     """Snapshot decisions and rules; final directory appears only after all files exist."""
     overrides, revision = store.snapshot()
     result = classify(frame, rules, overrides)
-    run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'_'+uuid.uuid4().hex[:8]
+    run_id = classification_directory_name(rules)
     root = store.root/'runs'
-    root.mkdir(exist_ok=True)
+    shared_directory(root)
     temporary = Path(tempfile.mkdtemp(prefix='.pending_', dir=root))
     settings = dict(schema_version=1, created_utc=now(), rules=asdict(rules),
                     master_manifest=str(Path(master_path).resolve()), master_sha256=fingerprint(master_path),
                     manual_revision=revision, counts=result.category.value_counts().to_dict(),
                     rule_definition='window mean ASI cloud percentages and radiance mean/std; inclusive maxima; missing evidence uncertain; manual override wins')
     try:
-        result[['case_id', 'category']].to_csv(temporary/'classification.csv', index=False)
-        (temporary/'settings.json').write_text(json.dumps(settings, indent=2, allow_nan=False)+'\n')
+        shared_csv(result[['case_id', 'category']], temporary/'classification.csv', index=False)
+        atomic_text(temporary/'settings.json', json.dumps(settings, indent=2, allow_nan=False)+'\n')
         case_ids = set(frame.case_id)
         relevant = {k: v for k, v in overrides.items() if k in case_ids}
-        (temporary/'manual_overrides.json').write_text(json.dumps(relevant, indent=2)+'\n')
-        destination = root/run_id
-        os.replace(temporary, destination)
+        atomic_text(temporary/'manual_overrides.json', json.dumps(relevant, indent=2)+'\n')
+        shared_directory(temporary)
+        sequence = 1
+        while True:
+            destination = root/(run_id if sequence == 1 else run_id+'__'+str(sequence))
+            if destination.exists():
+                sequence += 1
+                continue
+            try:
+                # Published runs always contain files: a concurrent writer's run
+                # cannot be replaced by rename. Retry with the next sequence.
+                os.rename(temporary, destination)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+                sequence += 1
     except Exception:
         import shutil
         shutil.rmtree(temporary, ignore_errors=True)
@@ -269,3 +277,4 @@ def satellite_images(root, sounding_time, retrieval_time=None, tolerance_minutes
         return []
     result = match_satellite_images(satellite_inventory(root), sounding_time, retrieval_time, tolerance_minutes)
     return [item['path'] for item in result['matches']]
+

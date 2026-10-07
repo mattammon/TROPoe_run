@@ -3,6 +3,7 @@
 Use an existing cloud-screen manifest, or screen locally available data offline.
 No ARM downloads or fitted/automatically accepted thresholds are performed.
 """
+from shared_outputs import shared_csv, shared_directory
 import argparse
 from datetime import datetime
 import json
@@ -79,7 +80,7 @@ def plot_calibration(manifest, start, end, output_dir, window='context', mean_ma
             raise ValueError(name+' must be finite and nonnegative')
     cases, policy = load_cases(manifest, start, end, window)
     out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
+    shared_directory(out)
     tag = f'985cm_{date_bound(start):%Y%m%d}_{date_bound(end):%Y%m%d}_{window}'
     paths = {kind: out/(tag+suffix) for kind, suffix in
              [('figure', '.png'), ('cases', '_cases.csv'), ('summary', '_summary.json')]}
@@ -134,7 +135,7 @@ def plot_calibration(manifest, start, end, output_dir, window='context', mean_ma
             state: {'eligible': int((eligible & (cases.asi_label == state)).sum()),
                     'passes': int((eligible & passes & (cases.asi_label == state)).sum())}
             for state in COLORS}
-    cases.to_csv(paths['cases'], index=False)
+    shared_csv(cases, paths['cases'], index=False)
     paths['summary'].write_text(json.dumps(summary, indent=2, allow_nan=False)+'\n')
     print(note, flush=True)
     if not policy:
@@ -172,3 +173,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

@@ -1,5 +1,6 @@
 """Paired, normalized Taylor diagrams for aggregated TROPoe profiles."""
 import csv
+from shared_outputs import shared_output, shared_directory
 import logging
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def plot_taylor_profiles(evaluation, models, output_dir, max_height=3., grid_ste
     grid = np.arange(int(np.floor(max_height/grid_step))+1)*grid_step
     grid = grid[grid <= max_height]
     output = Path(output_dir)
-    output.mkdir(parents=True, exist_ok=True)
+    shared_directory(output)
     truth = evaluation.profile_data['observed_snd']
     forecasts = evaluation.profile_data['retrieval_snd']
     dates = list(evaluation.good_dts)
@@ -131,9 +132,10 @@ def plot_taylor_profiles(evaluation, models, output_dir, max_height=3., grid_ste
     fig.savefig(image, dpi=180, bbox_inches='tight')
     plt.close(fig)
     fields = ['variable','model','mode','n_cases','max_height_km','grid_step_km','n_samples','observed_std','retrieved_std','correlation','std_ratio','centered_rmse','normalized_centered_rmse','bias','rmse']
-    with (output/f'Taylor_{mode}_statistics.csv').open('w', newline='') as f:
+    with shared_output(output/f'Taylor_{mode}_statistics.csv') as f:
         writer = csv.DictWriter(f, fieldnames=fields); writer.writeheader(); writer.writerows(records)
-    with (output/f'Taylor_{mode}_exclusions.csv').open('w', newline='') as f:
+    with shared_output(output/f'Taylor_{mode}_exclusions.csv') as f:
         writer = csv.DictWriter(f, fieldnames=['case','variable','reason']); writer.writeheader(); writer.writerows(exclusions)
     print(f'Taylor diagram saved: {image}; paired samples: {counts}; excluded case-variable combinations: {len(exclusions)}')
     return records
+

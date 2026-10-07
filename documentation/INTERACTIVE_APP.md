@@ -152,7 +152,37 @@ Changing thresholds updates a preview. **Apply** creates a unique directory unde
 | `settings.json` | Thresholds/rule, master path and SHA-256, UTC creation time, category counts, manual-review revision. |
 | `manual_overrides.json` | The manual decisions used by this snapshot. |
 
-The master is not duplicated per selection. Prior snapshots are immutable.
+Directory names describe the classification rules. For example,
+`core_ASI-z0-t10_RAD-m7-s0.3_either` means core-window classification with ASI
+near-zenith maximum 0%, total maximum 10%, radiance mean maximum 7 and standard
+deviation maximum 0.3, using the either rule. Disabled instruments are labeled
+`ASI-off` or `RAD-off`. Repeated selections get `__2`, `__3`, etc., without
+replacing earlier results. Names have no timestamps; settings.json retains the
+UTC creation time and full provenance.
+
+The master is not duplicated per selection. Prior snapshots are preserved.
+
+Generated on-disk CSVs use mode **777** (read/write/execute for all users).
+Output directories gain read/traverse access for all users, without adding new
+write permissions to those directories. Renaming or deleting a file owned by
+another user still requires directory write permission from its owner/admin.
+New classification JSON metadata uses **644**; manual-review database permissions
+are unchanged. Permissions are explicit even with a restrictive container umask.
+This applies to classification/master CSVs, retrieval catalogs, to-do/execution
+CSVs, and plotting CSV exports. Browser downloads use the browser machine's rules.
+
+To repair previously generated catalogs, run once as the file-owning user/container:
+
+```bash
+python fix_catalog_permissions.py
+```
+
+Defaults cover the configured cloud classification/screening, retrieval catalog,
+to-do and figure directories. For another directory use
+`python fix_catalog_permissions.py --root /path/to/catalogs`. The command reports
+permission failures, does not follow directory symlinks, and preserves names and
+contents. Existing timestamp-named runs retain their names so stored paths continue
+to work; descriptive naming applies to new saves.
 `manual_reviews.sqlite3` in the shared classification directory keeps every review,
 removal, timestamp, note, reviewer, and image path. Back it up along with the runs
 and master. Removing an override records another event and restores automatic
@@ -452,6 +482,7 @@ aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+
 
 
 
