@@ -8,3 +8,11 @@ numpy>=1.24,<3; python_version >= "3.10"
 pandas>=2.0,<4
 xarray>=2023.1
 netCDF4>=1.6
+# Satellite imagery generated from the classification plot. Install these in
+# the same dashboard environment, or point TROPOE_SATELLITE_PYTHON at an
+# existing Python environment with these dependencies.
+matplotlib>=3.5
+cartopy>=0.21
+boto3>=1.20
+requests>=2.28
+

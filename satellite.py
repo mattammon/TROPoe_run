@@ -1,7 +1,5 @@
 from config import *
-from utils import *
-install_and_import("boto3")
-install_and_import("cartopy")
+from utils import CVI, truncate_colormap
 
 import argparse
 import math

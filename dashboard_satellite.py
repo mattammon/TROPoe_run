@@ -34,7 +34,13 @@ def generate_satellite_image(sounding_time, output_dir, timeout=180):
         raise RuntimeError(f'Satellite generation timed out after {timeout}s.\n'+output[-12000:]) from exc
     output = result.stdout or ''
     if result.returncode:
-        raise RuntimeError(f'satellite.py exited with status {result.returncode}.\n'+output[-12000:])
+        hint = ''
+        if 'ModuleNotFoundError' in output or 'ImportError' in output:
+            hint = ('\nThe satellite Python environment is missing a dependency. Install '
+                    'requirements-dashboard.txt into that environment, or set '
+                    'TROPOE_SATELLITE_PYTHON to a Python executable with the '
+                    'satellite dependencies installed.\n')
+        raise RuntimeError(f'satellite.py exited with status {result.returncode}.\n'+output[-12000:]+hint)
     if not existing():
         raise RuntimeError('satellite.py finished without creating the expected '+prefix+'*.png in '+str(root)+'\n'+output[-12000:])
     return output[-12000:] or 'Satellite image generated.'

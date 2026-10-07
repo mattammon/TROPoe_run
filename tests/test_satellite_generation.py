@@ -27,6 +27,10 @@ class GenerationTests(unittest.TestCase):
     def test_failure_timeout_and_missing_output(self):
         with patch('dashboard_satellite.subprocess.run',return_value=subprocess.CompletedProcess([],1,'missing cartopy')):
             with self.assertRaisesRegex(RuntimeError,'missing cartopy'): generate_satellite_image('2025-03-05',self.root)
+        missing = "ModuleNotFoundError: No module named 'matplotlib'"
+        with patch('dashboard_satellite.subprocess.run',return_value=subprocess.CompletedProcess([],1,missing)):
+            with self.assertRaisesRegex(RuntimeError,'requirements-dashboard.txt'):
+                generate_satellite_image('2025-03-05',self.root)
         with patch('dashboard_satellite.subprocess.run',side_effect=subprocess.TimeoutExpired([],180,output=b'waiting')):
             with self.assertRaisesRegex(RuntimeError,'timed out'): generate_satellite_image('2025-03-05',self.root)
         with patch('dashboard_satellite.subprocess.run',return_value=subprocess.CompletedProcess([],0,'')):

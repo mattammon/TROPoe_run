@@ -283,6 +283,9 @@ Failed requests are not repeated on ordinary reruns or threshold changes in the
 same session; use **Retry satellite generation** after resolving the error. The
 process needs network access to GOES and the dependencies used by `satellite.py`
 (including boto3, Cartopy, Matplotlib, netCDF4, requests, and its `utils.py` imports).
+`requirements-dashboard.txt` now installs these dependencies. If your dashboard
+environment was created before this change, activate it and rerun
+`python -m pip install -r requirements-dashboard.txt`, then restart Streamlit.
 It uses the dashboard's Python by default. If the satellite script already works
 in another environment, set `TROPOE_SATELLITE_PYTHON` to that Python executable
 before launching Streamlit. The existing day/night and GOES selection behavior
@@ -397,5 +400,6 @@ aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+
 
 
