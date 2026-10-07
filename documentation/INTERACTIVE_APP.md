@@ -265,9 +265,8 @@ including individual records of files with multiple times. Filename rounding is
 not used for matching. The default tolerance is 60 seconds, adjustable below
 450 seconds to avoid overlapping adjacent 15-minute windows.
 
-When several records match, the nearest wins, followed by file path and record
-index for deterministic ties. The case catalog exposes the number of candidates,
-chosen file, record index, actual time, and offset. Duplicate matches merit
+When several records match in a comparison plot, the nearest wins, followed by
+file path and record index for deterministic ties. Duplicate matches merit
 inspection; the app cannot infer which experiment you intended.
 
 Native profiles are cached by absolute file path, modification time, size, record,
@@ -278,11 +277,12 @@ load error rather than reading a different record silently.
 
 ## Filter and compare
 
-- Select any available bands; Ch1 is optional.
+- Select bands from Ch1 and the configured Ch2 bands, including bands with no
+  completed output yet. The band selector reruns the current view immediately.
 - Choose an inclusive **UTC sounding date range**.
 - Retrieval comparisons start from clear-sky cases; optionally filter further by
   ASI classification and radiance classification.
-- Click **Apply filters** to apply the sidebar selections together.
+- Click **Apply filters** to apply date, category, and comparison selections together.
 - Select temperature or water vapor mixing ratio; change the vertical
   layer and requested bin size above the charts.
 
@@ -308,13 +308,13 @@ differ. Counts and exclusions are available below every plot.
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
 | 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
 | Cloud diagnostics | Choose numeric manifest diagnostics for either axis; color by final category and symbol by ASI classification. |
-| Case catalog | Inspect the filtered manifest and the actual retrieval record matched to each case/band. |
+| Case catalog | Default view after classification: scroll all clear-sky cases against the selected bands. Green cells have a usable retrieval within the configured to-do tolerance; gray cells are missing or incomplete. Per-band counts and the all-selected/none-selected case counts update when bands change. |
 
 Use Plotly's legend to hide/show traces, hover for values, drag to zoom, and
 double-click to reset axes. Hiding a trace is a display operation; change the
 sidebar band selection to recompute a paired cohort.
 
-Download filtered manifests, matched records, per-case metrics, DFS statistics,
+Download the completion grid and per-band counts from Case catalog. Download filtered manifests, per-case metrics, DFS statistics,
 Taylor statistics, exclusion details, and analysis settings from the relevant
 view or the **Sample counts, exclusions, and downloads** section. The PNG camera
 button exports a figure. **Export this figure → Prepare standalone HTML** creates
@@ -480,13 +480,14 @@ selected-band error; each visible band's absolute error for the selected case;
 and signed selected-band error minus signed Ch1 error. At one case/height,
 absolute error equals pointwise RMSE. The difference heatmap uses matched cases
 and a shared height grid; positive values indicate a more positive error, not
-necessarily a larger error magnitude. Missing Ch1 values are blank. Ch1 is
-loaded as the reference even if not selected as a comparison band. These panels
+necessarily a larger error magnitude. Missing Ch1 values are blank. Ch1 must
+be selected and visible to appear as the reference. These panels
 use available cases, with their Ch1 match counts shown separately from the joint
 aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+
 
 
 

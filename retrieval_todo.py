@@ -30,6 +30,31 @@ def profile_index(profiles):
     return frame.loc[frame.time.notna()].sort_values(['model', 'time'])
 
 
+def completion_matrix(cases, index, models, tolerance=60.):
+    """Completion by clear-sky case and band, using the to-do queue's rule."""
+    if not np.isfinite(tolerance) or not 0 <= tolerance < 450:
+        raise ValueError('Completion tolerance must be finite and between 0 and 450 seconds (exclusive upper limit)')
+    clear = cases.loc[cases.category == 'clear_sky']
+    targets = pd.to_datetime(clear.retrieval_time, utc=True, errors='raise')
+    if targets.isna().any():
+        raise ValueError('Invalid retrieval time in clear-sky cases')
+    values = targets.astype('int64').to_numpy()
+    result = pd.DataFrame(False, index=pd.Index(clear.case_id, name='case_id'), columns=models)
+    offset = int(tolerance * 1e9)
+    for model in models:
+        subset = index.loc[(index.model == model) & (index.status == 'usable')]
+        times = pd.to_datetime(subset.time, utc=True, errors='coerce').dropna()
+        if times.empty or not len(values):
+            continue
+        completed = np.sort(times.astype('int64').to_numpy())
+        positions = np.searchsorted(completed, values - offset)
+        in_range = positions < len(completed)
+        found = np.zeros(len(values), dtype=bool)
+        found[in_range] = completed[positions[in_range]] <= values[in_range] + offset
+        result[model] = found
+    return result
+
+
 def pending_retrievals(cases, index, bands, classification_manifest, retrieval_dir, tolerance=60.):
     if not np.isfinite(tolerance) or not 0 <= tolerance < 450:
         raise ValueError('Completion tolerance must be finite and between 0 and 450 seconds (exclusive upper limit)')
@@ -156,4 +181,5 @@ def execute_todo(path, retrieval_dir, run_one):
         atomic_text(path.with_name(path.stem+'_last_run.csv'), pd.DataFrame(results).to_csv(index=False), catalog=True)
         LOG.info('%s: %s', row.model, result['status'])
     return results
+
 

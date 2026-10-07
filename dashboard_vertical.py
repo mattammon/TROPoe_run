@@ -15,8 +15,7 @@ def plotly_size_kwargs(chart_function):
 
 
 def compare_variables(cases, models, profiles, observations, edges):
-    analysis_models = list(dict.fromkeys(models + ['Ch1']))
-    analyses = {v: build_analysis(cases, analysis_models, profiles, observations, v, edges, False) for v in ('T', 'q')}
+    analyses = {v: build_analysis(cases, models, profiles, observations, v, edges, False) for v in ('T', 'q')}
     common = [c for c in cases.case_id if all((c, m) in analyses[v]['curves'] for m in models for v in analyses)]
     scales = {}
     for v, a in analyses.items():
@@ -58,7 +57,7 @@ def case_error_panels(analysis, model, visible_models, case, ordered_cases):
     curves = analysis['curves']
     ids = [c for c in ordered_cases if (c, model) in curves]
     error = np.array([curves[(c, model)]['error'] for c in ids]).T if ids else np.empty((len(z), 0))
-    delta = np.array([curves[(c, model)]['error']-curves[(c, 'Ch1')]['error'] if (c, 'Ch1') in curves else np.full(len(z), np.nan) for c in ids]).T if ids else error.copy()
+    delta = np.array([curves[(c, model)]['error']-curves[(c, 'Ch1')]['error'] if 'Ch1' in visible_models and (c, 'Ch1') in curves else np.full(len(z), np.nan) for c in ids]).T if ids else error.copy()
     labels = [analysis['case_labels'][c] for c in ids]
     fig = make_subplots(rows=1, cols=3, column_widths=[.38, .24, .38], shared_yaxes=True,
                         subplot_titles=[f'{model} − radiosonde', 'Selected case · absolute error', f'{model} error − Ch1 error'], horizontal_spacing=.07)
@@ -80,7 +79,7 @@ def case_error_panels(analysis, model, visible_models, case, ordered_cases):
     fig.update_layout(height=640, margin=dict(l=50, r=70, t=100, b=150), legend=dict(y=-.4))
     fig.update_yaxes(title_text='Height AGL (km)', row=1, col=1)
     fig.update_xaxes(title_text=f'Absolute error ({units})', row=1, col=2)
-    return fig, int(sum((c, 'Ch1') in curves for c in ids)), len(ids)
+    return fig, int(sum('Ch1' in visible_models and (c, 'Ch1') in curves for c in ids)), len(ids)
 
 
 def render_vertical(cases, models, profiles, observations, edges, display_chart, download_table, load_problems):
@@ -115,8 +114,8 @@ def render_vertical(cases, models, profiles, observations, edges, display_chart,
     if candidates:
         case = st.selectbox('Case for error profiles', candidates, format_func=analyses['T']['case_labels'].get)
         st.caption('These panels use available cases for each variable. The center panel shows absolute error at each height (single-case RMSE). '
-                   'The right panel shows signed error difference: selected band minus Ch1, on the same case and height; positive does not necessarily mean less accurate. '
-                   'A dotted line marks the selected case. Missing Ch1 comparisons are blank.')
+                   'The right panel shows signed error difference: selected band minus Ch1 when Ch1 is selected and visible, on the same case and height; '
+                   'positive does not necessarily mean less accurate. A dotted line marks the selected case. Missing Ch1 comparisons are blank.')
         for v in ('T', 'q'):
             fig, paired_count, total = case_error_panels(analyses[v], band, visible, case, cases.case_id.tolist())
             display_chart(fig, 'case_error_'+v)
@@ -129,3 +128,4 @@ def render_vertical(cases, models, profiles, observations, edges, display_chart,
             download_table('Download vertical-error exclusions', errors, 'vertical_exclusions.csv', 'vertical_exclusions_csv')
         for v, a in analyses.items():
             download_table('Download '+v+' case metrics', a['metrics'], 'vertical_'+v+'_cases.csv', 'vertical_cases_'+v)
+

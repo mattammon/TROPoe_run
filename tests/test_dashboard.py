@@ -161,8 +161,9 @@ class DashboardTests(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(fig.data[1].z), 1.)
         self.assertEqual((n, total), (2, 2))
         reference_only, _, _, _ = compare_variables(cases, ['Ch2_B1'], profiles, obs, np.linspace(.1, 3, 30))
+        self.assertFalse(any(m == 'Ch1' for _, m in reference_only['T']['curves']))
         _, n, total = case_error_panels(reference_only['T'], 'Ch2_B1', ['Ch2_B1'], common[0], common)
-        self.assertEqual((n, total), (2, 2))
+        self.assertEqual((n, total), (0, 2))
         del profiles[(common[0], 'Ch2_B1')]['q']
         _, common, _, _ = compare_variables(cases, models, profiles, obs, np.linspace(.1, 3, 30))
         self.assertEqual(len(common), 1)
@@ -203,6 +204,16 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(set(pending.case_id), {'case'})
         self.assertEqual(len(pending), 18)  # Ch1 + 18 bands, with B6 already complete.
         self.assertNotIn('Ch2_B6', pending.model.tolist())
+        self.assertEqual(next(s for s in app.selectbox if s.label == 'Plot').value, 'Case catalog')
+        bands = next(s for s in app.multiselect if s.label == 'Bands')
+        self.assertEqual(len(bands.value), 19)
+        bands.set_value(['Ch2_B6']).run()
+        self.assertFalse(app.exception)
+        self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['1', '0'])
+        self.assertEqual(next(s for s in app.multiselect if s.label == 'Bands').value, ['Ch2_B6'])
+        next(s for s in app.multiselect if s.label == 'Bands').set_value(['Ch1']).run()
+        self.assertFalse(app.exception)
+        self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['0', '1'])
         for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))
@@ -223,4 +234,5 @@ class DashboardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 

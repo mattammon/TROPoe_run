@@ -9,7 +9,7 @@ import pandas as pd
 import xarray as xr
 from catalog_retrievals import scan
 from dashboard_classification import ClassificationRules, ReviewStore, save_run
-from retrieval_todo import pending_retrievals, profile_index, save_todo, execute_todo
+from retrieval_todo import completion_matrix, pending_retrievals, profile_index, save_todo, execute_todo
 
 class TodoTests(unittest.TestCase):
     def setUp(self):
@@ -41,6 +41,23 @@ class TodoTests(unittest.TestCase):
         self.assertEqual(todo.set_index('model').loc['Ch2_B6','reason'],'incomplete_output')
         self.classified['category']='not_clear_sky'
         self.assertTrue(self.plan().empty)
+    def test_completion_grid_uses_usable_records_and_selected_bands(self):
+        cases=self.classified.copy()
+        second=cases.loc[cases.category=='clear_sky'].iloc[0].copy()
+        second['case_id']='second'
+        second['retrieval_time']=pd.Timestamp('2025-01-01T14:15Z')
+        cases=pd.concat([cases,pd.DataFrame([second])],ignore_index=True)
+        index=pd.DataFrame({'model':['Ch2_B6','Ch1','Ch2_B6'],
+                            'status':['usable','partial','usable'],
+                            'time':pd.to_datetime(['2025-01-01T12:16:00Z','2025-01-01T12:15:00Z','2025-01-01T14:16:01Z'])})
+        grid=completion_matrix(cases,index,['Ch1','Ch2_B6'],60.)
+        self.assertEqual(grid.index.tolist(),['clear','second'])
+        self.assertEqual(grid.to_numpy().tolist(),[[False,True],[False,False]])
+        from dashboard_catalog import completion_summary
+        table,all_complete,none_complete=completion_summary(grid[['Ch2_B6']])
+        self.assertEqual((table['Completed retrievals'].tolist(),all_complete,none_complete),([1],1,1))
+        _,all_complete,none_complete=completion_summary(grid)
+        self.assertEqual((all_complete,none_complete),(0,1))
     def test_scanner_skips_profile_variables_outside_clear_times(self):
         self.output()
         # Outside the clear cohort: valid timestamp but no T/q variables at all.
@@ -94,3 +111,4 @@ class TodoTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError): execute_todo(self.root/'absent.csv',self.outputs,fails)
 
 if __name__=='__main__': unittest.main()
+

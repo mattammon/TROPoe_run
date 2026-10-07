@@ -9,9 +9,10 @@ import streamlit as st
 import dashboard_data as data
 import dashboard_plots as plots
 from dashboard_vertical import plotly_size_kwargs, render_vertical
+from dashboard_catalog import render_catalog
 from dashboard_setup import classification_gate, review_plot
 from dashboard_classification import ClassificationRules, ReviewStore, save_run, fingerprint
-from retrieval_todo import pending_retrievals, save_todo
+from retrieval_todo import expected_models, pending_retrievals, save_todo
 
 st.set_page_config(page_title='TROPoe • Retrieval Explorer', page_icon='🌤️', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -87,7 +88,7 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
                                          root=source['root'], catalog=source['catalog'], sonde_root=source['sonde_root'], scope=scope)
 loaded = st.session_state.loaded_source
 index, index_errors = loaded['index'], loaded['errors']
-available_models = sorted(index.model.unique(), key=data.model_sort)
+catalog_models = expected_models(todo_bands)
 todo_key = (scope, str(todo_path), tuple(todo_bands), todo_tolerance)
 if st.session_state.get('retrieval_todo_key') != todo_key:
     try:
@@ -109,8 +110,16 @@ with st.sidebar:
     st.download_button('Download retrieval to-do', todo.to_csv(index=False), 'retrieval_todo.csv', 'text/csv')
 
 case_labels = dict(zip(all_cases.case_id, all_cases.sounding_time.map(data.case_label)))
-view = st.selectbox('Plot', ['Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
-                            'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Cloud diagnostics', 'Case catalog'])
+with st.sidebar:
+    st.header('Bands')
+    # One immediate selector controls the grid, comparisons, and exported statistics.
+    models = st.multiselect('Bands', catalog_models, default=catalog_models,
+                            key='selection_'+active['path']+'bands')
+view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
+                            'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Cloud diagnostics'])
+if view == 'Case catalog':
+    render_catalog(cases, index, models, case_labels, todo_tolerance, index_errors)
+    st.stop()
 if view == '985 radiance scatter':
     from dataclasses import asdict
     store = ReviewStore(source['output'])
@@ -127,7 +136,7 @@ if cases.empty:
     st.info('No cases are classified as clear sky. The retrieval to-do manifest is empty. Use the radiance scatter or classification editor to review cases.')
     st.stop()
 
-if not available_models and view != '985 radiance scatter':
+if index.empty:
     st.warning('No readable retrieval profiles were found. Inspect the scan errors below, or select the 985 radiance scatter to explore the manifest.')
     st.dataframe(index_errors, **STRETCH)
     st.stop()
@@ -137,7 +146,6 @@ with st.sidebar:
     # Snapshot-specific keys prevent stale category selections after reclassification.
     prefix = 'selection_'+active['path']
     with st.form('filters_'+prefix):
-        models = st.multiselect('Bands', available_models, default=available_models, key=prefix+'bands')
         dates = st.date_input('Sounding date range (UTC)',
                               (cases.sounding_time.min().date(), cases.sounding_time.max().date()),
                               min_value=cases.sounding_time.min().date(), max_value=cases.sounding_time.max().date())
@@ -160,8 +168,8 @@ with st.sidebar:
         no_model = st.checkbox('Use *_no_model DFS diagnostics', value=False)
         st.form_submit_button('Apply filters', type='primary')
 
-if not models and view != '985 radiance scatter':
-    st.info('Select at least one band, then apply filters.')
+if not models:
+    st.info('Select at least one band in the sidebar.')
     st.stop()
 if len(dates) != 2:
     st.info('Choose both endpoints of the date range.')
@@ -189,7 +197,7 @@ if bottom >= top:
     st.stop()
 edges = np.linspace(bottom, top, max(2, int(np.ceil((top-bottom)*1000/spacing)))+1)
 
-load_models = list(dict.fromkeys(models + (['Ch1'] if view == 'Vertical errors' else [])))
+load_models = models
 problems = []
 matches = data.match_cases(selected, index, load_models, tolerance)
 shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
@@ -291,13 +299,6 @@ elif view == 'Cloud diagnostics':
         display_chart(plots.screening_plot(selected, x, y), 'screening')
         n = (pd.to_numeric(selected[x], errors='coerce').notna() & pd.to_numeric(selected[y], errors='coerce').notna()).sum()
         st.caption(f'{n} / {len(selected)} cases have both plotted diagnostics. Missing metrics remain in the cohort when requested.')
-else:
-    st.dataframe(data.display_cases(selected, case_labels), **STRETCH, hide_index=True)
-    if not matches.empty:
-        st.subheader('Matched retrieval records')
-        st.dataframe(data.display_cases(matches, case_labels), **STRETCH, hide_index=True)
-        download_table('Download matched records', matches, 'matched_records.csv', 'matches_csv')
-
 with st.expander('Sample counts, exclusions, and downloads'):
     counts = pd.DataFrame({'model': models})
     counts['loaded'] = [sum(m == model for _, m in profiles) for model in models]
@@ -324,4 +325,5 @@ with st.expander('Sample counts, exclusions, and downloads'):
 with st.expander('Band definitions (cm⁻¹)'):
     from spectralBands import ch1_bands, ch2_bands
     st.dataframe(pd.DataFrame([dict(band=m, wavenumbers=ch1_bands if m == 'Ch1' else ch2_bands.get('band'+m.split('_B')[1], 'Unknown')) for m in models]), hide_index=True)
+
 
