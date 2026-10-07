@@ -54,7 +54,7 @@ try:
 except (ImportError, AttributeError):
     default_root, default_manifest, default_sonde = '', '', ''
 
-st.markdown('### TROPoe / Retrieval Explorer')
+st.markdown('### TROPoe Retrieval Evaluation Toolbox')
 st.caption('Compare spectral bands, cloud conditions, and vertical information content.')
 with st.sidebar:
     st.header('Data source')
