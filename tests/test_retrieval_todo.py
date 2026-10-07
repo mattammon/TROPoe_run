@@ -9,7 +9,7 @@ import pandas as pd
 import xarray as xr
 from catalog_retrievals import scan
 from dashboard_classification import ClassificationRules, ReviewStore, save_run
-from retrieval_todo import completion_matrix, pending_retrievals, profile_index, save_todo, execute_todo
+from retrieval_todo import completion_matrix, pending_retrievals, profile_index, save_todo, execute_todo, normalize_skip_bands
 
 class TodoTests(unittest.TestCase):
     def setUp(self):
@@ -79,6 +79,23 @@ class TodoTests(unittest.TestCase):
         self.assertTrue(all(r['status']=='already_complete' for r in execute_todo(self.queue,self.outputs,run)))
         self.assertEqual(len(calls),1)
         self.assertTrue(self.queue.with_name('todo_last_run.csv').is_file())
+    def test_skip_bands_keeps_todo_and_records_skipped_pairs(self):
+        self.plan()
+        before=self.queue.read_bytes()
+        calls=[]
+        def run(date,channel,band):
+            calls.append((channel,band))
+            self.output('Ch1')
+        results=execute_todo(self.queue,self.outputs,run,['6'])
+        self.assertEqual(calls,[(1,None)])
+        self.assertEqual({r['model']:r['status'] for r in results},
+                         {'Ch1':'completed','Ch2_B6':'skipped_band'})
+        self.assertEqual(self.queue.read_bytes(),before)
+        self.assertEqual(pd.read_csv(self.root/'todo_last_run.csv').status.tolist(),
+                         ['completed','skipped_band'])
+        self.assertEqual(normalize_skip_bands(['Ch1','3, Ch2_B6']),{'Ch1','Ch2_B3','Ch2_B6'})
+        with self.assertRaisesRegex(ValueError,'Unknown band'):
+            normalize_skip_bands(['Ch2_B99'])
     def test_group_entrypoint_uses_configured_queue(self):
         import runpy
         import types
@@ -92,10 +109,16 @@ class TodoTests(unittest.TestCase):
             self.assertEqual((date,channel,band),('202501011212',1,None))
             self.output('Ch1')
         fake_single.run_tropoe=Mock(side_effect=run)
-        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}):
+        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), patch.object(sys,'argv',['GROUP_TROPoe.py']):
             runpy.run_path(str(Path(__file__).resolve().parents[1]/'GROUP_TROPoe.py'),run_name='__main__')
         fake_single.run_tropoe.assert_called_once()
         fake_vip.VIP.assert_called_once_with(in_group=True)
+        fake_single.run_tropoe.reset_mock()
+        fake_vip.VIP.reset_mock()
+        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), patch.object(sys,'argv',['GROUP_TROPoe.py','--skip-bands','Ch1,6']):
+            runpy.run_path(str(Path(__file__).resolve().parents[1]/'GROUP_TROPoe.py'),run_name='__main__')
+        fake_single.run_tropoe.assert_not_called()
+        fake_vip.VIP.assert_not_called()
 
     def test_failure_empty_and_invalid_plans(self):
         self.output(); self.plan()

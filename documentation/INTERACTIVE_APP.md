@@ -248,9 +248,18 @@ again during execution. Failed jobs are logged and subsequent pairs continue.
 A success exit from the driver must also produce a usable matching output to be
 reported complete.
 
+To omit bands for a run, use `python GROUP_TROPoe.py --skip-bands Ch1 3 6`.
+Integers refer to Ch2 bands; `Ch2_B6` and comma-separated values such as `3,6`
+also work. Set `GROUP_TROPOE_SKIP_BANDS = ['Ch1', 3, 6]` in `config.py` for a
+default exclusion. Supplying `--skip-bands` overrides that default; an empty
+`--skip-bands` runs every queued band. This applies to both queue-based and legacy
+GROUP execution. Skipping Ch1 in legacy mode with the LWP gate enabled still
+requires an existing Ch1 output for the gate to assess before Ch2 runs.
+
 The input queue remains a record of the planned work. A separate
-`retrieval_todo_last_run.csv` records `already_complete`, `completed`, `failed`, or
-`still_missing_or_incomplete` after each pair. Rerunning the same queue skips work
+`retrieval_todo_last_run.csv` records `already_complete`, `completed`, `failed`,
+`still_missing_or_incomplete`, or `skipped_band` after each pair. Skipped pairs
+remain in the original queue, so a later run can execute them. Rerunning the same queue skips work
 now complete. In the app, **Refresh retrieval inventory and to-do** rebuilds the
 queue from current files without reclassifying cases; the sidebar shows counts,
 the saved path, and a CSV download. A new classification or manual correction

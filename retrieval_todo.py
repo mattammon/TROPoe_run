@@ -14,6 +14,24 @@ FIELDS = ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'catego
           'channel', 'band', 'model', 'reason', 'classification_manifest', 'retrieval_dir', 'tolerance_seconds']
 
 
+def normalize_skip_bands(values):
+    """Accept Ch1, Ch2_Bn, or n (a Ch2 band), including comma-separated input."""
+    models = set()
+    for value in values:
+        for token in str(value).split(','):
+            token = token.strip()
+            if not token:
+                continue
+            if token.lower() == 'ch1':
+                models.add('Ch1')
+            else:
+                number = token.lower().removeprefix('ch2_b')
+                if not number.isdecimal() or 'band'+str(int(number)) not in ch2_bands:
+                    raise ValueError('Unknown band to skip: '+token)
+                models.add('Ch2_B'+str(int(number)))
+    return models
+
+
 def expected_models(bands):
     bands = sorted(set(int(b) for b in bands))
     if any('band'+str(b) not in ch2_bands for b in bands):
@@ -118,8 +136,9 @@ class LiveInventory:
         return profile_index([p for rows in self.profiles.values() for p in rows])
 
 
-def execute_todo(path, retrieval_dir, run_one):
+def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
     """Run only pending pairs. Keep the input plan and write a separate execution report."""
+    skipped = normalize_skip_bands(skip_bands)
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError('Retrieval to-do manifest is missing. Apply a classification in TROPoe_APP.py first: '+str(path))
@@ -161,6 +180,12 @@ def execute_todo(path, retrieval_dir, run_one):
     results = []
     for number, row in enumerate(jobs.itertuples(), 1):
         LOG.info('To-do %d/%d: %s %s', number, len(jobs), row.case_id, row.model)
+        if row.model in skipped:
+            result = dict(case_id=row.case_id, model=row.model, status='skipped_band', error='')
+            results.append(result)
+            atomic_text(path.with_name(path.stem+'_last_run.csv'), pd.DataFrame(results).to_csv(index=False), catalog=True)
+            LOG.info('%s: skipped by band selection', row.model)
+            continue
         def complete():
             index = live.refresh()
             target = pd.to_datetime(row.retrieval_time, utc=True)

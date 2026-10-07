@@ -58,6 +58,9 @@ CLOUD_CLASSIFICATION_MANIFEST = None
 RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/{GROUP_NAME}/retrieval_todo.csv'
 RETRIEVAL_TODO_BANDS = list(range(1, 19))  # Expected Ch2 bands; Ch1 is also required.
 RETRIEVAL_TODO_TOLERANCE_SECONDS = 60.
+# Leave empty to run every band. Entries can be Ch1, Ch2_B6, or 6 (Ch2 band 6).
+# GROUP_TROPoe.py --skip-bands overrides this setting for a single run.
+GROUP_TROPOE_SKIP_BANDS = []
 # Cloud selections do not also apply the legacy retrieval-LWP gate.
 APPLY_RETRIEVAL_LWP_FILTER = (not (CLOUD_SCREEN_MANIFEST or CLOUD_MASTER_MANIFEST or CLOUD_CLASSIFICATION_MANIFEST)
                               and 'clear' in GROUP_NAME)
@@ -106,4 +109,5 @@ bad_dts = {
         '202505071132'
     ],
 }
+
 
