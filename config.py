@@ -53,6 +53,11 @@ CLOUD_MASTER_MANIFEST = None
 CLOUD_CLASSIFICATION_DIR = f'{DATA_DIR}/cloud_classification/{SITE}'
 # A saved runs/.../classification.csv used by GROUP_TROPoe and cataloging.
 CLOUD_CLASSIFICATION_MANIFEST = None
+# Latest clear-sky case/band queue generated when entering the dashboard.
+# GROUP_TROPoe uses this automatically; set None only for legacy execution.
+RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/{GROUP_NAME}/retrieval_todo.csv'
+RETRIEVAL_TODO_BANDS = list(range(1, 19))  # Expected Ch2 bands; Ch1 is also required.
+RETRIEVAL_TODO_TOLERANCE_SECONDS = 60.
 # Cloud selections do not also apply the legacy retrieval-LWP gate.
 APPLY_RETRIEVAL_LWP_FILTER = (not (CLOUD_SCREEN_MANIFEST or CLOUD_MASTER_MANIFEST or CLOUD_CLASSIFICATION_MANIFEST)
                               and 'clear' in GROUP_NAME)
@@ -101,3 +106,4 @@ bad_dts = {
         '202505071132'
     ],
 }
+

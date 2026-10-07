@@ -17,6 +17,10 @@ class DashboardTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        from unittest.mock import patch
+        self.todo_patch = patch('config.RETRIEVAL_TODO_MANIFEST', str(self.root/'todo.csv'))
+        self.todo_patch.start()
+        self.addCleanup(self.todo_patch.stop)
         self.z = np.linspace(0, 3, 31)
         self.times = pd.date_range('2025-01-01T12:00', periods=2, freq='15min')
         # Filename time deliberately differs from BOTH actual record times.
@@ -172,6 +176,13 @@ class DashboardTests(unittest.TestCase):
         frame = pd.read_csv(self.manifest)
         frame['radiance_core_radiance_mean'] = 6.
         frame['radiance_core_radiance_std'] = .2
+        extra = frame.iloc[0].copy()
+        extra['case_id'] = 'cloudy'
+        extra['retrieval_time'] = '2025-01-01T13:15:00Z'
+        extra['sounding_time'] = '2025-01-01T13:12:00Z'
+        extra['radiance_core_radiance_mean'] = 20.
+        extra['radiance_core_radiance_std'] = 2.
+        frame = pd.concat([frame, pd.DataFrame([extra])], ignore_index=True)
         frame.to_csv(self.manifest, index=False)
         app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
         self.assertFalse(app.exception)
@@ -188,6 +199,10 @@ class DashboardTests(unittest.TestCase):
         next(b for b in app.button if b.label == 'Apply classification and open dashboard').click().run()
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
+        pending = pd.read_csv(self.root/'todo.csv')
+        self.assertEqual(set(pending.case_id), {'case'})
+        self.assertEqual(len(pending), 18)  # Ch1 + 18 bands, with B6 already complete.
+        self.assertNotIn('Ch2_B6', pending.model.tolist())
         for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))
@@ -196,6 +211,8 @@ class DashboardTests(unittest.TestCase):
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state['cloud_active']['cases'].category.iloc[0], 'not_clear_sky')
+        self.assertTrue(pd.read_csv(self.root/'todo.csv').empty)
+        self.assertTrue(app.session_state['loaded_source']['index'].empty)
         self.assertEqual(len(list((self.root/'reviews'/'runs').glob('*/classification.csv'))), 2)
         next(b for b in app.button if b.label == 'Review images / change classification thresholds').click().run()
         app._run()
@@ -206,3 +223,4 @@ class DashboardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

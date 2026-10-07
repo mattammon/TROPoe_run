@@ -111,8 +111,9 @@ The app starts with **cloud classification setup**, without synthetic data.
    classified CSV is imported once into an unclassified sibling named
    `master_manifest_<hash>.csv`; the original is preserved. Future data collection
    writes unclassified masters directly. Diagnostic columns are retained.
-2. Set the retrieval directory (`RETRIEVAL_DIR/GROUP_NAME` by default), optional
-   `catalog_retrievals.py` **profiles.csv**, and optional sounding search directory.
+2. Set the retrieval directory (`RETRIEVAL_DIR/GROUP_NAME` by default) and optional
+   sounding search directory. The dashboard checks live retrieval files for the
+   current clear-sky cases.
 3. Set **Satellite PNG directory** (`SAT_IMAGERY_DIR`) and the durable classification
    directory (`CLOUD_CLASSIFICATION_DIR`). Keep the latter on a writable persistent
    Docker volume and reuse it across periods so manual decisions carry forward.
@@ -160,17 +161,67 @@ changing a case ID creates a different case.
 
 Use **Review images / change classification thresholds** to create another run.
 Comparison filters only change plotted cohorts; they do not change classifications.
-To run retrievals from a saved selection, set `CLOUD_CLASSIFICATION_MANIFEST` in
+For legacy selection (when `RETRIEVAL_TODO_MANIFEST = None`), set `CLOUD_CLASSIFICATION_MANIFEST` in
 `config.py` to its `runs/.../classification.csv`. `GROUP_TROPoe` joins that snapshot
 to its master and selects `CLOUD_SCREEN_CATEGORY`; cataloging accepts the same
 compact path with `--manifest`. Keep `settings.json` alongside the CSV. A changed
 master is rejected: reload it and apply a new classification. Legacy combined
 manifests remain supported. An unclassified master alone cannot select clear cases.
 
-Without a catalog, the app recursively scans `.nc` and `.cdf` outputs named
-`tropoeOutput_Ch1.*` or `tropoeOutput_Ch2_B<number>.*`. Use one experiment/group
-per retrieval directory so different configurations with the same band names do
-not get mixed. The catalog option uses only entries underneath that directory.
+After applying classification, retrieval comparisons load only **clear-sky cases**,
+including persistent manual overrides. The radiance scatter and satellite review
+retain all master cases so cases can still be inspected and reclassified.
+
+The app recursively discovers `.nc`/`.cdf` outputs named `tropoeOutput_Ch1.*` or
+`tropoeOutput_Ch2_B<number>.*`. It reads timestamps for discovery, and reads T/q
+profiles only within the allowed matching range of clear-case retrieval times.
+It checks live files instead of trusting an older profile catalog. Use one
+experiment/group per retrieval directory to keep band configurations consistent.
+No retrieval profiles are loaded when the clear-sky cohort is empty.
+
+### Retrieval to-do manifest and execution
+
+Each applied classification writes the current queue to
+`config.RETRIEVAL_TODO_MANIFEST`, default:
+
+`CLOUD_CLASSIFICATION_DIR/GROUP_NAME/retrieval_todo.csv`
+
+The queue includes **one row per missing clear-case/channel/band pair**. It uses
+all clear cases in the saved classification, independent of dashboard date or band
+filters. By default it expects Ch1 and all 18 Ch2 bands; edit
+`RETRIEVAL_TODO_BANDS` to change the expected Ch2 list. A case with no outputs gets
+19 rows. A case missing only B6 gets one row. An empty queue still has column headers
+and replaces the previous queue, including when no cases are classified clear.
+
+Columns include case ID, sounding and retrieval UTC times, sounding path, channel,
+band/model, reason, saved classification path, retrieval directory, and matching
+tolerance. Completion requires a readable profile with **finite T and q at every
+level and finite increasing heights**, matched to the actual NetCDF timestamp.
+Partial, unreadable, or absent outputs remain pending. This checks structural
+completion, not scientific convergence or retrieved-LWP quality. The completion
+tolerance is `RETRIEVAL_TODO_TOLERANCE_SECONDS` (default 60 seconds); plot matching
+controls do not change that queue policy.
+
+Run `python GROUP_TROPoe.py` in the usual retrieval environment. It automatically
+reads this configured queue, validates its cases against the saved classification
+and its target directory against `RETRIEVAL_DIR/GROUP_NAME`, and executes only the
+listed pairs. It uses the sounding date/time as input to `SINGLE_TROPoe` and verifies
+that the expected target agrees with the driver's quarter-hour rounding. It checks
+live completion before every job, including outputs completed since queue creation;
+filenames alone are not evidence of completion. Only new/changed outputs are read
+again during execution. Failed jobs are logged and subsequent pairs continue.
+A success exit from the driver must also produce a usable matching output to be
+reported complete.
+
+The input queue remains a record of the planned work. A separate
+`retrieval_todo_last_run.csv` records `already_complete`, `completed`, `failed`, or
+`still_missing_or_incomplete` after each pair. Rerunning the same queue skips work
+now complete. In the app, **Refresh retrieval inventory and to-do** rebuilds the
+queue from current files without reclassifying cases; the sidebar shows counts,
+the saved path, and a CSV download. A new classification or manual correction
+rebuilds it automatically. The most recently applied selection owns the configured
+queue path. A missing configured queue raises an error; an empty queue does nothing.
+Set `RETRIEVAL_TODO_MANIFEST = None` only to explicitly restore legacy GROUP execution.
 
 ### Timestamp matching and refresh
 
@@ -186,15 +237,16 @@ inspection; the app cannot infer which experiment you intended.
 
 Native profiles are cached by absolute file path, modification time, size, record,
 and diagnostic-source selection. Existing-file changes are noticed on rerun.
-Click **Load / refresh master data** to find new files. If using a catalog, rebuild that
-catalog first. A stale catalog pointing to a changed record time produces an
-explicit load error rather than reading a different record silently.
+Click **Refresh retrieval inventory and to-do** to find new files and update missing
+bands. An existing cached profile whose timestamp changes produces an explicit
+load error rather than reading a different record silently.
 
 ## Filter and compare
 
 - Select any available bands; Ch1 is optional.
 - Choose an inclusive **UTC sounding date range**.
-- Filter by final cloud category, ASI classification, and radiance classification.
+- Retrieval comparisons start from clear-sky cases; optionally filter further by
+  ASI classification and radiance classification.
 - Click **Apply filters** to apply the sidebar selections together.
 - Select temperature or water vapor mixing ratio; change the vertical
   layer and requested bin size above the charts.
@@ -400,6 +452,7 @@ aggregate cohort. A dotted line locates the selected case on the heatmaps.
 
 Dew point is no longer offered as a dashboard variable. CSV downloads include
 the pooled summary, per-case T/q metrics, and exclusions.
+
 
 
 

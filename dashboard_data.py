@@ -96,11 +96,11 @@ def model_sort(name):
     return (0, 0) if name == 'Ch1' else (1, int(name.split('_B')[1]))
 
 
-def read_index(root, catalog=''):
+def read_index(root, catalog='', target_times=None, tolerance_seconds=60.):
     """Use a catalog or scan actual NetCDF times; never infer time from names."""
     if not Path(root).is_dir():
         raise ValueError('Retrieval directory does not exist: ' + str(root))
-    if catalog:
+    if catalog and target_times is None:
         df = pd.read_csv(catalog)
         needed = {'file', 'channel', 'band', 'profile_index', 'time', 'status'}
         if not needed.issubset(df):
@@ -112,7 +112,7 @@ def read_index(root, catalog=''):
         errors = df.loc[df.status != 'usable'].copy()
     else:
         from catalog_retrievals import scan
-        files, profiles = scan(Path(root))
+        files, profiles = scan(Path(root), target_times=target_times, tolerance_seconds=tolerance_seconds)
         errors = pd.DataFrame([f for f in files if f.get('error')])
         df = pd.DataFrame(profiles)
         if len(df):
@@ -352,3 +352,4 @@ def demo_data():
             profiles[(case, model)] = dict(z=z, T=t+bias+perturbation, q=q+0.2*perturbation,
                                            Td=t-5+perturbation, information=info)
     return pd.DataFrame(rows), models, profiles, observations
+

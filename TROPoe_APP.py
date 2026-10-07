@@ -11,6 +11,7 @@ import dashboard_plots as plots
 from dashboard_vertical import plotly_size_kwargs, render_vertical
 from dashboard_setup import classification_gate, review_plot
 from dashboard_classification import ClassificationRules, ReviewStore, save_run, fingerprint
+from retrieval_todo import pending_retrievals, save_todo
 
 st.set_page_config(page_title='TROPoe • Retrieval Explorer', page_icon='🌤️', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -18,7 +19,7 @@ LOG = logging.getLogger(__name__)
 STRETCH = {'width': 'stretch'} if tuple(int(x) for x in st.__version__.split('.')[:2]) >= (1, 50) else {'use_container_width': True}
 
 # File signatures invalidate the cache when a file changes. A new source load
-# invalidates the directory scan; no catalog or retrieval is modified by this app.
+# invalidates the directory scan; missing clear-sky pairs are saved as a to-do CSV.
 @st.cache_data(show_spinner=False, max_entries=20000)
 def read_profile(signature, record, time, source, no_model):
     return data.load_retrieval(signature, record, time, source, no_model)
@@ -57,26 +58,75 @@ except (ImportError, AttributeError):
 st.markdown('### TROPoe / Retrieval Explorer')
 st.caption('Classify cloud conditions, review satellite imagery, and compare retrievals.')
 source, active = classification_gate(default_manifest, default_root, default_sonde, default_images, default_output)
-cases = active['cases']
-if 'loaded_source' not in st.session_state:
-    with st.spinner('Indexing retrieval timestamps…'):
+all_cases = active['cases']
+cases = all_cases.loc[all_cases.category == 'clear_sky'].copy()
+rules = ClassificationRules(**active['rules'])
+todo_path = getattr(config, 'RETRIEVAL_TODO_MANIFEST', None)
+todo_bands = getattr(config, 'RETRIEVAL_TODO_BANDS', list(range(1, 19)))
+todo_tolerance = getattr(config, 'RETRIEVAL_TODO_TOLERANCE_SECONDS', 60.)
+if st.sidebar.button('Refresh retrieval inventory and to-do'):
+    st.session_state.pop('loaded_source', None)
+    st.session_state.pop('retrieval_todo_key', None)
+scope = (active['path'], source['root'])
+if st.session_state.get('loaded_source', {}).get('scope') != scope:
+    with st.spinner('Checking retrieval timestamps and clear-sky profile completeness…'):
         try:
-            index, index_errors = data.read_index(source['root'], source['catalog'])
+            if not Path(source['root']).exists() or cases.empty:
+                index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
+                index_errors = pd.DataFrame()
+            else:
+                # Read timestamps for discovery, but T/q only near clear-case targets.
+                # Cover the dashboard's allowed matching tolerance. The queue uses
+                # the stricter configured completion tolerance below.
+                index, index_errors = data.read_index(source['root'], target_times=cases.retrieval_time,
+                                                      tolerance_seconds=449.)
         except Exception as exc:
-            index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
-            index_errors = pd.DataFrame([{'error': str(exc)}])
+            st.error('Could not check retrieval completion; no new to-do manifest was written: '+str(exc))
+            st.stop()
     st.session_state.loaded_source = dict(index=index, errors=index_errors, manifest=source['master'],
-                                         root=source['root'], catalog=source['catalog'], sonde_root=source['sonde_root'])
+                                         root=source['root'], catalog=source['catalog'], sonde_root=source['sonde_root'], scope=scope)
 loaded = st.session_state.loaded_source
 index, index_errors = loaded['index'], loaded['errors']
 available_models = sorted(index.model.unique(), key=data.model_sort)
+todo_key = (scope, str(todo_path), tuple(todo_bands), todo_tolerance)
+if st.session_state.get('retrieval_todo_key') != todo_key:
+    try:
+        todo = pending_retrievals(cases, index, todo_bands, active['path'], source['root'], todo_tolerance)
+        if todo_path:
+            save_todo(todo_path, todo)
+        st.session_state.retrieval_todo = todo
+        st.session_state.retrieval_todo_key = todo_key
+    except Exception as exc:
+        st.error('Could not write the retrieval to-do manifest: '+str(exc))
+        st.stop()
+todo = st.session_state.retrieval_todo
+st.caption(f"{len(cases):,} clear-sky cases out of {len(all_cases):,} classified cases. Retrieval comparisons load only clear-sky cases.")
 st.caption(f"Master: {source['master']} · Classification: {active['path']}")
 with st.sidebar:
     st.download_button('Download active classification', Path(active['path']).read_bytes(), 'classification.csv', 'text/csv')
+    st.caption(f'Retrieval to-do: {todo.case_id.nunique():,} cases · {len(todo):,} missing case–band pairs (Ch1 + {len(todo_bands)} Ch2 bands).')
+    st.caption('Saved to: '+str(todo_path) if todo_path else 'Automatic to-do saving is disabled in config.py.')
+    st.download_button('Download retrieval to-do', todo.to_csv(index=False), 'retrieval_todo.csv', 'text/csv')
 
-case_labels = dict(zip(cases.case_id, cases.sounding_time.map(data.case_label)))
+case_labels = dict(zip(all_cases.case_id, all_cases.sounding_time.map(data.case_label)))
 view = st.selectbox('Plot', ['Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
                             'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Cloud diagnostics', 'Case catalog'])
+if view == '985 radiance scatter':
+    from dataclasses import asdict
+    store = ReviewStore(source['output'])
+    def refresh_review_snapshot():
+        if fingerprint(source['master']) != source['master_hash']:
+            raise ValueError('Master changed; reload the master before applying')
+        classified, path = save_run(source['master'], source['cases'], rules, store)
+        st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
+    review_plot(all_cases, rules, source['image_root'], store, key='dashboard_review', on_review=refresh_review_snapshot)
+    download_table('Download classified radiance cases', all_cases, 'radiance_cases.csv', 'radiance_csv')
+    st.stop()
+
+if cases.empty:
+    st.info('No cases are classified as clear sky. The retrieval to-do manifest is empty. Use the radiance scatter or classification editor to review cases.')
+    st.stop()
+
 if not available_models and view != '985 radiance scatter':
     st.warning('No readable retrieval profiles were found. Inspect the scan errors below, or select the 985 radiance scatter to explore the manifest.')
     st.dataframe(index_errors, **STRETCH)
@@ -122,17 +172,6 @@ if missing_columns:
     if not include_missing and (view != '985 radiance scatter' or any(not c.startswith('radiance_') for c in missing_columns)):
         st.stop()
 bounds = {k: v for k, v in bounds.items() if k in cases}
-if view == '985 radiance scatter':
-    from dataclasses import asdict
-    store = ReviewStore(source['output'])
-    def refresh_review_snapshot():
-        if fingerprint(source['master']) != source['master_hash']:
-            raise ValueError('Master changed; reload the master before applying')
-        classified, path = save_run(source['master'], source['cases'], rules, store)
-        st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
-    review_plot(cases, rules, source['image_root'], store, key='dashboard_review', on_review=refresh_review_snapshot)
-    download_table('Download classified radiance cases', cases, 'radiance_cases.csv', 'radiance_csv')
-    st.stop()
 
 selected = data.filter_cases(cases, dates, selections, bounds, include_missing)
 if selected.empty:
@@ -285,3 +324,4 @@ with st.expander('Sample counts, exclusions, and downloads'):
 with st.expander('Band definitions (cm⁻¹)'):
     from spectralBands import ch1_bands, ch2_bands
     st.dataframe(pd.DataFrame([dict(band=m, wavenumbers=ch1_bands if m == 'Ch1' else ch2_bands.get('band'+m.split('_B')[1], 'Unknown')) for m in models]), hide_index=True)
+

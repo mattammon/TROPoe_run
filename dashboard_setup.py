@@ -157,7 +157,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         with st.form('source_form'):
             manifest = st.text_input('Master manifest CSV (legacy manifests can be imported)', default_manifest)
             root = st.text_input('Retrieval directory', default_root)
-            catalog = st.text_input('Catalog profiles.csv (optional)', '')
+            catalog = ''  # Completion is checked against live files for clear cases.
             sonde = st.text_input('Sounding search directory (optional)', default_sonde)
             image_root = st.text_input('Satellite PNG directory', default_images,
                                        help='Search includes subdirectories. Click Load / refresh master data to apply a changed path; it must be visible inside the app/container.')
@@ -243,5 +243,6 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         else:
             st.rerun()
     st.stop()
+
 
 

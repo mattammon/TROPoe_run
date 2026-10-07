@@ -20,9 +20,19 @@ PROFILE_FIELDS = ['file', 'channel', 'band', 'profile_index', 'time', 'status', 
 CASE_FIELDS = ['case_id', 'sounding_time', 'retrieval_time', 'channel', 'band', 'status', 'n_matches', 'matched_file', 'profile_index', 'matched_time', 'offset_seconds', 'matching_files']
 
 
-def scan(root):
+def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None):
     files, profiles = [], []
-    paths = sorted(p for p in root.rglob('*') if p.is_file() and p.suffix.lower() in ('.nc', '.cdf') and NAME.match(p.name))
+    paths = sorted(p for p in (root.rglob('*') if paths is None else paths)
+                   if p.is_file() and p.suffix.lower() in ('.nc', '.cdf') and NAME.match(p.name))
+    if models is not None:
+        def model(path):
+            ident = NAME.match(path.name).groupdict()
+            return 'Ch1' if ident['channel'] == '1' else 'Ch2_B'+str(int(ident['band']))
+        paths = [p for p in paths if model(p) in models]
+    targets = None if target_times is None else np.sort(np.array([pd.Timestamp(t).value for t in pd.to_datetime(list(target_times), utc=True)], dtype=np.int64))
+    if targets is not None and not len(targets):
+        return files, profiles
+    tolerance_ns = int(tolerance_seconds*1e9)
     LOG.info('Scanning %d retrieval files under %s', len(paths), root)
     for number, path in enumerate(paths, 1):
         ident = NAME.match(path.name).groupdict()
@@ -35,12 +45,27 @@ def scan(root):
             with xr.open_dataset(path) as ds:
                 times = dataset_times(ds)
                 row['n_profiles'] = len(times)
+                selected_indices = list(range(len(times)))
+                if targets is not None:
+                    selected_indices = []
+                    for i, timestamp in enumerate(times):
+                        if pd.isna(timestamp):
+                            continue
+                        value = pd.Timestamp(timestamp).value
+                        pos = np.searchsorted(targets, value-tolerance_ns)
+                        if pos < len(targets) and targets[pos] <= value+tolerance_ns:
+                            selected_indices.append(i)
+                if not selected_indices:
+                    row['status'] = 'outside_selection' if len(times) else 'empty'
+                    files.append(row)
+                    continue
                 for name in ('temperature', 'waterVapor', 'height'):
                     if name not in ds:
                         raise ValueError('Missing required variable '+name)
                 # Require an unambiguous time axis. Only read one profile at a time.
                 time_dim = ds['time'].dims[0] if 'time' in ds and ds['time'].ndim == 1 else ds['time_offset'].dims[0]
-                for i, t in enumerate(times):
+                for i in selected_indices:
+                    t = times[i]
                     pr = dict(file=row['file'], channel=row['channel'], band=row['band'], profile_index=i,
                               time='' if pd.isna(t) else pd.Timestamp(t).isoformat(), status='invalid',
                               n_levels=0, n_finite_pairs=0, error='')
@@ -74,7 +99,7 @@ def scan(root):
                     except Exception as exc:
                         pr['error'] = '%s: %s' % (type(exc).__name__, exc)
                     profiles.append(pr)
-                row['status'] = ('empty' if not len(times) else 'usable' if row['n_usable'] == len(times)
+                row['status'] = ('empty' if not len(times) else 'usable' if row['n_usable'] == len(selected_indices)
                                  else 'partial' if row['n_usable'] else 'no_usable_profiles')
         except Exception as exc:
             row['error'] = '%s: %s' % (type(exc).__name__, exc)
@@ -190,3 +215,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
