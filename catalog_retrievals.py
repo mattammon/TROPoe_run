@@ -84,12 +84,12 @@ def scan(root):
 
 
 def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
-    with manifest.open(newline='') as f:
-        reader = csv.DictReader(f)
-        needed = {'case_id', 'sounding_time', 'retrieval_time', 'category'}
-        if not needed.issubset(reader.fieldnames or []):
-            raise ValueError('Manifest requires '+', '.join(sorted(needed)))
-        cases = [r for r in reader if r['category'] == category]
+    from dashboard_classification import read_selection_manifest
+    frame = read_selection_manifest(manifest)
+    needed = {'case_id', 'sounding_time', 'retrieval_time', 'category'}
+    if not needed.issubset(frame):
+        raise ValueError('Manifest requires '+', '.join(sorted(needed)))
+    cases = frame.loc[frame.category == category].to_dict('records')
     configurations = ([(1, '')] if include_ch1 else []) + [(2, str(b)) for b in sorted(set(bands))]
     index = {}
     for p in profiles:
@@ -149,7 +149,7 @@ def main():
     import config
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--retrieval-dir', type=Path, default=Path(config.RETRIEVAL_DIR)/config.GROUP_NAME)
-    parser.add_argument('--manifest', type=Path, default=config.CLOUD_SCREEN_MANIFEST)
+    parser.add_argument('--manifest', type=Path, default=getattr(config, 'CLOUD_CLASSIFICATION_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST)
     parser.add_argument('--inventory-only', action='store_true', help='Do not compare against a manifest')
     parser.add_argument('--bands', nargs='+', type=int, default=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
                         help='Expected Ch2 bands; default: all')

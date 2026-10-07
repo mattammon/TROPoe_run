@@ -359,7 +359,7 @@ def window_stats(frame, start, end, fields, policy):
     return stats, valid
 
 
-def evaluate_case(time, asi, radiance, policy):
+def evaluate_case(time, asi, radiance, policy, diagnostics_only=False):
     time = utc_naive(time)
     # Match the minute-resolution input and quarter-hour rounding in SINGLE_TROPoe.
     minute = time.floor('min')
@@ -383,6 +383,9 @@ def evaluate_case(time, asi, radiance, policy):
                         'PASS' if w['adequate'] else 'FAIL: '+w['adequacy_failures'])
             if kind == 'asi' and policy.asi_first_pass:
                 logger.info('ASI %s coverage check is diagnostic only in first-pass mode', name)
+        if diagnostics_only:
+            evidence[kind] = windows
+            continue
         state, reason = 'uncertain', 'insufficient_valid_coverage'
         enough = all(w['adequate'] for w in windows.values())
         core, context = samples['core'], samples['context']
@@ -426,6 +429,10 @@ def evaluate_case(time, asi, radiance, policy):
                 else:
                     reason = 'radiance_thresholds_not_configured' if not thresholds_set else 'radiance_ambiguous'
         evidence[kind] = {'state': state, 'reason': reason, **windows}
+    if diagnostics_only:
+        return {'sounding_time': time.isoformat(), 'retrieval_time': target.isoformat(),
+                'windows': {k: [s.isoformat(), e.isoformat()] for k, (s, e) in ranges.items()},
+                'evidence': evidence}
     states = {e['state'] for e in evidence.values()}
     if (policy.clear_rule == 'asi' and evidence['asi']['state'] == 'uncertain'
             and evidence['radiance']['state'] == 'clear_sky'):
@@ -450,11 +457,14 @@ def evaluate_case(time, asi, radiance, policy):
 
 def selected_sounding_files(sonde_dir, group, manifest=None, category='clear_sky'):
     """Use an explicit manifest when configured; never fall back on a bad one."""
+    import config
+    from dashboard_classification import read_selection_manifest
+    manifest = getattr(config, 'CLOUD_CLASSIFICATION_MANIFEST', None) or manifest or getattr(config, 'CLOUD_MASTER_MANIFEST', None)
     if not manifest:
         return sorted(str(p) for p in (Path(sonde_dir)/group).glob('*sonde*'))
     if category not in CATEGORIES:
         raise ValueError(f'Invalid cloud-screen category: {category}')
-    df = pd.read_csv(manifest, dtype=str)
+    df = read_selection_manifest(manifest)
     if not {'category', 'sounding_file'} <= set(df.columns):
         raise ValueError('Cloud manifest requires category and sounding_file columns')
     files = df.loc[df.category == category, 'sounding_file'].tolist()

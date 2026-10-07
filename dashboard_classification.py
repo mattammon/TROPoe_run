@@ -1,0 +1,221 @@
+"""Unclassified master data, reproducible classifications, and durable review decisions."""
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+import tempfile
+import uuid
+
+import numpy as np
+import pandas as pd
+
+CATEGORIES = ('clear_sky', 'not_clear_sky', 'uncertain')
+CLASS_COLUMNS = {'category', 'classification', 'reason', 'asi_state', 'asi_reason',
+                 'radiance_state', 'radiance_reason', 'automatic_category', 'manual_category',
+                 'classification_source', 'Case', 'Classification', 'ASI classification', 'Radiance classification'}
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def atomic_text(path, text):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as f:
+        tmp = f.name
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    try:
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def fingerprint(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def strip_classifications(frame):
+    return frame.drop(columns=[c for c in frame if c in CLASS_COLUMNS]).copy()
+
+
+def prepare_master(source):
+    """Reuse clean input, or create one stable, unclassified sibling of a legacy CSV."""
+    source = Path(source).expanduser().resolve()
+    frame = pd.read_csv(source, dtype={'case_id': str})
+    required = {'case_id', 'sounding_file', 'retrieval_time'}
+    if not required.issubset(frame) or frame.case_id.isna().any() or frame.case_id.duplicated().any() or frame.empty:
+        raise ValueError('Master requires unique case_id, sounding_file, retrieval_time, and at least one case')
+    clean = strip_classifications(frame)
+    if list(clean.columns) == list(frame.columns):
+        return source
+    content = clean.to_csv(index=False)
+    digest = hashlib.sha256(content.encode()).hexdigest()[:16]
+    target = source.parent/('master_manifest_'+digest+'.csv')
+    if not target.exists():
+        atomic_text(target, content)
+    elif target.read_text() != content:
+        raise ValueError('Master destination has unexpected contents: '+str(target))
+    return target
+
+
+@dataclass(frozen=True)
+class ClassificationRules:
+    window: str = 'core'
+    use_asi: bool = True
+    use_radiance: bool = True
+    combine: str = 'either'
+    asi_zenith_max: float = 0.
+    asi_total_max: float = 10.
+    radiance_mean_max: float = 7.
+    radiance_std_max: float = .3
+
+    def __post_init__(self):
+        if self.window not in ('core', 'context') or self.combine not in ('either', 'both'):
+            raise ValueError('Invalid classification window or combination rule')
+        if not self.use_asi and not self.use_radiance:
+            raise ValueError('Enable ASI, radiance, or both')
+        for name in ('asi_zenith_max', 'asi_total_max', 'radiance_mean_max', 'radiance_std_max'):
+            value = getattr(self, name)
+            if not np.isfinite(value) or value < 0:
+                raise ValueError('Thresholds must be finite and nonnegative')
+        if self.asi_total_max > 100 or self.asi_zenith_max > 100:
+            raise ValueError('Cloud percentages cannot exceed 100')
+
+
+def instrument_state(frame, limits):
+    values = pd.DataFrame({key: pd.to_numeric(frame[key], errors='coerce') if key in frame else np.nan for key in limits}, index=frame.index)
+    finite = np.isfinite(values)
+    passed = finite.all(axis=1) & values.le(pd.Series(limits)).all(axis=1)
+    failed = (finite & values.gt(pd.Series(limits))).any(axis=1)
+    return pd.Series(np.select([passed, failed], ['clear_sky', 'not_clear_sky'], default='uncertain'), index=frame.index)
+
+
+def classify(frame, rules, overrides=None):
+    """Apply three-valued rules to all master cases; overrides have final precedence."""
+    result = strip_classifications(frame)
+    w = rules.window
+    result['asi_state'] = instrument_state(result, {f'asi_{w}_zenith_mean': rules.asi_zenith_max, f'asi_{w}_total_mean': rules.asi_total_max}) if rules.use_asi else 'disabled'
+    result['radiance_state'] = instrument_state(result, {f'radiance_{w}_radiance_mean': rules.radiance_mean_max, f'radiance_{w}_radiance_std': rules.radiance_std_max}) if rules.use_radiance else 'disabled'
+    columns = (['asi_state'] if rules.use_asi else [])+(['radiance_state'] if rules.use_radiance else [])
+    states = result[columns]
+    clear = states.eq('clear_sky').any(axis=1) if rules.combine == 'either' else states.eq('clear_sky').all(axis=1)
+    cloudy = states.eq('not_clear_sky').all(axis=1) if rules.combine == 'either' else states.eq('not_clear_sky').any(axis=1)
+    result['automatic_category'] = np.select([clear, cloudy], ['clear_sky', 'not_clear_sky'], default='uncertain')
+    result['category'] = result.automatic_category
+    result['classification_source'] = 'thresholds'
+    for case, decision in (overrides or {}).items():
+        category = decision['category'] if isinstance(decision, dict) else decision
+        if category not in CATEGORIES:
+            raise ValueError('Invalid stored manual category: '+str(category))
+        hit = result.case_id == case
+        result.loc[hit, 'category'] = category
+        result.loc[hit, 'classification_source'] = 'manual'
+    return result
+
+
+class ReviewStore:
+    """SQLite transactions preserve concurrent reviews and their complete audit history."""
+    def __init__(self, root):
+        self.root = Path(root).expanduser().resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.db = self.root/'manual_reviews.sqlite3'
+        with self.connect() as conn:
+            conn.execute('CREATE TABLE IF NOT EXISTS reviews (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id TEXT NOT NULL, category TEXT, note TEXT NOT NULL, image_path TEXT NOT NULL, reviewer TEXT NOT NULL, created_utc TEXT NOT NULL)')
+
+    def connect(self):
+        return sqlite3.connect(str(self.db), timeout=30)
+
+    def snapshot(self):
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('SELECT * FROM reviews ORDER BY id').fetchall()
+        current = {}
+        for row in rows:
+            if row['category'] is None:
+                current.pop(row['case_id'], None)
+            else:
+                current[row['case_id']] = dict(row)
+        return current, (rows[-1]['id'] if rows else 0)
+
+    def save(self, case_id, category, note='', image_path='', reviewer=''):
+        if not case_id or (category is not None and category not in CATEGORIES):
+            raise ValueError('Invalid review decision')
+        with self.connect() as conn:
+            conn.execute('INSERT INTO reviews(case_id, category, note, image_path, reviewer, created_utc) VALUES (?, ?, ?, ?, ?, ?)',
+                         (str(case_id), category, note, str(image_path), reviewer, now()))
+
+    def history(self):
+        with self.connect() as conn:
+            return pd.read_sql_query('SELECT * FROM reviews ORDER BY id', conn)
+
+
+def save_run(master_path, frame, rules, store):
+    """Snapshot decisions and rules; final directory appears only after all files exist."""
+    overrides, revision = store.snapshot()
+    result = classify(frame, rules, overrides)
+    run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'_'+uuid.uuid4().hex[:8]
+    root = store.root/'runs'
+    root.mkdir(exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix='.pending_', dir=root))
+    settings = dict(schema_version=1, created_utc=now(), rules=asdict(rules),
+                    master_manifest=str(Path(master_path).resolve()), master_sha256=fingerprint(master_path),
+                    manual_revision=revision, counts=result.category.value_counts().to_dict(),
+                    rule_definition='window mean ASI cloud percentages and radiance mean/std; inclusive maxima; missing evidence uncertain; manual override wins')
+    try:
+        result[['case_id', 'category']].to_csv(temporary/'classification.csv', index=False)
+        (temporary/'settings.json').write_text(json.dumps(settings, indent=2, allow_nan=False)+'\n')
+        case_ids = set(frame.case_id)
+        relevant = {k: v for k, v in overrides.items() if k in case_ids}
+        (temporary/'manual_overrides.json').write_text(json.dumps(relevant, indent=2)+'\n')
+        destination = root/run_id
+        os.replace(temporary, destination)
+    except Exception:
+        import shutil
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    return result, destination/'classification.csv'
+
+
+def read_selection_manifest(manifest, classification=None):
+    """Read legacy combined manifests or join a saved compact snapshot to its master."""
+    manifest = Path(manifest).expanduser().resolve()
+    frame = pd.read_csv(manifest, dtype={'case_id': str})
+    if classification:
+        selection_path = Path(classification).expanduser().resolve()
+        master_path = manifest
+    elif 'category' in frame and 'sounding_file' not in frame:
+        selection_path = manifest
+        settings = json.loads((selection_path.parent/'settings.json').read_text())
+        master_path = Path(settings['master_manifest'])
+    elif 'category' in frame:
+        return frame
+    else:
+        raise ValueError('Master is unclassified. Apply rules in TROPoe_APP.py, then set CLOUD_CLASSIFICATION_MANIFEST to the saved classification.csv path.')
+    settings = json.loads((selection_path.parent/'settings.json').read_text())
+    if fingerprint(master_path) != settings['master_sha256']:
+        raise ValueError('Master has changed since this classification was saved; apply a new classification')
+    master = strip_classifications(pd.read_csv(master_path, dtype={'case_id': str}))
+    labels = pd.read_csv(selection_path, dtype={'case_id': str})
+    if set(labels.columns) != {'case_id', 'category'} or labels.case_id.duplicated().any() or master.case_id.duplicated().any() or set(labels.case_id) != set(master.case_id):
+        raise ValueError('Classification must have exactly one row for every master case')
+    if not labels.category.isin(CATEGORIES).all():
+        raise ValueError('Invalid classification category')
+    joined = master.merge(labels, on='case_id', validate='one_to_one')
+    joined['sounding_file'] = joined.sounding_file.map(lambda value: str((master_path.parent/str(value)).resolve()) if not Path(str(value)).is_absolute() else str(value))
+    return joined
+
+
+def satellite_images(root, sounding_time):
+    """Match the case's exact UTC minute; retain all images sharing that prefix."""
+    root = Path(root).expanduser()
+    if not root.is_dir():
+        return []
+    prefix = pd.to_datetime(sounding_time, utc=True).strftime('%Y%m%d%H%M')
+    return sorted(p for p in root.rglob(prefix+'*') if p.is_file() and p.suffix.lower() == '.png')

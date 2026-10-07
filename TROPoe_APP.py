@@ -9,6 +9,8 @@ import streamlit as st
 import dashboard_data as data
 import dashboard_plots as plots
 from dashboard_vertical import plotly_size_kwargs, render_vertical
+from dashboard_setup import classification_gate, review_plot
+from dashboard_classification import ClassificationRules, ReviewStore, save_run, fingerprint
 
 st.set_page_config(page_title='TROPoe • Retrieval Explorer', page_icon='🌤️', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -25,11 +27,6 @@ def read_profile(signature, record, time, source, no_model):
 @st.cache_data(show_spinner=False, max_entries=5000)
 def read_observation(signature):
     return data.load_sounding(signature)
-
-
-@st.cache_data(show_spinner=False)
-def demo():
-    return data.demo_data()
 
 
 def display_chart(fig, name):
@@ -49,55 +46,33 @@ def download_table(label, df, filename, key):
 try:
     import config
     default_root = str(Path(config.RETRIEVAL_DIR)/config.GROUP_NAME)
-    default_manifest = config.CLOUD_SCREEN_MANIFEST or ''
+    default_manifest = getattr(config, 'CLOUD_MASTER_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST or ''
     default_sonde = config.SONDE_DIR
+    default_images = config.SAT_IMAGERY_DIR
+    default_output = getattr(config, 'CLOUD_CLASSIFICATION_DIR', str(Path(config.DATA_DIR)/'cloud_classification'/config.SITE))
 except (ImportError, AttributeError):
-    default_root, default_manifest, default_sonde = '', '', ''
+    default_root, default_manifest, default_sonde, default_images = '', '', '', ''
+    default_output = str(Path.home()/'tropoe_classifications')
 
-st.markdown('### TROPoe Retrieval Evaluation Toolbox')
-st.caption('Compare spectral bands, cloud conditions, and vertical information content.')
+st.markdown('### TROPoe / Retrieval Explorer')
+st.caption('Classify cloud conditions, review satellite imagery, and compare retrievals.')
+source, active = classification_gate(default_manifest, default_root, default_sonde, default_images, default_output)
+cases = active['cases']
+if 'loaded_source' not in st.session_state:
+    with st.spinner('Indexing retrieval timestamps…'):
+        try:
+            index, index_errors = data.read_index(source['root'], source['catalog'])
+        except Exception as exc:
+            index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
+            index_errors = pd.DataFrame([{'error': str(exc)}])
+    st.session_state.loaded_source = dict(index=index, errors=index_errors, manifest=source['master'],
+                                         root=source['root'], catalog=source['catalog'], sonde_root=source['sonde_root'])
+loaded = st.session_state.loaded_source
+index, index_errors = loaded['index'], loaded['errors']
+available_models = sorted(index.model.unique(), key=data.model_sort)
+st.caption(f"Master: {source['master']} · Classification: {active['path']}")
 with st.sidebar:
-    st.header('Data source')
-    source_mode = st.radio('Source', ['Synthetic demo', 'Retrieval files'], key='source_mode')
-    if source_mode == 'Retrieval files':
-        with st.form('source_form'):
-            manifest_path = st.text_input('Screening manifest CSV', str(default_manifest))
-            root_path = st.text_input('Retrieval directory', default_root, help='Scan recursively; select one experiment/group to avoid mixing configurations.')
-            catalog_path = st.text_input('Catalog profiles.csv (optional)', '', help='Speeds up loading. Rebuild it after new retrievals finish.')
-            sonde_root = st.text_input('Sounding search directory (optional)', default_sonde, help='Used when a manifest sounding path has moved. Duplicate basenames are rejected.')
-            load = st.form_submit_button('Load / refresh data', type='primary')
-        if load:
-            st.session_state.pop('loaded_source', None)
-            try:
-                manifest_path = str(Path(manifest_path).expanduser().resolve())
-                root_path = str(Path(root_path).expanduser().resolve())
-                catalog_path = str(Path(catalog_path).expanduser().resolve()) if catalog_path.strip() else ''
-                with st.spinner('Reading manifest and indexing retrieval timestamps…'):
-                    cases = data.read_manifest(manifest_path)
-                    index, index_errors = data.read_index(root_path, catalog_path)
-                st.session_state.loaded_source = dict(cases=cases, index=index, errors=index_errors,
-                                                       manifest=manifest_path, root=root_path,
-                                                       catalog=catalog_path, sonde_root=str(Path(sonde_root).expanduser()) if sonde_root else '')
-                LOG.info('Loaded %d manifest cases and %d indexed retrieval records', len(cases), len(index))
-            except Exception as exc:
-                st.error(str(exc))
-                LOG.exception('Could not load source')
-
-is_demo = source_mode == 'Synthetic demo'
-if is_demo:
-    cases, available_models, all_profiles, all_observations = demo()
-    index_errors, matches = pd.DataFrame(), pd.DataFrame()
-    st.info('SYNTHETIC DEMO — generated profiles and cloud diagnostics for exploring the controls. These are not measured retrievals.')
-else:
-    loaded = st.session_state.get('loaded_source')
-    if loaded is None:
-        st.info('Enter the paths on the machine running this app, then select “Load / refresh data”.')
-        st.stop()
-    cases, index, index_errors = loaded['cases'], loaded['index'], loaded['errors']
-    available_models = sorted(index.model.unique(), key=data.model_sort)
-    st.caption(f"Manifest: {loaded['manifest']} · Retrievals: {loaded['root']}")
-    if loaded['catalog']:
-        st.caption('Using catalog timestamps. New files appear after rebuilding the catalog and refreshing data.')
+    st.download_button('Download active classification', Path(active['path']).read_bytes(), 'classification.csv', 'text/csv')
 
 case_labels = dict(zip(cases.case_id, cases.sounding_time.map(data.case_label)))
 view = st.selectbox('Plot', ['Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
@@ -109,9 +84,8 @@ if not available_models and view != '985 radiance scatter':
 
 with st.sidebar:
     st.header('Comparison')
-    # Keys change between sources so a demo band/date selection cannot silently
-    # suppress an unrelated real dataset.
-    prefix = 'demo_' if is_demo else 'real_'+loaded['manifest']
+    # Snapshot-specific keys prevent stale category selections after reclassification.
+    prefix = 'selection_'+active['path']
     with st.form('filters_'+prefix):
         models = st.multiselect('Bands', available_models, default=available_models, key=prefix+'bands')
         dates = st.date_input('Sounding date range (UTC)',
@@ -121,21 +95,13 @@ with st.sidebar:
         for key, label in [('category', 'Cloud category'), ('asi_state', 'ASI classification'), ('radiance_state', '985 radiance classification')]:
             choices = sorted(cases[key].unique())
             selections[key] = st.multiselect(label, choices, default=choices)
-        st.caption('Optional cloud-metric limits (manifest values; no reclassification).')
-        window = st.selectbox('Screening window', ['core', 'context'])
+        rules = ClassificationRules(**active['rules'])
+        window = rules.window
         bounds = {}
-        radiance_limits = {}
-        for stem, label, limit in [('asi_{}_total_mean', 'Total cloud cover (%)', 100.),
-                                    ('asi_{}_zenith_mean', 'Near-zenith cloud cover (%)', 100.),
-                                    ('radiance_{}_radiance_mean', '985 radiance mean', 7.),
-                                    ('radiance_{}_radiance_std', '985 radiance standard deviation', 0.3)]:
-            enabled = st.checkbox('Limit '+label, key=prefix+stem+'enabled')
-            maximum = st.number_input('Maximum '+label, min_value=0., value=limit, key=prefix+stem+'maximum')
-            if stem.startswith('radiance_'):
-                radiance_limits[stem] = (maximum, enabled)
-            if enabled:
-                bounds[stem.format(window)] = (-np.inf, maximum)
-        include_missing = st.checkbox('Include missing cloud metrics', value=True)
+        include_missing = True
+        radiance_limits = {'radiance_{}_radiance_mean': (rules.radiance_mean_max, rules.use_radiance),
+                           'radiance_{}_radiance_std': (rules.radiance_std_max, rules.use_radiance)}
+        st.caption('Cloud classifications come from the saved snapshot. Use Review images / change classification thresholds above to create a new snapshot.')
         paired = st.checkbox('Compare the same cases across selected bands', value=True,
                              help='Accuracy and DFS each use their own common cohort. DFS vs RMSE uses their intersection.')
         tolerance = st.number_input('Maximum retrieval time offset (seconds)', min_value=0., max_value=449., value=60.,
@@ -157,43 +123,15 @@ if missing_columns:
         st.stop()
 bounds = {k: v for k, v in bounds.items() if k in cases}
 if view == '985 radiance scatter':
-    show_outside = st.checkbox('Include cases outside radiance limits', value=True,
-                               help='Retains cases rejected by active radiance limits for visual context. Dates, classifications, and ASI limits still apply.')
-    plot_bounds = {k: v for k, v in bounds.items() if not (show_outside and k.startswith('radiance_'))}
-    scatter_cases = data.filter_cases(cases, dates, selections, plot_bounds, include_missing)
-    fields = [f'radiance_{window}_radiance_mean', f'radiance_{window}_radiance_std']
-    absent = [f for f in fields if f not in cases]
-    if absent:
-        st.warning('This manifest has no '+window+' radiance mean/std pair: '+', '.join(absent)+'. Choose another screening window and apply filters.')
-        st.stop()
-    grouping = st.selectbox('Group cases by', ['Classification', 'Season', 'Month', 'Time of day (UTC)',
-                                              'ASI classification', 'Radiance classification', 'Year'])
-    metadata = data.case_metadata(scatter_cases)
-    available = set(metadata[grouping])
-    ordered = data.GROUP_ORDERS.get(grouping, sorted(available))
-    options = [g for g in ordered if g in available]
-    categories = st.multiselect('Visible categories', options, default=options,
-                               key=prefix+'radiance_categories_'+grouping+'_'+window)
-    mean_limit, mean_enabled = radiance_limits['radiance_{}_radiance_mean']
-    std_limit, std_enabled = radiance_limits['radiance_{}_radiance_std']
-    st.caption(f'{window.capitalize()} screening window · Mean ≤ {mean_limit:g} ({"active" if mean_enabled else "reference only"}) · '
-               f'Standard deviation ≤ {std_limit:g} ({"active" if std_enabled else "reference only"}). '
-               'Shading marks the region meeting active radiance limits; it does not change classifications.')
-    figure, plotted = plots.radiance_plot(scatter_cases, window, grouping, mean_limit, std_limit,
-                                          mean_enabled, std_enabled, categories)
-    display_chart(figure, '985_radiance')
-    st.caption(f'{len(plotted):,} plotted cases / {len(scatter_cases):,} cases before category toggles and missing-value removal. '
-               'Click a legend label to toggle its points; double-click to isolate it. Hover for the case date and diagnostics. '
-               'Season, month, and six-hour time blocks use the sounding time in UTC. Each case appears once, independent of retrieval availability.')
-    if plotted.empty:
-        st.info('No cases with finite radiance mean and standard deviation match these selections.')
-    download_table('Download plotted radiance cases', plotted, 'radiance_cases.csv', 'radiance_csv')
-    settings = pd.DataFrame([dict(window=window, mean_limit=mean_limit, std_limit=std_limit,
-                                  mean_active=mean_enabled, std_active=std_enabled, group_by=grouping,
-                                  visible_categories=', '.join(categories), include_outside_limits=show_outside,
-                                  start_date=str(dates[0]), end_date=str(dates[1]), filters=str(plot_bounds),
-                                  classifications=str(selections), include_missing=include_missing)])
-    download_table('Download radiance plot settings', settings, 'radiance_settings.csv', 'radiance_settings')
+    from dataclasses import asdict
+    store = ReviewStore(source['output'])
+    def refresh_review_snapshot():
+        if fingerprint(source['master']) != source['master_hash']:
+            raise ValueError('Master changed; reload the master before applying')
+        classified, path = save_run(source['master'], source['cases'], rules, store)
+        st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
+    review_plot(cases, rules, source['image_root'], store, key='dashboard_review', on_review=refresh_review_snapshot)
+    download_table('Download classified radiance cases', cases, 'radiance_cases.csv', 'radiance_csv')
     st.stop()
 
 selected = data.filter_cases(cases, dates, selections, bounds, include_missing)
@@ -214,44 +152,37 @@ edges = np.linspace(bottom, top, max(2, int(np.ceil((top-bottom)*1000/spacing)))
 
 load_models = list(dict.fromkeys(models + (['Ch1'] if view == 'Vertical errors' else [])))
 problems = []
-if is_demo:
-    profiles = {k: v for k, v in all_profiles.items() if k[0] in set(selected.case_id) and k[1] in load_models}
-    observations = {k: v for k, v in all_observations.items() if k in set(selected.case_id)}
-    if no_model or information_source == 'cdfs':
-        # Demo only supplies Akernal; honor source controls rather than substitute.
-        profiles = {k: dict(v, information={'variables': {}, 'errors': dict.fromkeys(['T', 'q'], 'Synthetic demo supplies only Akernal')}) for k, v in profiles.items()}
-else:
-    matches = data.match_cases(selected, index, load_models, tolerance)
-    shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
-    if shared.any():
-        st.warning('Some manifest cases match the same retrieval record. Inspect the matched-record catalog before treating cases as independent samples.')
-    profiles, observations = {}, {}
-    matched = matches.loc[matches.file.ne('')]
-    st.caption(f'{len(selected):,} filtered cases × {len(load_models)} bands = {len(matches):,} possible case–band pairs; '
-               f'{len(matched):,} pairs have a time-matched retrieval record. A file can contain multiple records.')
-    if len(matched):
-        progress = st.progress(0, text='Loading matched retrieval records…')
-        for n, row in enumerate(matched.itertuples(), 1):
-            try:
-                profiles[(row.case_id, row.model)] = read_profile(data.signature(row.file), row.profile_index,
-                                                                 row.matched_time, information_source, no_model)
-            except Exception as exc:
-                problems.append(dict(case_id=row.case_id, model=row.model, stage='retrieval load', reason=str(exc)))
-                LOG.warning('%s / %s: %s', row.case_id, row.model, exc)
-            if n % 25 == 0 or n == len(matched):
-                progress.progress(n/len(matched), text=f'Loading matched retrieval {n:,} / {len(matched):,}')
-        progress.empty()
-    sounding_progress = st.progress(0, text='Loading radiosondes…')
-    for n, row in enumerate(selected.itertuples(), 1):
+matches = data.match_cases(selected, index, load_models, tolerance)
+shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
+if shared.any():
+    st.warning('Some manifest cases match the same retrieval record. Inspect the matched-record catalog before treating cases as independent samples.')
+profiles, observations = {}, {}
+matched = matches.loc[matches.file.ne('')]
+st.caption(f'{len(selected):,} filtered cases × {len(load_models)} bands = {len(matches):,} possible case–band pairs; '
+           f'{len(matched):,} pairs have a time-matched retrieval record. A file can contain multiple records.')
+if len(matched):
+    progress = st.progress(0, text='Loading matched retrieval records…')
+    for n, row in enumerate(matched.itertuples(), 1):
         try:
-            path = data.sounding_path(row.sounding_file, Path(loaded['manifest']).parent, loaded['sonde_root'])
-            observations[row.case_id] = read_observation(data.signature(path))
+            profiles[(row.case_id, row.model)] = read_profile(data.signature(row.file), row.profile_index,
+                                                             row.matched_time, information_source, no_model)
         except Exception as exc:
-            problems.append(dict(case_id=row.case_id, model='Radiosonde', stage='sounding load', reason=str(exc)))
-            LOG.warning('%s / radiosonde: %s', row.case_id, exc)
-        if n % 25 == 0 or n == len(selected):
-            sounding_progress.progress(n/len(selected), text=f'Loading radiosonde {n:,} / {len(selected):,}')
-    sounding_progress.empty()
+            problems.append(dict(case_id=row.case_id, model=row.model, stage='retrieval load', reason=str(exc)))
+            LOG.warning('%s / %s: %s', row.case_id, row.model, exc)
+        if n % 25 == 0 or n == len(matched):
+            progress.progress(n/len(matched), text=f'Loading matched retrieval {n:,} / {len(matched):,}')
+    progress.empty()
+sounding_progress = st.progress(0, text='Loading radiosondes…')
+for n, row in enumerate(selected.itertuples(), 1):
+    try:
+        path = data.sounding_path(row.sounding_file, Path(loaded['manifest']).parent, loaded['sonde_root'])
+        observations[row.case_id] = read_observation(data.signature(path))
+    except Exception as exc:
+        problems.append(dict(case_id=row.case_id, model='Radiosonde', stage='sounding load', reason=str(exc)))
+        LOG.warning('%s / radiosonde: %s', row.case_id, exc)
+    if n % 25 == 0 or n == len(selected):
+        sounding_progress.progress(n/len(selected), text=f'Loading radiosonde {n:,} / {len(selected):,}')
+sounding_progress.empty()
 
 if view == 'Vertical errors':
     render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems)
@@ -275,10 +206,7 @@ if view == 'Vertical profiles':
     st.caption(f"{case_labels[case]} · {row.category} · ASI: {row.asi_state} · radiance: {row.radiance_state}")
     display_chart(plots.profile_plot(case, models, profiles, observations, variable, (bottom, top)), 'profiles')
     with st.expander('Source files and matched records'):
-        if is_demo:
-            st.write('Synthetic profiles; no source files.')
-        else:
-            st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
+        st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
     if not any((case, m) in profiles and variable in profiles[(case, m)] for m in models):
         st.warning('No selected retrieval profile is available for this case and variable.')
 elif view in ('RMSE comparisons', 'Taylor diagram'):
@@ -347,7 +275,7 @@ with st.expander('Sample counts, exclusions, and downloads'):
     if len(metrics):
         download_table('Download per-case metrics', metrics, 'retrieval_metrics.csv', 'metrics_csv')
     download_table('Download filtered manifest', selected, 'filtered_manifest.csv', 'manifest_csv')
-    settings = pd.DataFrame([dict(source='synthetic' if is_demo else loaded['manifest'], bands=','.join(models),
+    settings = pd.DataFrame([dict(source=loaded['manifest'], classification_manifest=active['path'], bands=','.join(models),
                                   start_date=str(dates[0]), end_date=str(dates[1]), variable=variable,
                                   layer_bottom_km=bottom, layer_top_km=top, bins=len(edges)-1,
                                   paired=paired, tolerance_seconds=tolerance, dfs_source=information_source,

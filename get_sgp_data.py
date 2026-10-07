@@ -1,4 +1,4 @@
-"""Download and classify SGP sounding cases without deleting source data.
+"""Download and collect unclassified diagnostics for SGP sounding cases without deleting source data.
 
 Run ``python get_sgp_data.py --help``; see documentation/CLOUD_SCREENING.md for policy details.
 """
@@ -151,15 +151,13 @@ class SGP_DATA:
             raise ValueError('Legacy range filtering is replaced by ScreenPolicy; see documentation/CLOUD_SCREENING.md')
         return self.screen_cases(**kwargs)
 
-    def screen_cases(self, *, policy=None, offline=False, output_dir=None, retrieval_data='clear_sky'):
+    def screen_cases(self, *, policy=None, offline=False, output_dir=None, retrieval_data='all'):
         started = clock.monotonic()
         policy = policy or ScreenPolicy()
         logger.info('Screening UTC dates %s through %s; offline=%s; retrieval_data=%s', self.start_date, self.end_date, offline, retrieval_data)
         logger.info('Effective policy: %s', json.dumps(asdict(policy), sort_keys=True))
-        if policy.radiance_clear_mean_max is None or policy.radiance_clear_std_max is None:
-            logger.warning('Radiance clear thresholds are not configured; radiances cannot establish clear sky')
-        if retrieval_data not in ('clear_sky', 'all', 'none'):
-            raise ValueError('retrieval_data must be clear_sky, all, or none')
+        if retrieval_data not in ('all', 'none'):
+            raise ValueError('retrieval_data must be all or none; classification now occurs in TROPoe_APP.py')
         catalog_sondes = []
         if not offline:
             # A failed sounding catalog must not masquerade as a complete inventory.
@@ -191,7 +189,7 @@ class SGP_DATA:
             logger.info('Case %d: %s; sounding=%s', len(cases)+1, time, path)
             a, a_errors = asi.around(time, policy.context_minutes)
             r, r_errors = rad.around(time, policy.context_minutes)
-            case = evaluate_case(time, a, r, policy)
+            case = evaluate_case(time, a, r, policy, diagnostics_only=True)
             case.update(case_id=time.strftime('%Y%m%dT%H%M%S')+'_'+name,
                         sounding_file=str(path), sounding_filename=name, time_source='ARM_filename',
                         read_errors={**a_errors, **r_errors})
@@ -206,18 +204,16 @@ class SGP_DATA:
             except Exception as exc:
                 logger.error('Sounding validation failed: %s: %s: %s', path, type(exc).__name__, exc)
                 logger.debug('Sounding validation traceback', exc_info=True)
-                case['category'], case['reason'] = 'uncertain', 'sounding_unavailable_or_time_invalid'
                 case['read_errors'][str(path)] = f'{type(exc).__name__}: {exc}'
             case['radiance_wavenumbers'] = sorted(r.actual_wavenumber.dropna().unique().tolist()) if not r.empty else []
             case['qc_fields'] = {kind: sorted(frame.qc_fields.unique().tolist()) if not frame.empty else []
                                  for kind, frame in [('asi', a), ('radiance', r)]}
             case['asi_uncertainty_fields'] = sorted(a.uncertainty_fields.unique().tolist()) if not a.empty else []
-            logger.info('Case result: %s — %s; ASI=%s (%s); radiance=%s (%s)', case['category'], case['reason'], case['evidence']['asi']['state'], case['evidence']['asi']['reason'], case['evidence']['radiance']['state'], case['evidence']['radiance']['reason'])
             cases.append(case)
 
         # Download other raw streams once per selected day; never use retrieval success as a cloud label.
         wanted_days = sorted({c['sounding_time'][:10] for c in cases
-                              if retrieval_data == 'all' or (retrieval_data == 'clear_sky' and c['category'] == 'clear_sky')})
+                              if retrieval_data == 'all'})
         logger.info('Screened %d cases; ancillary retrieval downloads selected for %d days (offline=%s)', len(cases), len(wanted_days), offline)
         if not cases:
             logger.warning('No soundings found within requested dates')
@@ -251,25 +247,14 @@ class SGP_DATA:
         root = Path(output_dir) if output_dir else Path(config.DATA_DIR)/'cloud_screening'/config.SITE
         run_name = f'{self.start:%Y%m%d}_{self.end:%Y%m%d}_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{policy_hash}_{uuid.uuid4().hex[:8]}'
         run_dir = root/run_name
-        logger.info('Writing manifests and category links: %s', run_dir)
+        logger.info('Writing unclassified master diagnostics: %s', run_dir)
         run_dir.mkdir(parents=True, exist_ok=False)
-        for category in CATEGORIES:
-            (run_dir/category).mkdir()
-        for case in cases:
-            source = Path(case['sounding_file'])
-            if source.is_file():
-                try:
-                    (run_dir/case['category']/source.name).symlink_to(source)
-                except OSError as exc:
-                    logger.warning('Could not link sounding %s: %s', source, exc)
-                    case['organization_error'] = str(exc)
         rows = []
         for case in cases:
-            row = {key: case[key] for key in ('case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'category', 'reason')}
+            row = {key: case[key] for key in ('case_id', 'sounding_time', 'retrieval_time', 'sounding_file')}
             row['policy_hash'] = policy_hash
             row['read_errors'] = json.dumps(case['read_errors'], sort_keys=True)
             for kind, evidence in case['evidence'].items():
-                row[kind+'_state'], row[kind+'_reason'] = evidence['state'], evidence['reason']
                 for window in ('core', 'context'):
                     for key, value in evidence[window].items():
                         if key != 'files':
@@ -277,7 +262,7 @@ class SGP_DATA:
             row['datasets'] = json.dumps(case['datasets'], sort_keys=True)
             rows.append(row)
         # Write the completion marker last. Interrupted runs have no metadata.json.
-        pd.DataFrame(rows, columns=None if rows else ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'category', 'reason']).to_csv(run_dir/'manifest.csv', index=False)
+        pd.DataFrame(rows, columns=None if rows else ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file']).to_csv(run_dir/'manifest.csv', index=False)
         (run_dir/'cases.json').write_text(json.dumps(json_safe(cases), indent=2, allow_nan=False)+'\n')
         (run_dir/'policy.json').write_text(json.dumps(asdict(policy), indent=2)+'\n')
         (run_dir/'downloads.json').write_text(json.dumps(self.download_log, indent=2)+'\n')
@@ -285,18 +270,16 @@ class SGP_DATA:
             revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent, stderr=subprocess.DEVNULL, text=True).strip()
         except (OSError, subprocess.CalledProcessError):
             revision = 'unavailable'
-        metadata = {'schema_version': 1, 'created_utc': datetime.now(timezone.utc).isoformat(),
+        metadata = {'schema_version': 2, 'classification': 'unclassified', 'created_utc': datetime.now(timezone.utc).isoformat(),
                     'start_date_inclusive': self.start_date, 'end_date_inclusive': self.end_date,
                     'scope': 'locally_available_soundings' if offline else 'ARM_live_catalog_and_local_soundings',
                     'catalog_scope_note': 'ARM Live Data covers online files; not an assertion of historical archive completeness.',
                     'git_revision': revision, 'policy_hash': policy_hash, 'radiance_units': 'mW/(m2 sr cm-1)',
-                    'counts': {k: Counter(c['category'] for c in cases)[k] for k in CATEGORIES},
+                    'counts': {'cases': len(cases)},
                     'inventory_errors': inventory_errors, 'retrieval_data_requested': retrieval_data,
                     'offline': offline, 'manifest': str((run_dir/'manifest.csv').resolve())}
         (run_dir/'metadata.json').write_text(json.dumps(metadata, indent=2)+'\n')
         logger.info('Completed in %.1fs: %s', clock.monotonic()-started, metadata['counts'])
-        for kind in ('asi', 'radiance'):
-            logger.info('%s reason totals: %s', kind, dict(Counter(c['evidence'][kind]['reason'] for c in cases)))
         print(json.dumps(metadata['counts']))
         print(f"Manifest: {(run_dir/'manifest.csv').resolve()}")
         return run_dir/'manifest.csv'
@@ -306,10 +289,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('start', nargs='?', help='First UTC date, inclusive (YYYY-MM-DD or YYYYMMDD)')
     parser.add_argument('end', nargs='?', help='Last UTC date, inclusive')
-    parser.add_argument('--offline', action='store_true', help='Classify local files without credentials or network calls')
+    parser.add_argument('--offline', action='store_true', help='Collect local diagnostics without credentials or network calls')
     parser.add_argument('--policy', type=Path, help='JSON policy overrides (unlisted fields retain defaults)')
     parser.add_argument('--output-dir', type=Path, help='Parent directory for a new immutable screening run')
-    parser.add_argument('--retrieval-data', choices=('clear_sky', 'all', 'none'), default='clear_sky')
+    parser.add_argument('--retrieval-data', choices=('all', 'none'), default='all')
     parser.add_argument('--write-default-policy', type=Path, help='Write a policy template and exit')
     parser.add_argument('--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO', help='Console verbosity (default: INFO)')
     parser.add_argument('--log-file', type=Path, help='Append timestamped output to this file as well as the console')

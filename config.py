@@ -22,9 +22,6 @@ GROUP_NAME = 'clear_sky_days'
 # Path printed by get_sgp_data.py. None preserves legacy group-folder selection.
 CLOUD_SCREEN_MANIFEST = '/data/cloud_screening/sgp/20220101_20251231/manifest_reclassified_7_0p3.csv'
 CLOUD_SCREEN_CATEGORY = 'clear_sky'
-# Keep legacy behavior only for legacy cohorts. Cloud manifests are independent
-# of retrieval outcomes; set True explicitly to add the old Ch1 LWP gate.
-APPLY_RETRIEVAL_LWP_FILTER = (not CLOUD_SCREEN_MANIFEST and 'clear' in GROUP_NAME)
 DATA_DIR = f'/data'
 FIG_DIR = f'{DATA_DIR}/FIGS/temp'
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
@@ -50,6 +47,15 @@ SFC_DIR = f'{DATA_DIR}/met/{SITE}'
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{SITE}'
 MASTER_DATA_FOLDER = 'ALL'
 SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}'
+# Dashboard imports legacy CLOUD_SCREEN_MANIFEST if this is None.
+CLOUD_MASTER_MANIFEST = None
+# Durable across app/container restarts; keep this directory on a mounted volume.
+CLOUD_CLASSIFICATION_DIR = f'{DATA_DIR}/cloud_classification/{SITE}'
+# A saved runs/.../classification.csv used by GROUP_TROPoe and cataloging.
+CLOUD_CLASSIFICATION_MANIFEST = None
+# Cloud selections do not also apply the legacy retrieval-LWP gate.
+APPLY_RETRIEVAL_LWP_FILTER = (not (CLOUD_SCREEN_MANIFEST or CLOUD_MASTER_MANIFEST or CLOUD_CLASSIFICATION_MANIFEST)
+                              and 'clear' in GROUP_NAME)
 
 SCRIPT_DIR = f'{DATA_DIR}/script_repo'
 RUN_DIR = f'{DATA_DIR}/script_repo'

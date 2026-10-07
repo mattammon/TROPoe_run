@@ -139,37 +139,6 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn('case_id', displayed)
         self.assertEqual(data.display_cases(cases, labels, keep_id=True).case_id.tolist(), cases.case_id.tolist())
 
-    def test_streamlit_radiance_controls(self):
-        from streamlit.testing.v1 import AppTest
-        app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
-        case_selector = next(s for s in app.selectbox if s.label == 'Case')
-        self.assertIn('UTC', case_selector.options[0])
-        self.assertNotIn('DEMO_', case_selector.options[0])
-        next(s for s in app.selectbox if s.label == 'Plot').select('985 radiance scatter').run()
-        self.assertFalse(app.exception)
-        for group in ['Season', 'Month', 'Time of day (UTC)', 'Classification']:
-            next(s for s in app.selectbox if s.label == 'Group cases by').select(group).run()
-            self.assertFalse(app.exception)
-        next(s for s in app.multiselect if s.label == 'Visible categories').set_value([]).run()
-        self.assertTrue(any('No cases with finite' in i.value for i in app.info))
-        next(s for s in app.multiselect if s.label == 'Visible categories').set_value(['Clear sky']).run()
-        next(c for c in app.checkbox if c.label == 'Limit 985 radiance mean').set_value(True)
-        next(c for c in app.checkbox if c.label == 'Limit 985 radiance standard deviation').set_value(True)
-        next(b for b in app.button if b.label == 'Apply filters').click().run()
-        next(c for c in app.checkbox if c.label == 'Include cases outside radiance limits').set_value(False).run()
-        self.assertFalse(app.exception)
-        # A nonexistent context window must give a helpful message, not crash.
-        next(s for s in app.selectbox if s.label == 'Screening window').select('context')
-        next(b for b in app.button if b.label == 'Apply filters').click().run()
-        self.assertFalse(app.exception)
-        self.assertTrue(any('no context radiance' in w.value for w in app.warning))
-        # No band selection is necessary for manifest-only radiance diagnostics.
-        next(s for s in app.selectbox if s.label == 'Screening window').select('core')
-        next(s for s in app.multiselect if s.label == 'Bands').set_value([])
-        next(b for b in app.button if b.label == 'Apply filters').click().run()
-        self.assertFalse(app.exception)
-        self.assertTrue(any(s.label == 'Group cases by' for s in app.selectbox))
-
     def test_vertical_joint_rmse_and_difference(self):
         from dashboard_vertical import compare_variables, case_error_panels, plotly_size_kwargs
         cases, models, profiles, obs = data.demo_data()
@@ -198,50 +167,41 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(plotly_size_kwargs(legacy), {'use_container_width': True})
         self.assertEqual(plotly_size_kwargs(modern), {'width': 'stretch'})
 
-    def test_vertical_page_interaction(self):
+    def test_classification_first_and_real_dashboard(self):
         from streamlit.testing.v1 import AppTest
-        app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
-        self.assertNotIn('Dew point', next(s for s in app.selectbox if s.label == 'Variable').options)
-        next(s for s in app.selectbox if s.label == 'Plot').select('Vertical errors').run()
-        self.assertFalse(app.exception)
-        before = app.dataframe[0].value.copy()
-        next(c for c in app.checkbox if c.key == 'vertical_visible_Ch1').set_value(False).run()
-        pd.testing.assert_frame_equal(before, app.dataframe[0].value)
-        next(s for s in app.selectbox if s.label == 'Band for case-height errors').select('Ch2_B6').run()
-        self.assertFalse(app.exception)
-        self.assertFalse(any('keyword arguments' in w.value for w in app.warning))
-        for c in app.checkbox:
-            if c.key and c.key.startswith('vertical_visible_'):
-                c.set_value(False)
-        app.run()
-        self.assertFalse(app.exception)
-
-    def test_streamlit_demo_and_real_loader(self):
-        from streamlit.testing.v1 import AppTest
+        frame = pd.read_csv(self.manifest)
+        frame['radiance_core_radiance_mean'] = 6.
+        frame['radiance_core_radiance_std'] = .2
+        frame.to_csv(self.manifest, index=False)
         app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'), default_timeout=60).run()
         self.assertFalse(app.exception)
-        views = ['RMSE comparisons', 'Vertical errors', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Cloud diagnostics', 'Case catalog']
-        for view in views:
+        self.assertFalse(any(s.label == 'Plot' for s in app.selectbox))
+        for label, value in [('Master manifest CSV (legacy manifests can be imported)', str(self.manifest)),
+                             ('Retrieval directory', str(self.root)),
+                             ('Classification and manual-review directory', str(self.root/'reviews')),
+                             ('Satellite PNG directory', str(self.root))]:
+            next(t for t in app.text_input if t.label == label).set_value(value)
+        next(b for b in app.button if b.label == 'Load / refresh master data').click().run()
+        app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
+        self.assertFalse(app.exception)
+        self.assertEqual(app.metric[0].value, '1')
+        next(b for b in app.button if b.label == 'Apply classification and open dashboard').click().run()
+        app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
+        self.assertFalse(app.exception)
+        for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))
-        next(s for s in app.multiselect if s.label == 'Bands').set_value(['Ch2_B6'])
-        next(b for b in app.button if b.label == 'Apply filters').click().run()
+        next(s for s in app.selectbox if s.label == 'Manual classification').select('not_clear_sky')
+        next(b for b in app.button if b.label == 'Save persistent manual override').click().run()
+        app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
-        self.assertEqual(app.metric[1].value, '48')
-        next(c for c in app.checkbox if c.label == 'Limit 985 radiance mean').set_value(True)
-        next(b for b in app.button if b.label == 'Apply filters').click().run()
+        self.assertEqual(app.session_state['cloud_active']['cases'].category.iloc[0], 'not_clear_sky')
+        self.assertEqual(len(list((self.root/'reviews'/'runs').glob('*/classification.csv'))), 2)
+        next(b for b in app.button if b.label == 'Review images / change classification thresholds').click().run()
+        app._run()
+        next(n for n in app.number_input if n.key == 'class_mean').set_value(100.).run()
         self.assertFalse(app.exception)
-        demo_cases = data.demo_data()[0]
-        expected_count = int((demo_cases.radiance_core_radiance_mean <= 7).sum())
-        self.assertEqual(app.metric[0].value, str(expected_count))
-        next(r for r in app.radio if r.label == 'Source').set_value('Retrieval files').run()
-        next(t for t in app.text_input if t.label == 'Screening manifest CSV').set_value(str(self.manifest))
-        next(t for t in app.text_input if t.label == 'Retrieval directory').set_value(str(self.root))
-        next(b for b in app.button if b.label == 'Load / refresh data').click().run()
-        self.assertFalse(app.exception, msg=str(app.exception))
         self.assertEqual(app.metric[1].value, '1')
-        self.assertEqual(app.metric[2].value, '1')
-        self.assertEqual(app.metric[3].value, '1')
 
 
 if __name__ == '__main__':

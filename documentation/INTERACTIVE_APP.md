@@ -1,9 +1,9 @@
 # Interactive retrieval explorer
 
-`TROPoe_APP.py` is a read-only Streamlit app for comparing TROPoe outputs with
+`TROPoe_APP.py` is a Streamlit app for comparing TROPoe outputs with
 radiosondes. It runs on the machine that can read your retrievals. Open the
 interface in a browser; no retrieval files need to be uploaded to a hosting
-service. The app does not launch retrievals or rewrite screening classifications.
+service. The app saves cloud classification snapshots and audited manual reviews. It does not launch retrievals or change retrieval files.
 
 ## Install and launch
 
@@ -104,25 +104,68 @@ or upgrade the driver's SciPy merely to get the dashboard running.
 
 ## Connect your data
 
-The app starts in **Synthetic demo** mode. All demo profiles, cloud diagnostics,
-and resulting statistics are generated; they are not measured retrievals.
+The app starts with **cloud classification setup**, without synthetic data.
 
-1. Select **Retrieval files** in the sidebar.
-2. Set the screening manifest CSV and retrieval directory. Defaults come from
-   `config.py`: `CLOUD_SCREEN_MANIFEST` and `RETRIEVAL_DIR/GROUP_NAME`.
-3. Optionally supply the `profiles.csv` produced by `catalog_retrievals.py`.
-   This avoids reopening every output to build an index. Use the profile catalog,
-   not `cases.csv` or `files.csv`.
-4. Optionally set a sounding search directory if the manifest's sounding paths
-   have moved. Exact paths are tried first, then paths relative to the manifest,
-   then a recursive basename search. Ambiguous matches are rejected.
-5. Click **Load / refresh data**. All paths refer to the machine running the app.
+1. Set **Master manifest CSV** in the sidebar. Defaults come from
+   `CLOUD_MASTER_MANIFEST`, falling back to `CLOUD_SCREEN_MANIFEST`. A legacy
+   classified CSV is imported once into an unclassified sibling named
+   `master_manifest_<hash>.csv`; the original is preserved. Future data collection
+   writes unclassified masters directly. Diagnostic columns are retained.
+2. Set the retrieval directory (`RETRIEVAL_DIR/GROUP_NAME` by default), optional
+   `catalog_retrievals.py` **profiles.csv**, and optional sounding search directory.
+3. Set **Satellite PNG directory** (`SAT_IMAGERY_DIR`) and the durable classification
+   directory (`CLOUD_CLASSIFICATION_DIR`). Keep the latter on a writable persistent
+   Docker volume and reuse it across periods so manual decisions carry forward.
+4. Click **Load / refresh master data**, choose thresholds and inspect the preview.
+5. Click **Apply classification and open dashboard**. Saving must succeed before
+   the dashboard opens. Retrieval scanning/loading occurs after classification.
 
-The manifest requires unique `case_id`, `retrieval_time`, and `sounding_file`
-columns. `sounding_time` defaults to retrieval time if absent. Missing category,
-ASI-state, and radiance-state columns are labeled `unknown`; numeric diagnostic
-columns are optional. The manifest is the case inventory. Retrievals with no
-manifest case do not appear in the comparison.
+The master requires unique `case_id`, `retrieval_time`, and `sounding_file` columns;
+`sounding_time` defaults to retrieval time if absent. Original case IDs remain join
+keys. Numeric diagnostics may be missing; missing evidence is handled explicitly.
+All master cases are classified, whether or not a retrieval or satellite image exists.
+
+### Classification rules and saved files
+
+Choose core or context diagnostics, ASI and/or 985 cm⁻¹ radiance, and **either** or
+**both** when both instruments are enabled. ASI uses **window-mean** near-zenith
+and total cloud percentages. Radiance uses its window mean and standard deviation.
+Each instrument passes when both finite metrics are **at or below** its maxima.
+A finite metric above its limit fails that instrument; otherwise missing required
+metrics give uncertain evidence. Coverage and uncertainty diagnostics do not gate
+these rules. Historical masters contain summaries, so this does not reconstruct
+the previous ASI rule where any single raw sample could establish clear sky.
+
+- **Either:** any passing instrument establishes clear sky; all enabled instruments
+  failing gives not clear sky; other combinations are uncertain.
+- **Both:** every enabled instrument must pass; any failing instrument gives not
+  clear sky; other combinations are uncertain.
+- **Manual review:** a saved override always wins, including over missing data.
+
+Changing thresholds updates a preview. **Apply** creates a unique directory under
+`CLOUD_CLASSIFICATION_DIR/runs/` containing:
+
+| File | Contents |
+| --- | --- |
+| `classification.csv` | Exactly `case_id,category`, one row for every master case. |
+| `settings.json` | Thresholds/rule, master path and SHA-256, UTC creation time, category counts, manual-review revision. |
+| `manual_overrides.json` | The manual decisions used by this snapshot. |
+
+The master is not duplicated per selection. Prior snapshots are immutable.
+`manual_reviews.sqlite3` in the shared classification directory keeps every review,
+removal, timestamp, note, reviewer, and image path. Back it up along with the runs
+and master. Removing an override records another event and restores automatic
+classification for subsequent snapshots. Decisions are keyed by original case ID;
+changing a case ID creates a different case.
+
+Use **Review images / change classification thresholds** to create another run.
+Comparison filters only change plotted cohorts; they do not change classifications.
+To run retrievals from a saved selection, set `CLOUD_CLASSIFICATION_MANIFEST` in
+`config.py` to its `runs/.../classification.csv`. `GROUP_TROPoe` joins that snapshot
+to its master and selects `CLOUD_SCREEN_CATEGORY`; cataloging accepts the same
+compact path with `--manifest`. Keep `settings.json` alongside the CSV. A changed
+master is rejected: reload it and apply a new classification. Legacy combined
+manifests remain supported. An unclassified master alone cannot select clear cases.
 
 Without a catalog, the app recursively scans `.nc` and `.cdf` outputs named
 `tropoeOutput_Ch1.*` or `tropoeOutput_Ch2_B<number>.*`. Use one experiment/group
@@ -143,7 +186,7 @@ inspection; the app cannot infer which experiment you intended.
 
 Native profiles are cached by absolute file path, modification time, size, record,
 and diagnostic-source selection. Existing-file changes are noticed on rerun.
-Click **Load / refresh data** to find new files. If using a catalog, rebuild that
+Click **Load / refresh master data** to find new files. If using a catalog, rebuild that
 catalog first. A stale catalog pointing to a changed record time produces an
 explicit load error rather than reading a different record silently.
 
@@ -152,19 +195,12 @@ explicit load error rather than reading a different record silently.
 - Select any available bands; Ch1 is optional.
 - Choose an inclusive **UTC sounding date range**.
 - Filter by final cloud category, ASI classification, and radiance classification.
-- Optionally cap mean total cloud cover, mean near-zenith cloud cover, mean
-  985 cm⁻¹ radiance, or its standard deviation, using core/context diagnostics.
-  The radiance units are those in the screening manifest/source dataset.
-- Missing cloud metrics are retained by default. Clear **Include missing cloud
-  metrics** to reject them when a numeric limit is active. A missing column is
-  reported explicitly.
 - Click **Apply filters** to apply the sidebar selections together.
 - Select temperature or water vapor mixing ratio; change the vertical
   layer and requested bin size above the charts.
 
-Cloud-metric controls filter the existing manifest; they do not rerun the ASI
-classifier. In particular, near-zenith **cloud percentage** is not solar zenith
-angle. An empty category/band selection selects nothing, not everything.
+Cloud classifications come from the saved snapshot. Near-zenith **cloud percentage**
+is not solar zenith angle. An empty category/band selection selects nothing.
 
 **Compare the same cases across selected bands** is enabled by default.
 Accuracy plots use cases with valid radiosonde comparisons for every selected
@@ -198,39 +234,29 @@ button exports a figure. **Export this figure → Prepare standalone HTML** crea
 an interactive offline figure, including the Plotly library. Exports describe the
 current selection; exports do not modify the original manifest.
 
-### 985 radiance scatter and case labels
+### 985 radiance scatter, satellite review, and case labels
 
-Select **985 radiance scatter** from the plot menu. The x-axis is the mean
-985 cm⁻¹ radiance and the y-axis its standard deviation, using the sidebar's
-**Screening window** (core or context). Click **Apply filters** after changing
-that window or the sidebar limits. The plot title identifies the selected window;
-vertical/horizontal lines label the exact mean/std limits. Active limits are
-green dashed lines, and shading marks their accepted region. Disabled limits
-remain gray dotted references explicitly labeled inactive. Units come from the
-manifest's original radiance dataset; this view does not reclassify cases.
+Both the setup screen and dashboard scatter show all master cases with finite
+985 mean/std coordinates, independent of the comparison cohort. Threshold lines
+and shading show the radiance criterion. Missing-coordinate cases are counted and
+remain available in the case selector. ASI or manual decisions can establish clear
+sky outside the radiance rectangle when the applicable rule permits it.
 
-**Include cases outside radiance limits** is on by default so you can inspect
-points on both sides of the thresholds. Date, classification, and ASI filters
-still apply. Turn it off to apply enabled radiance limits to the displayed cohort.
-Missing/nonfinite radiance coordinates cannot be plotted and are counted in the
-caption. This plot reads manifest diagnostics and does not require a successful
-retrieval or selected band; each case appears once.
+Group points by classification, instrument classification, season, month, year,
+or six-hour UTC block. Click legend entries to toggle groups; double-click isolates
+one. Hover shows a readable UTC date and diagnostics. Click a point to open its
+satellite image in the adjacent panel, or use **Inspect case / satellite image**.
+PNG files are matched recursively beneath `SAT_IMAGERY_DIR` by the exact **sounding
+UTC minute** prefix `YYYYMMDDhhmm`. Multiple matches have an image selector; missing
+images never block classification or review. No nearest-time image is substituted.
 
-Use **Group cases by** to choose final classification, ASI classification,
-radiance classification, season, month, year, or six-hour UTC time blocks.
-Seasons are meteorological DJF/MAM/JJA/SON, and all time categories use the UTC
-sounding time. **Visible categories** provides explicit toggles. You can also
-click legend entries to hide/show a group or double-click to isolate one.
-Legend visibility is a display setting; CSV exports follow the explicit Visible
-categories selection, including groups hidden only through the Plotly legend.
-
-Hover over a point for its readable case date/time, radiance mean/std, and
-classifications. Throughout the app, case selectors, chart axes/hover labels,
-and displayed case columns use dates such as **14 May 2024 · 18:59 UTC** instead
-of sounding filenames. Seconds appear when nonzero. Original case IDs remain
-internal join keys and are retained alongside the readable Case column in CSV
-exports, so distinct records are never merged because their labels look alike.
-Source-file paths remain available in provenance tables.
+Select **Manual classification**, optionally enter a review note/name, and click
+**Save persistent manual override**. On setup this updates the preview; on the
+dashboard it also creates a new snapshot immediately with the current thresholds.
+**Remove override / use thresholds** records the removal. Other open app sessions
+pick up new reviews when they next apply a classification; historical snapshots
+remain unchanged. Cases are labeled, for example, **14 May 2024 · 18:59 UTC**, while
+original IDs remain internal keys and are retained in downloadable tables.
 
 ## Scientific conventions and differences from PLOT_STATS
 
@@ -286,7 +312,9 @@ python -m unittest discover -s tests -p test_dashboard.py -v
 Tests cover actual-time matching despite rounded filenames, multi-record reads,
 unit conversion, inclusive date ranges, missing cloud metrics, paired cohorts,
 nonfinite profiles/no extrapolation, missing soundings with valid DFS, every plot
-family, and interactions with both demo and file-backed Streamlit sources.
+family, and the file-backed setup, Apply transition, dashboard views, and persistent reviews.
+Run `python -m unittest discover -s tests -p test_classification.py -v` for rule,
+audit, snapshot, satellite matching, and master-integrity checks.
 
 
 ## Vertical-error comparison page

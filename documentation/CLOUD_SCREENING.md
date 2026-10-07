@@ -1,3 +1,30 @@
+# Current workflow: collect diagnostics, then classify in the dashboard
+
+`get_sgp_data.py` now writes an **unclassified** `manifest.csv` and `cases.json`.
+It retains cloud/radiance summaries, windows, coverage, quality diagnostics, source
+paths, download provenance and read errors. It does not write category/state/reason
+labels or category symlink folders. Legacy `evaluate_case` classification remains
+available to callers, but collection uses its diagnostics-only mode.
+
+Choose `--retrieval-data all` (the default) to download ancillary retrieval streams
+for all case days, or `--retrieval-data none` to omit those downloads. The previous
+`clear_sky` choice is no longer meaningful before classification and is rejected.
+Offline collection continues to use local files. `ScreenPolicy` controls diagnostic
+extraction/windows; its old clear/cloud thresholds do not classify the new master.
+
+Open `TROPoe_APP.py`, load the master, select ASI/radiance thresholds, and apply.
+The app writes a compact classification snapshot and opens its comparison dashboard.
+See [INTERACTIVE_APP.md](INTERACTIVE_APP.md) for exact rule semantics, satellite
+inspection, durable manual overrides, saved file layouts and retrieval selection.
+Set `CLOUD_CLASSIFICATION_MANIFEST` to the saved `classification.csv` for subsequent
+`GROUP_TROPoe` selection; an unclassified master alone cannot select clear cases.
+
+## Historical classification implementation
+
+The following describes the earlier collection/classification workflow and policy
+fields retained for legacy callers. Its category directories, classification during
+download, and `--retrieval-data clear_sky` instructions do not apply to new collection.
+
 # SGP sounding cloud screening
 
 `get_sgp_data.py` now inventories soundings and assigns **clear_sky**, **not_clear_sky**, or **uncertain** without deleting any source files. A cloud label describes the observed conditions under a recorded screening policy; it is not a guarantee that cloud or aerosol scattering is negligible in every Channel-2 band.
@@ -185,3 +212,4 @@ After updating, rerun the same date range with `--offline` to regenerate outputs
 without network requests. Use the new run's manifest; an interrupted run without
 `metadata.json` is incomplete. Offline mode reclassifies local files and does not
 reconstruct unavailable catalog-only sounding entries from the previous run.
+
