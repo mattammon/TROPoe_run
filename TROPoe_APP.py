@@ -48,7 +48,7 @@ try:
     default_root = str(Path(config.RETRIEVAL_DIR)/config.GROUP_NAME)
     default_manifest = getattr(config, 'CLOUD_MASTER_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST or ''
     default_sonde = config.SONDE_DIR
-    default_images = config.SAT_IMAGERY_DIR
+    default_images = str(Path(config.SAT_IMAGERY_DIR)/config.GROUP_NAME)
     default_output = getattr(config, 'CLOUD_CLASSIFICATION_DIR', str(Path(config.DATA_DIR)/'cloud_classification'/config.SITE))
 except (ImportError, AttributeError):
     default_root, default_manifest, default_sonde, default_images = '', '', '', ''
