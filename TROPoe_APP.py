@@ -273,9 +273,8 @@ if view == 'Vertical errors':
 if view == 'Taylor diagram':
     st.caption('Temperature and water vapor use the same layer and band selection. '
                'Each variable uses its own available/common cohort according to the comparison setting. '
-               'Angle encodes correlation; radius is retrieved standard deviation in °C or g/kg. '
-               'Dotted arcs show centered RMSE in physical units, which excludes bias. '
-               'If bands use different observed standard deviations, colored reference stars identify their cohorts and shared RMSE arcs are omitted.')
+               'Angle encodes correlation; radius is retrieved / observed standard deviation. '
+               'Dotted arcs show centered RMSE divided by observed standard deviation, which excludes bias.')
     st.caption('Only nonnegative correlations are plotted; negative correlations remain in the statistics tables. '
                'The shared legend toggles each band in both panels.')
     analyses = {v: data.build_analysis(selected, models, profiles, observations, v, edges, paired) for v in ('T', 'q')}
@@ -303,20 +302,18 @@ if view == 'DFS vs RMSE':
     individual = st.checkbox('Show individual cases', value=True, key='dfs_show_individual')
     st.caption('This toggle controls case points in both panels. Diamonds show band/source means; '
                'bars show ±1 population standard deviation across the plotted pairs.')
+    analyses = {v: data.build_analysis(selected, models, profiles, observations, v, edges, paired) for v in ('T', 'q')}
+    figure, tables = plots.dfs_rmse_pair(analyses, individual)
+    display_chart(figure, 'dfs_rmse_both')
     for column, v in zip(st.columns(2), ('T', 'q')):
         with column:
-            st.subheader(data.VARIABLES[v][0])
-            analysis = data.build_analysis(selected, models, profiles, observations, v, edges, paired)
-            if analysis['metrics'].empty or not analysis['metrics'].dfs.notna().any():
-                st.info('No cases have both valid RMSE and DFS in this layer.')
-                continue
-            figure, table = plots.dfs_rmse_plot(analysis, individual)
-            display_chart(figure, 'dfs_rmse_'+v)
-            st.dataframe(table, **STRETCH)
-            download_table('Download '+data.VARIABLES[v][0]+' DFS–RMSE summary', table,
+            st.write(data.VARIABLES[v][0]+' statistics')
+            st.dataframe(tables[v], **STRETCH)
+            download_table('Download '+data.VARIABLES[v][0]+' DFS–RMSE summary', tables[v],
                            'dfs_rmse_'+v+'_summary.csv', 'dfs_rmse_csv_'+v)
-            download_table('Download '+data.VARIABLES[v][0]+' case pairs', analysis['metrics'].dropna(subset=['dfs']),
-                           'dfs_rmse_'+v+'_cases.csv', 'dfs_rmse_cases_'+v)
+            if not analyses[v]['metrics'].empty:
+                download_table('Download '+data.VARIABLES[v][0]+' case pairs', analyses[v]['metrics'].dropna(subset=['dfs']),
+                               'dfs_rmse_'+v+'_cases.csv', 'dfs_rmse_cases_'+v)
     st.stop()
 
 analysis = data.build_analysis(selected, models, profiles, observations, variable, edges, paired)
@@ -356,7 +353,14 @@ elif view == 'Information content':
     else:
         mode = st.radio('Information view', ['Cumulative profiles', 'Density profiles', 'Layer distributions'], horizontal=True)
         display_chart(plots.info_plot(analysis, mode), 'information')
-        st.caption('Profile shading is the median across cases, interpolated vertically for display. Diagnostic sources are kept in separate panels.')
+        st.caption('Shading shows the median across cases. Cumulative DFS uses one color per height interval at its upper-edge value; zero is white. Diagnostic sources remain separate.')
+        if mode == 'Cumulative profiles':
+            heights, per_case = plots.dfs_height95(analysis)
+            st.caption('Black ticks mark the mean height where individual cases reach 95% of their total DFS within the selected layer. '
+                       'Heights are interpolated between edges, then averaged with equal case weights. Nonpositive totals and nonmonotonic profiles are excluded.')
+            st.dataframe(heights, **STRETCH, hide_index=True)
+            download_table('Download 95% DFS heights by band', heights, 'dfs_height95_summary.csv', 'dfs_h95_summary')
+            download_table('Download case 95% DFS heights and exclusions', per_case, 'dfs_height95_cases.csv', 'dfs_h95_cases')
         download_table('Download layer DFS', info, 'layer_dfs.csv', 'dfs_csv')
 elif view == 'Cloud diagnostics':
     fields = [k for k in selected if (k.startswith('asi_') or k.startswith('radiance_'))

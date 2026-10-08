@@ -390,7 +390,7 @@ differ. Counts and exclusions are available below every plot.
 | Vertical profiles | Choose an individual case; overlay sounding and selected bands on their native grids. |
 | RMSE comparisons | Case distributions with individual points, time scatter, case/band heatmap, or heatmap differences from a selected baseline. |
 | Vertical errors | Case-height retrieval-minus-sounding errors, or RMSE at each height across cases for a selected band. |
-| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, standard deviation in °C or g/kg, centered RMSE contours in the same units, and a downloadable table with full RMSE and bias. Only nonnegative correlations are plotted; negative correlations remain in the tables. One shared legend toggles bands across both panels. |
+| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, normalized standard deviation, normalized centered RMSE contours, and a downloadable table with full RMSE and bias. Only nonnegative correlations are plotted; negative correlations remain in the tables. One shared legend toggles bands across both panels. |
 | Information content | Median cumulative DFS or DFS density as smooth vertical color strips per band; distributions of DFS integrated over the selected layer. |
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
 | 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
@@ -668,21 +668,36 @@ and case counts. The variable selector is omitted on this page.
 
 ### Taylor and information-content display details
 
-Taylor radius is the retrieved **population standard deviation in physical units**
-(°C for temperature; g/kg for mixing ratio). Larger, 60%-opaque band markers help
-expose overlaps. The radiosonde star is at its observed standard deviation. If
-bands use different observed standard deviations, separate colored reference stars
-are shown and common centered-RMSE contours are omitted. The statistics exports
-still include the standard-deviation ratio as an additional diagnostic.
+Taylor radius is the retrieved population standard deviation divided by the
+observed population standard deviation, with a radiosonde reference at 1.
+Centered-RMSE contours are normalized by the same observed standard deviation.
+Larger, 60%-opaque band markers help expose overlaps. Physical standard deviations
+remain available in the statistics tables.
 
 Information-content titles include the selected layer and actual diagnostic
 source(s). Layer-distribution axes and legends show band names only; source details
-remain in hover labels and exports. Cumulative/density profiles shade the median
-for each band, with vertical interpolation for display and no horizontal cell
-borders. Different diagnostic sources get separate panels with a shared color
+remain in hover labels and exports. Cumulative profiles shade one interval per analysis height bin using the median
+cumulative DFS at its upper edge, with no vertical smoothing or horizontal gaps.
+Density profiles retain vertical interpolation. Zero is white and increasing DFS
+passes through pale yellow, green, teal and blue to dark navy. Negative values,
+if present, use red shades below zero. Different diagnostic sources get separate panels with a shared color
 scale. Bands are not blended horizontally.
 
 DFS vs RMSE displays temperature and mixing ratio side by side. **Show individual
 cases** controls all case scatter points in both panels at once. Turning it off
 leaves the mean diamonds and case-spread bars visible. Each variable has its own
 summary and per-case download.
+
+The cumulative DFS plot marks the **mean 95%-of-layer-total height** for each band
+and source. Each valid case's height is interpolated between cumulative-profile
+edges, then those heights are averaged with equal weights. This is the height
+containing 95% of layer DFS, not the 95th percentile of the distribution of heights.
+The total is restricted to the selected layer. Nonpositive totals and decreasing
+cumulative profiles are excluded; summary and per-case CSVs report counts and
+exclusions. Markers describe means of individual-case crossing heights while
+background shading describes median cumulative profiles.
+
+DFS–RMSE panels now belong to one figure, with a single band-only legend whose
+entries toggle both panels. The source remains in hover details and exported
+tables, and separate sources retain separate means. The figure camera and HTML
+export save both panels together.

@@ -109,8 +109,8 @@ def taylor_plot(analysis, models):
                          observed_std=so, retrieved_std=sr))
     table = pd.DataFrame(rows)
     units = VARIABLES[analysis['variable']][1]
-    deviations = table[['observed_std', 'retrieved_std']].to_numpy().ravel() if len(table) else np.array([])
-    radius = max(.1, max(deviations[np.isfinite(deviations)], default=1)*1.15)
+    deviations = table.std_ratio.to_numpy() if len(table) else np.array([])
+    radius = max(1.5, max(deviations[np.isfinite(deviations)], default=1)*1.15)
     theta = np.linspace(0, np.pi/2, 160)
     for r in np.linspace(0, radius, 5)[1:]:
         fig.add_trace(go.Scatter(x=r*np.cos(theta), y=r*np.sin(theta), mode='lines',
@@ -119,39 +119,26 @@ def taylor_plot(analysis, models):
         x, y = radius*corr, radius*np.sqrt(1-corr**2)
         fig.add_trace(go.Scatter(x=[0, x], y=[0, y], mode='lines', line=dict(color='#E6EBF1', width=1), showlegend=False, hoverinfo='skip'))
         fig.add_annotation(x=x, y=y, text=str(corr), showarrow=False, yshift=8)
-    # A single reference and its centered-RMSE contours are valid only when
-    # every band uses the same observed standard deviation.
-    reference = table.observed_std.to_numpy() if len(table) else np.array([])
-    shared_reference = len(reference) and np.allclose(reference, reference[0])
-    if shared_reference:
-        so = reference[0]
-        theta = np.linspace(0, np.pi, 240)
-        for r in np.linspace(0, radius, 5)[1:]:
-            x, y = so+r*np.cos(theta), r*np.sin(theta)
-            mask = (x >= 0) & (x*x+y*y <= radius*radius)
-            fig.add_trace(go.Scatter(x=x[mask], y=y[mask], mode='lines',
-                name=f'Centered RMSE = {r:.3g} {units}', showlegend=False,
-                hovertemplate=f'Centered RMSE: {r:.3g} {units}<extra></extra>',
-                line=dict(color='#9EADB9', dash='dot', width=1)))
-        fig.add_trace(go.Scatter(x=[so], y=[0], mode='markers',
-            marker=dict(symbol='star', size=20, color='black'), name='Radiosonde',
-            hovertemplate=f'Observed σ: {so:.3g} {units}<extra></extra>'))
-    else:
-        for row in table.itertuples():
-            fig.add_trace(go.Scatter(x=[row.observed_std], y=[0], mode='markers',
-                marker=dict(symbol='star', size=20, opacity=.65, color=colors(models)[row.model]),
-                name=row.model+' radiosonde',
-                hovertemplate=f'{row.model} cohort observed σ: {row.observed_std:.3g} {units}<extra></extra>'))
+    theta = np.linspace(0, np.pi, 240)
+    for r in (.25, .5, 1.):
+        x, y = 1+r*np.cos(theta), r*np.sin(theta)
+        mask = (x >= 0) & (x*x+y*y <= radius*radius)
+        fig.add_trace(go.Scatter(x=x[mask], y=y[mask], mode='lines', showlegend=False,
+            name=f'Centered RMSE / σobs = {r:g}',
+            hovertemplate=f'Centered RMSE / σobs: {r:g}<extra></extra>',
+            line=dict(color='#9EADB9', dash='dot', width=1)))
+    fig.add_trace(go.Scatter(x=[1], y=[0], mode='markers',
+        marker=dict(symbol='star', size=20, color='black'), name='Radiosonde'))
     for row in table.itertuples():
-        if not np.isfinite(row.correlation) or row.correlation < 0 or not np.isfinite(row.retrieved_std):
+        if not np.isfinite(row.correlation) or row.correlation < 0 or not np.isfinite(row.std_ratio):
             continue
-        fig.add_trace(go.Scatter(x=[row.retrieved_std*row.correlation], y=[row.retrieved_std*np.sqrt(max(0, 1-row.correlation**2))],
+        fig.add_trace(go.Scatter(x=[row.std_ratio*row.correlation], y=[row.std_ratio*np.sqrt(max(0, 1-row.correlation**2))],
                                 mode='markers', name=row.model, marker=dict(size=22, opacity=.6, color=colors(models)[row.model], line=dict(width=1, color=colors(models)[row.model])),
-                                text=[f'{row.model}<br>r={row.correlation:.4f}<br>σretrieval={row.retrieved_std:.3f} {units}<br>σobserved={row.observed_std:.3f} {units}<br>RMSE={row.rmse:.3f} {units}<br>N={row.cases} cases'],
+                                text=[f'{row.model}<br>r={row.correlation:.4f}<br>σ/σobs={row.std_ratio:.3f}<br>σretrieval={row.retrieved_std:.3f} {units}<br>σobserved={row.observed_std:.3f} {units}<br>RMSE={row.rmse:.3f} {units}<br>N={row.cases} cases'],
                                 hovertemplate='%{text}<extra></extra>'))
     fig.update_xaxes(range=[0, radius*1.06], constrain='domain')
     fig.update_yaxes(range=[-0.05, radius*1.1], scaleanchor='x', scaleratio=1)
-    return finish(fig, VARIABLES[analysis['variable']][0]+' · Taylor diagram', f'σretrieval × correlation ({units})', f'Standard deviation component ({units})'), table
+    return finish(fig, VARIABLES[analysis['variable']][0]+' · Taylor diagram', 'σretrieval / σobserved × correlation', 'Normalized standard deviation component'), table
 
 
 def taylor_pair(analyses, models):
@@ -176,7 +163,7 @@ def taylor_pair(analyses, models):
                          title_text=panel.layout.xaxis.title.text, row=1, col=col)
         fig.update_yaxes(range=list(panel.layout.yaxis.range), scaleanchor='x' if col == 1 else 'x2',
                          scaleratio=1, constrain='domain', title_text=panel.layout.yaxis.title.text, row=1, col=col)
-    finish(fig, 'Taylor diagrams · positive correlations')
+    finish(fig, 'Normalized Taylor diagrams · positive correlations')
     fig.update_layout(height=650, legend=dict(groupclick='togglegroup', y=-.22), margin=dict(b=130))
     return fig, tables
 
@@ -184,6 +171,31 @@ def taylor_pair(analyses, models):
 def info_frame(analysis):
     return pd.DataFrame([dict(case_id=case, Case=analysis['case_labels'][case], model=model, dfs=d['dfs'], source=d['source'],
                               series=f"{model} · {d['source']}") for (case, model), d in analysis['information'].items()])
+
+
+def dfs_height95(analysis):
+    """Mean of individual-case 95%-of-layer-total heights, by band/source."""
+    rows = []
+    edges = np.asarray(analysis['edges'], dtype=float)
+    for (case, model), item in analysis['information'].items():
+        curve = np.asarray(item['cumulative'], dtype=float)
+        height, reason = np.nan, ''
+        if len(curve) != len(edges) or not np.isfinite(curve).all():
+            reason = 'Missing/nonfinite cumulative profile'
+        elif curve[-1]-curve[0] <= 0:
+            reason = 'Nonpositive layer-total DFS'
+        elif np.any(np.diff(curve) < -1e-10):
+            reason = 'Nonmonotonic cumulative DFS'
+        else:
+            curve = np.maximum.accumulate(curve)
+            target = curve[0] + .95*(curve[-1]-curve[0])
+            i = int(np.searchsorted(curve, target, side='left'))
+            height = float(np.interp(target, curve[i-1:i+1], edges[i-1:i+1]))
+        rows.append(dict(case_id=case, Band=model, Source=item['source'], height95_km=height, exclusion=reason))
+    cases = pd.DataFrame(rows, columns=['case_id', 'Band', 'Source', 'height95_km', 'exclusion'])
+    summary = cases.groupby(['Band', 'Source'], sort=False).height95_km.agg(['mean', 'count', 'size']).reset_index()
+    summary.columns = ['Band', 'Source', 'Mean 95% height (km AGL)', 'Valid cases', 'Total cases']
+    return summary, cases
 
 
 def info_plot(analysis, mode):
@@ -222,20 +234,34 @@ def info_plot(analysis, mode):
         matrices.append(np.column_stack(columns))
         counts.append(ns)
     finite = np.concatenate([m[np.isfinite(m)] for m in matrices])
-    low, high = (float(finite.min()), float(finite.max())) if len(finite) else (0., 1.)
+    low = min(0., float(finite.min())) if len(finite) else 0.
+    high = max(1e-9, float(finite.max())) if len(finite) else 1.
+    palette = ['#ffffff', '#ffffd9', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58']
+    zero = -low/(high-low)
+    scale = ([[0., '#b2182b']] if low < 0 else []) + [[zero+(1-zero)*i/(len(palette)-1), c] for i, c in enumerate(palette)]
+    heights, _ = dfs_height95(analysis)
     for col, (source, matrix, ns) in enumerate(zip(sources, matrices, counts), 1):
-        # Dense interpolation ONLY within each band gives smooth vertical
-        # shading without blending neighboring band identities.
-        dense_z = np.linspace(analysis['edges'][0], analysis['edges'][-1], max(256, len(z)))
-        dense = np.column_stack([np.interp(dense_z, z, matrix[:, i]) for i in range(len(models))])
-        fig.add_trace(go.Heatmap(x=models, y=dense_z, z=dense, xgap=2, ygap=0,
-            colorscale='Viridis', zmin=low, zmax=high, coloraxis='coloraxis',
-            customdata=np.tile(ns, (len(dense_z), 1)),
+        if field == 'cumulative':
+            # One color per analysis interval, evaluated at its upper edge.
+            # Explicit edges preserve the selected height grid without gaps.
+            plot_z, values = analysis['edges'], matrix[1:]
+        else:
+            plot_z = np.linspace(analysis['edges'][0], analysis['edges'][-1], max(256, len(z)))
+            values = np.column_stack([np.interp(plot_z, z, matrix[:, i]) for i in range(len(models))])
+        fig.add_trace(go.Heatmap(x=models, y=plot_z, z=values, xgap=2, ygap=0, zsmooth=False,
+            coloraxis='coloraxis', customdata=np.tile(ns, (len(values), 1)),
             hovertemplate='%{x}<br>Height: %{y:.3f} km<br>Median: %{z:.3f}<br>N=%{customdata}<extra>'+source+'</extra>'), row=1, col=col)
+        if field == 'cumulative':
+            subset = heights.loc[heights.Source.eq(source) & heights['Mean 95% height (km AGL)'].notna()]
+            fig.add_trace(go.Scatter(x=subset.Band, y=subset['Mean 95% height (km AGL)'],
+                mode='markers', name='Mean 95% DFS height', legendgroup='height95', showlegend=col == 1,
+                marker=dict(symbol='line-ew', size=22, color='black', line=dict(width=2, color='black')),
+                customdata=subset[['Valid cases', 'Total cases']].to_numpy(),
+                hovertemplate='%{x}<br>Mean 95% height: %{y:.3f} km AGL<br>%{customdata[0]}/%{customdata[1]} valid cases<extra></extra>'), row=1, col=col)
         fig.update_xaxes(title_text='Band', tickangle=-45, row=1, col=col)
     units = 'Cumulative DFS' if field == 'cumulative' else 'DFS density (km⁻¹)'
     finish(fig, f'Median {units} · {layer}<br>{source_title}')
-    fig.update_layout(coloraxis=dict(colorscale='Viridis', cmin=low, cmax=high, colorbar=dict(title=units)))
+    fig.update_layout(coloraxis=dict(colorscale=scale, cmin=low, cmax=high, colorbar=dict(title=units)))
     fig.update_yaxes(title_text='Height AGL (km)', range=[analysis['edges'][0], analysis['edges'][-1]], row=1, col=1)
     return fig
 
@@ -250,16 +276,41 @@ def dfs_rmse_plot(analysis, individual=True):
     for series, group in df.groupby('series', sort=False):
         color = color_map[group.model.iloc[0]]
         if individual:
-            fig.add_trace(go.Scatter(x=group.dfs, y=group.rmse, mode='markers', name=series+' cases',
-                                    marker=dict(color=color, opacity=0.35, size=7), text=group.Case,
+            fig.add_trace(go.Scatter(x=group.dfs, y=group.rmse, mode='markers', name=group.model.iloc[0], legendgroup=group.model.iloc[0], showlegend=False,
+                                    marker=dict(color=color, opacity=0.35, size=7), text=group.Case+'<br>'+group.dfs_source,
                                     hovertemplate='%{text}<br>DFS=%{x:.3f}<br>RMSE=%{y:.3f}<extra></extra>'))
         summary.append(dict(series=series, n_cases=len(group), mean_dfs=group.dfs.mean(), mean_rmse=group.rmse.mean()))
-        fig.add_trace(go.Scatter(x=[group.dfs.mean()], y=[group.rmse.mean()], mode='markers', name=series+' mean',
+        fig.add_trace(go.Scatter(x=[group.dfs.mean()], y=[group.rmse.mean()], mode='markers', name=group.model.iloc[0], legendgroup=group.model.iloc[0],
                                 marker=dict(color=color, symbol='diamond', size=16, line=dict(color='white', width=1)),
                                 error_x=dict(type='data', array=[group.dfs.std(ddof=0)]),
                                 error_y=dict(type='data', array=[group.rmse.std(ddof=0)]),
-                                text=[f'N={len(group)}; bars = population standard deviation'], hovertemplate='%{text}<br>DFS=%{x:.3f}<br>RMSE=%{y:.3f}<extra></extra>'))
+                                text=[f'{series}<br>N={len(group)}; bars = population standard deviation'], hovertemplate='%{text}<br>DFS=%{x:.3f}<br>RMSE=%{y:.3f}<extra></extra>'))
     return finish(fig, f"{VARIABLES[analysis['variable']][0]} · {analysis['edges'][0]:g}–{analysis['edges'][-1]:g} km AGL", 'Accumulated DFS in selected layer', f"RMSE ({VARIABLES[analysis['variable']][1]})"), pd.DataFrame(summary)
+
+
+def dfs_rmse_pair(analyses, individual=True):
+    fig = make_subplots(rows=1, cols=2, subplot_titles=[VARIABLES[v][0] for v in ('T', 'q')], horizontal_spacing=.12)
+    tables, seen = {}, set()
+    for col, v in enumerate(('T', 'q'), 1):
+        analysis = analyses[v]
+        if analysis['metrics'].empty or not analysis['metrics'].dfs.notna().any():
+            tables[v] = pd.DataFrame()
+            fig.add_annotation(text='No matched DFS/RMSE cases', x=.5, y=.5,
+                               xref='x domain' if col == 1 else 'x2 domain',
+                               yref='y domain' if col == 1 else 'y2 domain', showarrow=False)
+        else:
+            panel, tables[v] = dfs_rmse_plot(analysis, individual)
+            for trace in panel.data:
+                if trace.showlegend is not False:
+                    trace.showlegend = trace.name not in seen
+                    seen.add(trace.name)
+                fig.add_trace(trace, row=1, col=col)
+        fig.update_xaxes(title_text='Accumulated DFS in selected layer', row=1, col=col)
+        fig.update_yaxes(title_text=f'RMSE ({VARIABLES[v][1]})', row=1, col=col)
+    edges = analyses['T']['edges']
+    finish(fig, f'Information content versus retrieval error · {edges[0]:g}–{edges[-1]:g} km AGL')
+    fig.update_layout(legend=dict(groupclick='togglegroup'), height=650)
+    return fig, tables
 
 
 def screening_plot(cases, x, y):

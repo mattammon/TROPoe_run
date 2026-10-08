@@ -135,11 +135,11 @@ class DashboardTests(unittest.TestCase):
         panel, stats = plots.taylor_plot(analyses['T'], models)
         for row in stats.itertuples():
             point = next(t for t in panel.data if t.name == row.model)
-            self.assertAlmostEqual(np.hypot(point.x[0], point.y[0]), row.retrieved_std)
+            self.assertAlmostEqual(np.hypot(point.x[0], point.y[0]), row.std_ratio)
             self.assertEqual(point.marker.size, 22)
             self.assertLess(point.marker.opacity, 1)
         reference = next(t for t in panel.data if t.name == 'Radiosonde')
-        self.assertAlmostEqual(reference.x[0], stats.observed_std.iloc[0])
+        self.assertAlmostEqual(reference.x[0], 1.)
         for curve in analyses['T']['curves'].values():
             curve['retrieved'] = -curve['observed']
         negative, table = plots.taylor_plot(analyses['T'], models)
@@ -151,7 +151,7 @@ class DashboardTests(unittest.TestCase):
         analysis = data.build_analysis(cases, models, profiles, obs, 'T', np.linspace(.1, 1.5, 15))
         for mode in ('Cumulative profiles', 'Density profiles'):
             fig = plots.info_plot(analysis, mode)
-            self.assertTrue(all(t.type == 'heatmap' and t.ygap == 0 for t in fig.data))
+            self.assertTrue(all(t.ygap == 0 for t in fig.data if t.type == 'heatmap'))
             self.assertIn('0.1–1.5 km AGL', fig.layout.title.text)
             self.assertIn('Diagnostic:', fig.layout.title.text)
         distributions = plots.info_plot(analysis, 'Layer distributions')
@@ -161,6 +161,30 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(all(t.marker.symbol == 'diamond' for t in means.data))
         points, _ = plots.dfs_rmse_plot(analysis, individual=True)
         self.assertGreater(len(points.data), len(means.data))
+
+    def test_dfs_height95_and_shared_figure(self):
+        analysis = dict(edges=np.array([0., 1., 2.]), information={
+            ('a', 'Ch1'): dict(cumulative=[0., 1., 2.], source='akernel'),
+            ('b', 'Ch1'): dict(cumulative=[0., 2., 2.], source='akernel'),
+            ('c', 'Ch1'): dict(cumulative=[0., 3., 2.], source='akernel'),
+            ('d', 'Ch1'): dict(cumulative=[0., 0., 0.], source='akernel')})
+        summary, cases = plots.dfs_height95(analysis)
+        self.assertAlmostEqual(summary['Mean 95% height (km AGL)'].iloc[0], (1.9+.95)/2)
+        self.assertEqual(summary['Valid cases'].iloc[0], 2)
+        self.assertEqual(summary['Total cases'].iloc[0], 4)
+        self.assertEqual(cases.height95_km.isna().sum(), 2)
+        cases, models, profiles, obs = data.demo_data()
+        analyses = {v: data.build_analysis(cases, models, profiles, obs, v, np.linspace(.1, 1.5, 15)) for v in ('T', 'q')}
+        fig, tables = plots.dfs_rmse_pair(analyses, False)
+        legend = [t.name for t in fig.data if t.showlegend is not False]
+        self.assertEqual(len(legend), len(set(legend)))
+        self.assertTrue(set(legend).issubset(models))
+        self.assertEqual(set(t.xaxis for t in fig.data), {'x', 'x2'})
+        heat = plots.info_plot(analyses['T'], 'Cumulative profiles')
+        trace = next(t for t in heat.data if t.type == 'heatmap')
+        self.assertEqual(len(trace.z), 14)
+        self.assertEqual(len(trace.y), 15)
+        self.assertEqual(heat.layout.coloraxis.colorscale[0][1], '#ffffff')
 
     def test_all_plot_types(self):
         cases, models, profiles, obs = data.demo_data()
@@ -343,7 +367,7 @@ class DashboardTests(unittest.TestCase):
             if view == 'DFS vs RMSE':
                 next(w for w in app.checkbox if w.label == 'Show individual cases').uncheck().run()
                 self.assertFalse(app.exception, msg=str(app.exception))
-                self.assertEqual(len(app.get('plotly_chart')), 2)
+                self.assertEqual(len(app.get('plotly_chart')), 1)
         next(s for s in app.selectbox if s.label == 'Manual classification').select('not_clear_sky')
         next(b for b in app.button if b.label == 'Save persistent manual override').click().run()
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
