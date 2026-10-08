@@ -120,6 +120,24 @@ class DashboardTests(unittest.TestCase):
         for trace in plots.info_plot(analysis, 'Layer distributions').data:
             self.assertEqual(trace.marker.color, mapping[trace.name.split(' · ')[0]])
 
+    def test_taylor_shared_legend_and_positive_axes(self):
+        cases, models, profiles, obs = data.demo_data()
+        analyses = {v: data.build_analysis(cases, models, profiles, obs, v, np.linspace(.1, 1.5, 15)) for v in ('T', 'q')}
+        figure, tables = plots.taylor_pair(analyses, models)
+        self.assertEqual(figure.layout.xaxis.range[0], 0)
+        self.assertEqual(figure.layout.xaxis2.range[0], 0)
+        legend = [t.name for t in figure.data if t.showlegend is not False]
+        self.assertEqual(len(legend), len(set(legend)))
+        self.assertEqual(figure.layout.legend.groupclick, 'togglegroup')
+        self.assertEqual(set(tables), {'T', 'q'})
+        for trace in figure.data:
+            self.assertTrue(np.all(np.asarray(trace.x) >= 0))
+        for curve in analyses['T']['curves'].values():
+            curve['retrieved'] = -curve['observed']
+        negative, table = plots.taylor_plot(analyses['T'], models)
+        self.assertTrue((table.correlation < 0).all())
+        self.assertFalse(any(t.name in models for t in negative.data))
+
     def test_all_plot_types(self):
         cases, models, profiles, obs = data.demo_data()
         a = data.build_analysis(cases, models, profiles, obs, 'T', np.linspace(.1, 3, 30))
@@ -297,7 +315,7 @@ class DashboardTests(unittest.TestCase):
                 next(w for w in app.radio if w.label == 'Vertical RMSE shading').set_value('RMSE difference from Ch1').run()
                 self.assertFalse(app.exception, msg=str(app.exception))
             if view == 'Taylor diagram':
-                self.assertEqual(len(app.get('plotly_chart')), 2)
+                self.assertEqual(len(app.get('plotly_chart')), 1)
         next(s for s in app.selectbox if s.label == 'Manual classification').select('not_clear_sky')
         next(b for b in app.button if b.label == 'Save persistent manual override').click().run()
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.

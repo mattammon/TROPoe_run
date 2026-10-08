@@ -275,15 +275,18 @@ if view == 'Taylor diagram':
                'Each variable uses its own available/common cohort according to the comparison setting. '
                'Angle encodes correlation; radius is retrieved / observed standard deviation. '
                'Dotted arcs show normalized centered RMSE, which excludes bias.')
+    st.caption('Only nonnegative correlations are plotted; negative correlations remain in the statistics tables. '
+               'The shared legend toggles each band in both panels.')
+    analyses = {v: data.build_analysis(selected, models, profiles, observations, v, edges, paired) for v in ('T', 'q')}
+    figure, tables = plots.taylor_pair(analyses, models)
+    display_chart(figure, 'taylor_both')
     for column, v in zip(st.columns(2), ('T', 'q')):
         with column:
-            analysis = data.build_analysis(selected, models, profiles, observations, v, edges, paired)
-            figure, table = plots.taylor_plot(analysis, models)
-            display_chart(figure, 'taylor_'+v)
-            if analysis['metrics'].empty:
+            st.write(data.VARIABLES[v][0]+' statistics')
+            if analyses[v]['metrics'].empty:
                 st.info('No complete '+data.VARIABLES[v][0]+' comparisons in this layer.')
-            st.dataframe(table, **STRETCH, hide_index=True)
-            download_table('Download '+data.VARIABLES[v][0]+' Taylor statistics', table,
+            st.dataframe(tables[v], **STRETCH, hide_index=True)
+            download_table('Download '+data.VARIABLES[v][0]+' Taylor statistics', tables[v],
                            'taylor_'+v+'_statistics.csv', 'taylor_csv_'+v)
     with st.expander('Load errors and comparison settings'):
         if problems:

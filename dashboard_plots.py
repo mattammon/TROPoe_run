@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from dashboard_data import VARIABLES, model_sort, case_metadata, GROUP_ORDERS
 
@@ -109,30 +110,58 @@ def taylor_plot(analysis, models):
     table = pd.DataFrame(rows)
     finite_ratios = table.std_ratio[np.isfinite(table.std_ratio)] if len(table) else []
     radius = max(1.5, max(finite_ratios, default=1)*1.15)
-    theta = np.linspace(0, np.pi, 240)
+    theta = np.linspace(0, np.pi/2, 160)
     for r in np.linspace(0, radius, 5)[1:]:
         fig.add_trace(go.Scatter(x=r*np.cos(theta), y=r*np.sin(theta), mode='lines',
                                 line=dict(color='#D5DEE9', width=1), showlegend=False, hoverinfo='skip'))
-    for corr in (-1, -0.8, -0.5, 0, 0.5, 0.8, 0.95, 1):
+    for corr in (0, 0.5, 0.8, 0.95, 1):
         x, y = radius*corr, radius*np.sqrt(1-corr**2)
         fig.add_trace(go.Scatter(x=[0, x], y=[0, y], mode='lines', line=dict(color='#E6EBF1', width=1), showlegend=False, hoverinfo='skip'))
         fig.add_annotation(x=x, y=y, text=str(corr), showarrow=False, yshift=8)
+    theta = np.linspace(0, np.pi, 240)
     for r in (0.25, 0.5, 1.0):
         x, y = 1+r*np.cos(theta), r*np.sin(theta)
-        mask = x*x+y*y <= radius*radius
+        mask = (x >= 0) & (x*x+y*y <= radius*radius)
         fig.add_trace(go.Scatter(x=x[mask], y=y[mask], mode='lines', name=f'Centered RMSE / σobs = {r}',
                                 line=dict(color='#9EADB9', dash='dot', width=1)))
     fig.add_trace(go.Scatter(x=[1], y=[0], mode='markers', marker=dict(symbol='star', size=15, color='black'), name='Radiosonde'))
     for row in table.itertuples():
-        if not np.isfinite(row.correlation) or not np.isfinite(row.std_ratio):
+        if not np.isfinite(row.correlation) or row.correlation < 0 or not np.isfinite(row.std_ratio):
             continue
         fig.add_trace(go.Scatter(x=[row.std_ratio*row.correlation], y=[row.std_ratio*np.sqrt(max(0, 1-row.correlation**2))],
                                 mode='markers', name=row.model, marker=dict(size=13, color=colors(models)[row.model]),
                                 text=[f'{row.model}<br>r={row.correlation:.4f}<br>σ/σobs={row.std_ratio:.3f}<br>RMSE={row.rmse:.3f}<br>N={row.cases} cases'],
                                 hovertemplate='%{text}<extra></extra>'))
-    fig.update_xaxes(range=[-radius*1.06, radius*1.06])
+    fig.update_xaxes(range=[0, radius*1.06], constrain='domain')
     fig.update_yaxes(range=[-0.05, radius*1.1], scaleanchor='x', scaleratio=1)
     return finish(fig, VARIABLES[analysis['variable']][0]+' · normalized Taylor diagram', 'σretrieval / σobserved × correlation', 'Normalized standard deviation component'), table
+
+
+def taylor_pair(analyses, models):
+    """Two positive-correlation panels with one legend controlling both."""
+    fig = make_subplots(rows=1, cols=2, horizontal_spacing=.12,
+                        subplot_titles=[VARIABLES[v][0] for v in ('T', 'q')])
+    tables, seen = {}, set()
+    for col, variable in enumerate(('T', 'q'), 1):
+        panel, tables[variable] = taylor_plot(analyses[variable], models)
+        for trace in panel.data:
+            if trace.showlegend is not False:
+                trace.legendgroup = trace.name
+                trace.showlegend = trace.name not in seen
+                seen.add(trace.name)
+            fig.add_trace(trace, row=1, col=col)
+        for annotation in panel.layout.annotations:
+            item = annotation.to_plotly_json()
+            item.pop('xref', None)
+            item.pop('yref', None)
+            fig.add_annotation(**item, row=1, col=col)
+        fig.update_xaxes(range=list(panel.layout.xaxis.range), constrain='domain',
+                         title_text=panel.layout.xaxis.title.text, row=1, col=col)
+        fig.update_yaxes(range=list(panel.layout.yaxis.range), scaleanchor='x' if col == 1 else 'x2',
+                         scaleratio=1, constrain='domain', title_text='Normalized standard deviation', row=1, col=col)
+    finish(fig, 'Normalized Taylor diagrams · positive correlations')
+    fig.update_layout(height=650, legend=dict(groupclick='togglegroup', y=-.22), margin=dict(b=130))
+    return fig, tables
 
 
 def info_frame(analysis):

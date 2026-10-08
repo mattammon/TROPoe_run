@@ -390,7 +390,7 @@ differ. Counts and exclusions are available below every plot.
 | Vertical profiles | Choose an individual case; overlay sounding and selected bands on their native grids. |
 | RMSE comparisons | Case distributions with individual points, time scatter, case/band heatmap, or heatmap differences from a selected baseline. |
 | Vertical errors | Case-height retrieval-minus-sounding errors, or RMSE at each height across cases for a selected band. |
-| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, normalized standard deviation, centered RMSE contours, and a downloadable table with full RMSE and bias. Negative correlations are supported. |
+| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, normalized standard deviation, centered RMSE contours, and a downloadable table with full RMSE and bias. Only nonnegative correlations are plotted; negative correlations remain in the tables. One shared legend toggles bands across both panels. |
 | Information content | Median cumulative DFS or DFS density with interquartile ranges; distributions of DFS integrated over the selected layer. |
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
 | 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
