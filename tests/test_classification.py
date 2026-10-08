@@ -30,6 +30,40 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(classify(self.frame,ClassificationRules()).category.tolist(),['clear_sky','clear_sky','uncertain','clear_sky'])
         self.assertEqual(classify(self.frame,ClassificationRules(combine='both')).category.tolist(),['clear_sky','not_clear_sky','uncertain','not_clear_sky'])
         self.assertEqual(classify(self.frame,ClassificationRules(use_asi=False)).category.tolist(),['clear_sky','clear_sky','uncertain','not_clear_sky'])
+    def test_restore_saved_catalog_and_later_manual_decisions(self):
+        rules=ClassificationRules(use_asi=False,radiance_mean_max=6.5)
+        original,path=save_run(self.master,self.frame,rules,self.store)
+        catalogs,errors=saved_catalogs(self.store.root)
+        self.assertEqual([c['path'] for c in catalogs],[str(path)])
+        self.assertEqual(errors,[])
+        base,active,updated=restore_saved_catalog(path)
+        self.assertFalse(updated)
+        self.assertEqual(active['path'],str(path))
+        self.assertEqual(active['rules']['radiance_mean_max'],6.5)
+        self.assertEqual(active['cases'].category.tolist(),original.category.tolist())
+        self.assertNotIn('category',base['cases'])
+        self.assertEqual(len(list((self.store.root/'runs').glob('*/classification.csv'))),1)
+        self.store.save('a','clear_sky','New satellite review')
+        _,active,updated=restore_saved_catalog(path)
+        self.assertTrue(updated)
+        self.assertNotEqual(active['path'],str(path))
+        self.assertEqual(active['cases'].set_index('case_id').loc['a','category'],'clear_sky')
+        self.assertEqual(pd.read_csv(path).category.tolist(),original.category.tolist())
+        self.master.write_text(self.master.read_text()+'\n')
+        with self.assertRaisesRegex(ValueError,'Master has changed'):
+            restore_saved_catalog(path)
+
+    def test_catalog_discovery_ignores_unpublished_and_reports_bad_settings(self):
+        pending=self.store.root/'runs'/'.pending_example'
+        pending.mkdir(parents=True)
+        (pending/'classification.csv').write_text('case_id,category\n')
+        broken=self.store.root/'runs'/'broken'
+        broken.mkdir()
+        (broken/'classification.csv').write_text('case_id,category\n')
+        catalogs,errors=saved_catalogs(self.store.root)
+        self.assertFalse(catalogs)
+        self.assertEqual(len(errors),1)
+        self.assertIn('broken',errors[0]['path'])
     def test_audit_persistence_immutable_runs_and_join(self):
         self.store.save('a','not_clear_sky','Cloud visible','202501011159.png','reviewer')
         store=ReviewStore(self.store.root)
@@ -89,3 +123,4 @@ class ClassificationTests(unittest.TestCase):
         self.assertTrue(all(r['status']=='missing' for r in rows))
 
 if __name__=='__main__': unittest.main()
+

@@ -220,6 +220,61 @@ def read_selection_manifest(manifest, classification=None):
     return joined
 
 
+def saved_catalogs(root):
+    """Discover published classification snapshots without loading their masters."""
+    catalogs, errors = [], []
+    root = Path(root).expanduser().resolve()
+    for path in root.rglob('classification.csv'):
+        if any(part.startswith('.pending_') for part in path.parts):
+            continue
+        try:
+            settings = json.loads((path.parent/'settings.json').read_text())
+            rules = ClassificationRules(**settings['rules'])
+            for key in ('master_manifest', 'master_sha256'):
+                if not settings.get(key):
+                    raise ValueError('Missing '+key)
+            counts = settings.get('counts', {})
+            name = path.parent.name
+            catalogs.append(dict(path=str(path), name=name, rules=asdict(rules), counts=counts,
+                                 master=settings['master_manifest'], created=settings.get('created_utc', ''),
+                                 label=f'{name} · {counts.get("clear_sky", 0):,} clear / {sum(counts.values()):,} cases'))
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            errors.append(dict(path=str(path), error=str(exc)))
+    catalogs.sort(key=lambda item: (item['created'], item['path']), reverse=True)
+    return catalogs, errors
+
+
+def restore_saved_catalog(path):
+    """Restore saved labels/rules, updating only when newer manual decisions require it."""
+    path = Path(path).expanduser().resolve()
+    settings = json.loads((path.parent/'settings.json').read_text())
+    rules = ClassificationRules(**settings['rules'])
+    joined = read_selection_manifest(path)  # Verifies master hash and exact case membership.
+    for key in ('retrieval_time', 'sounding_time'):
+        joined[key] = pd.to_datetime(joined.get(key, joined.retrieval_time), utc=True, errors='raise')
+        if joined[key].isna().any():
+            raise ValueError('Saved catalog contains invalid '+key)
+    joined = joined.sort_values(['sounding_time', 'case_id']).reset_index(drop=True)
+    overrides = json.loads((path.parent/'manual_overrides.json').read_text())
+    # Reconstruct instrument diagnostics for dashboard plots; saved final labels
+    # remain authoritative, even if the classification implementation has changed.
+    classified = classify(joined, rules, overrides)
+    classified['category'] = joined.category
+    master = Path(settings['master_manifest']).expanduser().resolve()
+    base = strip_classifications(joined)
+    review_root = path.parent.parent.parent if path.parent.parent.name == 'runs' else path.parent.parent
+    store = ReviewStore(review_root)
+    latest, revision = store.snapshot()
+    case_ids = set(base.case_id)
+    current = {case: entry['category'] for case, entry in latest.items() if case in case_ids}
+    previous = {case: entry['category'] if isinstance(entry, dict) else entry for case, entry in overrides.items() if case in case_ids}
+    updated = revision > settings.get('manual_revision', 0) and current != previous
+    if updated:
+        classified, path = save_run(master, base, rules, store)
+    return dict(master=str(master), master_hash=settings['master_sha256'], cases=base,
+                output=str(store.root)), dict(cases=classified, path=str(path), rules=asdict(rules)), updated
+
+
 def satellite_inventory(root):
     """Read timestamped PNG names recursively, including GROUP_NAME subdirectories.
 
@@ -277,5 +332,6 @@ def satellite_images(root, sounding_time, retrieval_time=None, tolerance_minutes
         return []
     result = match_satellite_images(satellite_inventory(root), sounding_time, retrieval_time, tolerance_minutes)
     return [item['path'] for item in result['matches']]
+
 
 

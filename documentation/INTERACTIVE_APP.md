@@ -106,6 +106,23 @@ or upgrade the driver's SciPy merely to get the dashboard running.
 
 The app starts with **cloud classification setup**, without synthetic data.
 
+To reuse a saved classification, select it from **Saved classification catalog**
+and click **Open selected catalog in dashboard**. The dropdown searches the sidebar's
+**Classification and manual-review directory** recursively and lists published
+catalogs newest first, with their threshold-based folder names and case counts.
+You can open a catalog without first loading the default master or entering any
+thresholds. The app uses the master recorded in that catalog and checks its hash
+and case membership before opening. The sidebar retrieval and satellite paths
+still determine where the dashboard looks for those files.
+
+Opening an unchanged catalog reuses it directly and starts on **Case catalog**.
+If newer persistent manual decisions affect its cases, the app saves an updated
+snapshot using the same thresholds and tells you that reviews were applied.
+An altered/missing master or malformed catalog produces an error. From the
+dashboard, **Choose another saved classification** returns to the dropdown.
+
+To create a new classification:
+
 1. Set **Master manifest CSV** in the sidebar. Defaults come from
    `CLOUD_MASTER_MANIFEST`, falling back to `CLOUD_SCREEN_MANIFEST`. A legacy
    classified CSV is imported once into an unclassified sibling named

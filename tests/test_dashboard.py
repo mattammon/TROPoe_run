@@ -246,6 +246,36 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual(app.metric[1].value, '1')
 
+    def test_saved_catalog_opens_without_loading_or_redefining_master(self):
+        from unittest.mock import patch
+        from streamlit.testing.v1 import AppTest
+        from dashboard_classification import prepare_master, save_run, ClassificationRules, ReviewStore
+        import config
+        frame=pd.read_csv(self.manifest)
+        frame['radiance_core_radiance_mean']=6.
+        frame['radiance_core_radiance_std']=.2
+        frame.to_csv(self.manifest,index=False)
+        master=prepare_master(self.manifest)
+        store=ReviewStore(self.root/'reviews')
+        _,path=save_run(master,frame,ClassificationRules(use_asi=False,radiance_mean_max=6.5),store)
+        with patch.multiple(config,CLOUD_CLASSIFICATION_DIR=str(store.root),
+                            CLOUD_MASTER_MANIFEST=str(self.root/'missing_default.csv'),
+                            RETRIEVAL_DIR=str(self.root.parent),GROUP_NAME=self.root.name):
+            app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'),default_timeout=60).run()
+            self.assertFalse(app.exception)
+            self.assertEqual(next(s for s in app.selectbox if s.label=='Saved classification catalog').value,str(path))
+            next(b for b in app.button if b.label=='Open selected catalog in dashboard').click().run()
+            app._run()
+            self.assertFalse(app.exception,msg=str(app.exception))
+            self.assertEqual(next(s for s in app.selectbox if s.label=='Plot').value,'Case catalog')
+            self.assertEqual(app.session_state['cloud_active']['path'],str(path))
+            self.assertEqual(app.session_state['cloud_active']['rules']['radiance_mean_max'],6.5)
+            self.assertEqual(len(list((store.root/'runs').glob('*/classification.csv'))),1)
+            next(b for b in app.button if b.label=='Choose another saved classification').click().run()
+            app._run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any(s.label=='Saved classification catalog' for s in app.selectbox))
+
 
 if __name__ == '__main__':
     unittest.main()

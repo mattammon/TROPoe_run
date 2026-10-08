@@ -9,7 +9,8 @@ import streamlit as st
 import dashboard_data as data
 import dashboard_plots as plots
 from dashboard_classification import (ClassificationRules, ReviewStore, classify, fingerprint,
-                                      prepare_master, save_run, satellite_inventory, match_satellite_images)
+                                      prepare_master, save_run, satellite_inventory, match_satellite_images,
+                                      saved_catalogs, restore_saved_catalog)
 from dashboard_satellite import generate_satellite_image
 from dashboard_vertical import plotly_size_kwargs
 
@@ -154,6 +155,8 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     """Return a frozen classified dataset only after its compact manifest is saved."""
     with st.sidebar:
         st.header('Master data and saved classifications')
+        output = st.text_input('Classification and manual-review directory', default_output,
+                               help='Saved catalogs in this directory appear on the opening page. Use a persistent directory so catalogs and manual overrides carry forward.')
         with st.form('source_form'):
             manifest = st.text_input('Master manifest CSV (legacy manifests can be imported)', default_manifest)
             root = st.text_input('Retrieval directory', default_root)
@@ -161,9 +164,46 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             sonde = st.text_input('Sounding search directory (optional)', default_sonde)
             image_root = st.text_input('Satellite PNG directory', default_images,
                                        help='Search includes subdirectories. Click Load / refresh master data to apply a changed path; it must be visible inside the app/container.')
-            output = st.text_input('Classification and manual-review directory', default_output,
-                                   help='Use the same persistent directory for future runs so manual overrides carry forward.')
             load = st.form_submit_button('Load / refresh master data', type='primary')
+    if not st.session_state.get('cloud_active') or load:
+        st.subheader('Open a saved classification')
+        try:
+            catalogs, errors = saved_catalogs(output)
+        except OSError as exc:
+            catalogs, errors = [], [dict(path=output, error=str(exc))]
+        if catalogs:
+            choices = {item['path']: item for item in catalogs}
+            chosen = st.selectbox('Saved classification catalog', list(choices),
+                                  format_func=lambda path: choices[path]['label'])
+            selection = choices[chosen]
+            st.caption('Master: '+selection['master'])
+            st.caption('Saved: '+selection['created']+' · Window: '+selection['rules']['window']+
+                       ' · Instrument rule: '+selection['rules']['combine'])
+            st.caption('Opens the saved thresholds and case classifications. Newer persistent manual decisions are applied in an updated snapshot when needed.')
+            if st.button('Open selected catalog in dashboard', type='primary'):
+                try:
+                    restored, active, updated = restore_saved_catalog(chosen)
+                    restored.update(root=str(Path(root).expanduser().resolve()), catalog='',
+                                    sonde_root=str(Path(sonde).expanduser()) if sonde else '',
+                                    image_root=str(Path(image_root).expanduser()))
+                    st.session_state.cloud_loaded = restored
+                    st.session_state.cloud_active = active
+                    st.session_state.cloud_draft_rules = active['rules']
+                    st.session_state.dashboard_view = 'Case catalog'
+                    for key in ('loaded_source', 'retrieval_todo_key', 'class_window', 'class_asi', 'class_rad',
+                                'class_zenith', 'class_total', 'class_mean', 'class_std', 'class_combine'):
+                        st.session_state.pop(key, None)
+                    if updated:
+                        st.session_state.catalog_open_notice = 'Newer manual reviews were applied and an updated classification catalog was saved using the selected thresholds.'
+                except Exception as exc:
+                    st.error('Could not open the saved classification: '+str(exc))
+                else:
+                    st.rerun()
+        else:
+            st.info('No saved classification catalogs found in '+str(Path(output).expanduser())+'. You can create one below after loading a master manifest.')
+        if errors:
+            with st.expander('Catalog discovery errors'):
+                st.dataframe(pd.DataFrame(errors), hide_index=True)
     if load or ('cloud_loaded' not in st.session_state and Path(default_manifest or '__missing__').is_file()):
         try:
             read_satellite_inventory.clear()
@@ -192,7 +232,13 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             st.session_state.cloud_draft_rules = active['rules']
             st.session_state.pop('cloud_active', None)
             st.rerun()
+        if active and st.button('Choose another saved classification'):
+            st.session_state.pop('cloud_active', None)
+            st.rerun()
     if active:
+        notice = st.session_state.pop('catalog_open_notice', None)
+        if notice:
+            st.info(notice)
         st.caption('Classification snapshot: '+active['path'])
         return loaded, active
     st.subheader('Classify all available cases')
@@ -238,11 +284,13 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
                 raise ValueError('Master changed on disk; reload master data before applying')
             classified, path = save_run(loaded['master'], loaded['cases'], rules, store)
             st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
+            st.session_state.dashboard_view = 'Case catalog'
         except Exception as exc:
             st.error('Classification was not saved: '+str(exc))
         else:
             st.rerun()
     st.stop()
+
 
 
 

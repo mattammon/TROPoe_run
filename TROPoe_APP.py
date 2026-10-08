@@ -116,7 +116,7 @@ with st.sidebar:
     models = st.multiselect('Bands', catalog_models, default=catalog_models,
                             key='selection_'+active['path']+'bands')
 view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
-                            'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Aerosol / AOD', 'Cloud diagnostics'])
+                            'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Aerosol / AOD', 'Cloud diagnostics'], key='dashboard_view')
 if view == 'Aerosol / AOD':
     from dashboard_aod import render_aod
     render_aod(cases, index, models, loaded, config.AOD_DIR, config.AOD_DATASTREAM,
