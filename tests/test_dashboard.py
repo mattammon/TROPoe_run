@@ -224,6 +224,14 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(summary['manifest'], app.session_state['cloud_active']['path'])
         self.assertEqual(summary['completed_by_band']['Ch2_B6'], 1)
         self.assertEqual(summary['completed_by_band']['Ch1'], 0)
+        # Saved mode reads CSVs only, and does not rewrite the saved summary.
+        from unittest.mock import patch
+        before = catalog_summary.read_bytes()
+        with patch('catalog_retrievals.create_catalog', side_effect=AssertionError('Unexpected scan')):
+            next(c for c in app.checkbox if c.label == 'Use saved retrieval catalog (skip scan)').check().run()
+            self.assertFalse(app.exception, msg=str(app.exception))
+            self.assertTrue(app.session_state['loaded_source']['saved_inventory'])
+            self.assertEqual(catalog_summary.read_bytes(), before)
         # A refresh after a new output must update the same persisted catalog.
         (self.root/'tropoeOutput_Ch1.20250101.121500.nc').write_bytes(self.path.read_bytes())
         next(b for b in app.button if b.label == 'Refresh retrieval catalog and to-do').click().run()
@@ -239,6 +247,10 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['1', '0'])
         self.assertEqual(next(s for s in app.multiselect if s.label == 'Bands').value, ['Ch2_B6'])
+        next(c for c in app.checkbox if c.label == 'Ch1').check().run()
+        self.assertEqual(next(s for s in app.multiselect if s.label == 'Bands').value, ['Ch1', 'Ch2_B6'])
+        next(c for c in app.checkbox if c.label == 'Ch1').uncheck().run()
+        self.assertEqual(next(s for s in app.multiselect if s.label == 'Bands').value, ['Ch2_B6'])
         next(s for s in app.selectbox if s.label == 'Plot').select('Aerosol / AOD').run()
         self.assertFalse(app.exception, msg=str(app.exception))
         self.assertEqual(next(s for s in app.selectbox if s.label == 'Band for AOD–RMSE scatter').value, 'Ch2_B6')
@@ -252,6 +264,7 @@ class DashboardTests(unittest.TestCase):
         next(s for s in app.multiselect if s.label == 'Bands').set_value(['Ch1']).run()
         self.assertFalse(app.exception)
         self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['1', '0'])
+        next(c for c in app.checkbox if c.label == 'Use saved retrieval catalog (skip scan)').uncheck().run()
         for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))

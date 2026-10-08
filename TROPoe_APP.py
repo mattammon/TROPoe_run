@@ -1,6 +1,7 @@
 """Launch: python -m streamlit run TROPoe_APP.py"""
 from pathlib import Path
 import logging
+import json
 
 import numpy as np
 import pandas as pd
@@ -59,6 +60,8 @@ except (ImportError, AttributeError):
 
 st.markdown('### TROPoe / Retrieval Explorer')
 st.caption('Classify cloud conditions, review satellite imagery, and compare retrievals.')
+use_saved = st.sidebar.checkbox('Use saved retrieval catalog (skip scan)', value=False,
+    help='Load this retrieval directory’s saved catalog without checking retrieval files. Refresh explicitly after new retrievals finish.')
 source, active = classification_gate(default_manifest, default_root, default_sonde, default_images, default_output)
 all_cases = active['cases']
 cases = all_cases.loc[all_cases.category == 'clear_sky'].copy()
@@ -66,14 +69,26 @@ rules = ClassificationRules(**active['rules'])
 todo_path = getattr(config, 'RETRIEVAL_TODO_MANIFEST', None)
 todo_bands = getattr(config, 'RETRIEVAL_TODO_BANDS', list(range(1, 19)))
 todo_tolerance = getattr(config, 'RETRIEVAL_TODO_TOLERANCE_SECONDS', 60.)
-if st.sidebar.button('Refresh retrieval catalog and to-do'):
+refresh_requested = st.sidebar.button('Refresh retrieval catalog and to-do')
+if refresh_requested:
     st.session_state.pop('loaded_source', None)
     st.session_state.pop('retrieval_todo_key', None)
-scope = ('full_catalog_v1', active['path'], source['root'], tuple(todo_bands), todo_tolerance)
+scope = ('full_catalog_v1', active['path'], source['root'], tuple(todo_bands), todo_tolerance, use_saved)
 if st.session_state.get('loaded_source', {}).get('scope') != scope:
-    with st.spinner('Scanning retrievals and updating the catalog for this classification…'):
+    with st.spinner('Loading saved retrieval catalog…' if use_saved and not refresh_requested else 'Updating retrieval catalog…'):
         try:
-            if not Path(source['root']).exists():
+            summary = {}
+            saved_inventory = use_saved and not refresh_requested
+            if saved_inventory:
+                catalog_dir = Path(source['root'])/'catalog'
+                summary = json.loads((catalog_dir/'summary.json').read_text())
+                if Path(summary['retrieval_dir']).resolve() != Path(source['root']).resolve():
+                    raise ValueError('Saved catalog belongs to a different retrieval directory')
+                index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
+                saved_files = pd.read_csv(catalog_dir/'files.csv').fillna('')
+                file_errors = saved_files.loc[saved_files['error'].ne('')]
+                index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
+            elif not Path(source['root']).exists():
                 index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
                 index_errors = pd.DataFrame()
                 catalog_dir = None
@@ -87,11 +102,13 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
                 if not file_errors.empty:
                     index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
         except Exception as exc:
-            st.error('Could not update retrieval catalog or completion; no new to-do manifest was written: '+str(exc))
+            st.error('Could not load/update the retrieval catalog; no new to-do manifest was written. '
+                     'Use Refresh retrieval catalog and to-do to create or repair a saved catalog. Details: '+str(exc))
             st.stop()
     st.session_state.loaded_source = dict(index=index, errors=index_errors, manifest=source['master'],
                                          root=source['root'], catalog=str(catalog_dir/'profiles.csv') if catalog_dir else '',
-                                         sonde_root=source['sonde_root'], scope=scope)
+                                         sonde_root=source['sonde_root'], scope=scope, saved_inventory=saved_inventory,
+                                         inventory_time=summary.get('created_utc', 'unknown'))
 loaded = st.session_state.loaded_source
 index, index_errors = loaded['index'], loaded['errors']
 catalog_models = expected_models(todo_bands)
@@ -109,6 +126,10 @@ if st.session_state.get('retrieval_todo_key') != todo_key:
 todo = st.session_state.retrieval_todo
 st.caption(f"{len(cases):,} clear-sky cases out of {len(all_cases):,} classified cases. Retrieval comparisons load only clear-sky cases.")
 st.caption(f"Master: {source['master']} · Classification: {active['path']}")
+if loaded.get('saved_inventory'):
+    st.caption('Using inventory saved '+loaded['inventory_time']+'. Retrieval files were not rescanned. '
+               'Completion and to-do counts use the current classification; the saved summary.json is unchanged. '
+               'Refresh the catalog to include new or removed retrievals.')
 if loaded['catalog']:
     st.caption('Retrieval catalog: '+str(Path(loaded['catalog']).parent/'summary.json'))
 with st.sidebar:
@@ -131,7 +152,8 @@ if view == 'Aerosol / AOD':
                read_profile, read_observation, display_chart, download_table)
     st.stop()
 if view == 'Case catalog':
-    render_catalog(cases, index, models, case_labels, todo_tolerance, index_errors)
+    render_catalog(cases, index, models, case_labels, todo_tolerance, index_errors,
+                   catalog_models, 'selection_'+active['path']+'bands')
     st.stop()
 if view == '985 radiance scatter':
     from dataclasses import asdict

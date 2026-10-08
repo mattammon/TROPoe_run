@@ -141,6 +141,63 @@ def scatter_plot(pairs, model, label, stats):
     return finish(fig, f'{model} · {len(frame)} matched cases', 'Combined normalized T/q RMSE (dimensionless)', label)
 
 
+def aod_bins(cases, bins):
+    """Assign each finite AOD exactly once, including the rightmost endpoint."""
+    frame = cases.loc[np.isfinite(cases.aod)].copy()
+    edges = np.histogram_bin_edges(frame.aod.to_numpy(), bins=bins)
+    frame['bin'] = np.clip(np.searchsorted(edges, frame.aod, side='right')-1, 0, len(edges)-2)
+    return frame, edges
+
+
+def histogram_plot(binned, edges, pairs, models, field):
+    centers = (edges[:-1]+edges[1:])/2
+    counts = binned.groupby('bin').size().reindex(range(len(centers)), fill_value=0)
+    intervals = [f'{a:.5g} ≤ AOD {"≤" if n == len(centers)-1 else "<"} {b:.5g}'
+                 for n, (a, b) in enumerate(zip(edges[:-1], edges[1:]))]
+    fig = go.Figure(go.Bar(x=centers, y=counts, width=np.diff(edges)*.95, name='Clear-sky cases',
+        customdata=intervals, marker_color='#cbd5e1',
+        hovertemplate='%{customdata}<br>%{y} cases<extra></extra>'))
+    joined = pairs.merge(binned[['case_id', 'bin']], on='case_id', how='inner')
+    for model in models:
+        usable = joined.loc[joined.model.eq(model) & np.isfinite(joined.total_rmse)].drop_duplicates('case_id')
+        stats = usable.groupby('bin').total_rmse.agg(['mean', 'count']).reindex(range(len(centers)))
+        fig.add_trace(go.Scatter(x=centers, y=stats['mean'], mode='lines+markers', yaxis='y2',
+            name=model+' mean RMSE', connectgaps=False,
+            customdata=np.column_stack([intervals, stats['count'].fillna(0).astype(int)]),
+            hovertemplate='%{customdata[0]}<br>Mean RMSE: %{y:.4f}<br>RMSE cases: %{customdata[1]}<extra>%{fullData.name}</extra>'))
+    finish(fig, 'Clear-sky AOD distribution and mean retrieval error', field+' (dimensionless)', 'Number of cases')
+    fig.update_layout(yaxis2=dict(title='Mean combined normalized T/q RMSE', overlaying='y', side='right', rangemode='tozero'),
+                      yaxis=dict(rangemode='tozero'), margin=dict(r=90))
+    return fig
+
+
+def render_histogram(valid, pairs, models, field, display_chart, download_table):
+    st.write('Mean RMSE overlay bands')
+    st.caption('Ch1 is always included here, even if disabled elsewhere. Enable Ch2 bands in the sidebar to make them available below. '
+               'Each curve averages finite per-case combined RMSE values in the bin; cases without usable RMSE still count in the histogram.')
+    columns = st.columns(6)
+    columns[0].checkbox('Ch1 (always shown)', value=True, disabled=True)
+    overlay = ['Ch1']
+    for n, model in enumerate(m for m in models if m != 'Ch1'):
+        if columns[(n+1) % 6].checkbox(model, value=False, key='aod_overlay_'+model):
+            overlay.append(model)
+    bins = st.slider('Histogram bins', min_value=5, max_value=100, value=30)
+    binned, edges = aod_bins(valid, bins)
+    display_chart(histogram_plot(binned, edges, pairs, overlay, field), 'aod_histogram')
+    counts = binned.groupby('bin').size()
+    selected_bin = st.selectbox('Inspect AOD bin', list(range(bins)),
+        index=int(counts.idxmax()) if len(counts) else 0,
+        format_func=lambda n: f'{edges[n]:.5g} ≤ AOD {"≤" if n == bins-1 else "<"} {edges[n+1]:.5g} · {counts.get(n, 0)} cases')
+    members = binned.loc[binned.bin.eq(selected_bin)].drop(columns='bin')
+    if members.empty:
+        st.info('No cases in this bin.')
+    else:
+        st.dataframe(members[['sounding_time', 'aod', 'aod_samples']].assign(
+            sounding_time=members.sounding_time.map(data.case_label)).rename(columns={'sounding_time': 'Case (UTC)'}),
+            hide_index=True, width='stretch')
+    download_table('Download cases in selected AOD bin', members, 'aod_bin_cases.csv', 'aod_bin_cases_csv')
+
+
 def render_aod(cases, index, models, loaded, default_root, stream, read_profile, read_observation, display_chart, download_table):
     st.subheader('Aerosol optical depth and retrieval error')
     st.caption('All clear-sky cases in the active classification. Each case contributes one AOD value; cases without nearby AOD stay missing.')
@@ -206,15 +263,13 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
                'AOD is the arithmetic mean of finite, nonnegative samples in that window. Duplicate timestamps count once.')
     if len(samples):
         st.caption('QC fields present: '+'; '.join(sorted(samples.qc_fields.unique())))
-    bins = st.slider('Histogram bins', min_value=5, max_value=100, value=30)
-    display_chart(finish(go.Figure(go.Histogram(x=valid.aod, nbinsx=bins, name='Clear-sky cases')),
-                         'Clear-sky case AOD distribution', field+' (dimensionless)', 'Number of cases'), 'aod_histogram')
+    histogram_area = st.container()
     download_table('Download case AOD values', matched_aod, 'case_aod.csv', 'aod_cases_csv')
     if problems:
         with st.expander('AOD file errors'):
             st.dataframe(pd.DataFrame(problems), hide_index=True)
-    if valid.empty or not models:
-        st.info('The RMSE comparison needs matched AOD and at least one selected retrieval band.')
+    if valid.empty:
+        st.info('The histogram and RMSE comparison need matched AOD.')
         return
     selected = cases.loc[cases.case_id.isin(valid.case_id)]
     a, b, c = st.columns(3)
@@ -227,7 +282,8 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
     tolerance = st.number_input('Maximum retrieval time offset (seconds)', min_value=0., max_value=449., value=60.)
     paired = st.checkbox('Use the same AOD/RMSE cases for every selected band', value=False)
     edges = np.linspace(bottom, top, max(2, int(np.ceil((top-bottom)*1000/spacing)))+1)
-    matches = data.match_cases(selected, index, models, tolerance)
+    analysis_models = list(dict.fromkeys(['Ch1'] + list(models)))
+    matches = data.match_cases(selected, index, analysis_models, tolerance)
     profiles, observations, load_errors = {}, {}, []
     matched = matches.loc[matches.file.ne('')]
     progress = st.progress(0., text='Loading AOD-matched retrievals…')
@@ -245,18 +301,30 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
             observations[row.case_id] = read_observation(data.signature(path))
         except Exception as exc:
             load_errors.append({'case_id': row.case_id, 'model': 'Radiosonde', 'reason': str(exc)})
-    metrics, scales = combined_errors(selected, models, profiles, observations, edges, paired)
+    # Histogram means always use every available case in each band, independent
+    # of overlay toggles or the scatter's optional common-cohort restriction.
+    metrics, scales = combined_errors(selected, analysis_models, profiles, observations, edges, False)
     pairs = metrics.merge(matched_aod, on='case_id', how='left')
+    with histogram_area:
+        render_histogram(valid, pairs, models, field, display_chart, download_table)
+    pairs = pairs.loc[pairs.model.isin(models)].copy()
+    if paired and models:
+        finite = pairs.loc[pairs.model.isin(models) & np.isfinite(pairs.total_rmse)]
+        common = finite.groupby('case_id').model.nunique()
+        pairs = pairs.loc[pairs.case_id.isin(common.index[common.eq(len(models))])]
     table = correlations(pairs, models)
     st.caption('Combined normalized RMSE = sqrt(((RMSE_T / σT)² + (RMSE_q / σq)²) / 2), pooling all height-bin centers in the selected layer. '
-               'σT and σq are observed population standard deviations over the comparison cohort, with each sounding counted once and the same scales for all bands. '
+               'σT and σq are observed population standard deviations over cases with usable Ch1 or selected-band comparisons, with each sounding counted once and the same scales for all bands. The common-case option applies only to scatter/correlations, not histogram means. '
                f'σT = {scales["T"]:.4g} °C; σq = {scales["q"]:.4g} g/kg. Missing layer coverage is excluded; there is no extrapolation.')
     @st.fragment
     def show_scatter():
         # Changing only this band redraws the figure without reloading the cohort.
         band = st.selectbox('Band for AOD–RMSE scatter', models)
         display_chart(scatter_plot(pairs, band, field+' (dimensionless)', table), 'aod_rmse')
-    show_scatter()
+    if models:
+        show_scatter()
+    else:
+        st.info('Select bands in the sidebar for AOD–RMSE scatter and correlations.')
     st.caption('The line is ordinary least squares: AOD = intercept + slope × combined RMSE. Pearson r uses the plotted finite case pairs. '
                'N=2 can give |r|=1; constant values or fewer than two cases have undefined correlation.')
     st.dataframe(table, hide_index=True)

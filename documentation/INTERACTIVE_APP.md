@@ -238,9 +238,24 @@ rescan changed/new files, remove deleted files, and recompute case matches for
 the active classification. The dashboard reads the updated profile catalog for
 comparisons and creates its separate clear-sky retrieval to-do manifest. Click
 **Refresh retrieval catalog and to-do** after retrieval files change; switching
-classifications also updates the catalog automatically. Use one
+classifications also updates the catalog automatically unless saved-catalog mode is enabled. Use one
 experiment/group per retrieval directory to keep band configurations consistent.
 No retrieval profiles are loaded when the clear-sky cohort is empty.
+
+Before opening a saved classification, check **Use saved retrieval catalog (skip scan)**
+in the sidebar to reuse this retrieval directory's `catalog/profiles.csv`, `files.csv`,
+and `summary.json`. This skips discovery and NetCDF validation entirely. The saved
+inventory is matched to the current classification to compute dashboard completion
+counts and the to-do manifest; `summary.json` is left unchanged and may refer to a
+previous classification. The inventory timestamp is shown. Missing/invalid catalogs
+produce an error instead of silently starting a scan. **Refresh retrieval catalog
+and to-do** explicitly updates the catalog even with this option checked. New or
+deleted retrievals are reflected only after refreshing.
+
+The Case catalog page also provides individual band checkboxes above the summary.
+They synchronize with the sidebar Bands selector and govern all-selected/none-selected
+counts, per-band totals, and other dashboard comparisons. The scrollable availability
+table uses full green/gray cell backgrounds and Complete/Missing text.
 
 ### Retrieval to-do manifest and execution
 
@@ -529,7 +544,16 @@ audit, snapshot, satellite matching, and master-integrity checks.
 This page uses **all clear-sky cases** from the active classification, independently
 of the other pages' date filters. The global Bands selector controls which bands
 are compared. The histogram includes cases with matched AOD even if they have no
-retrieval output yet.
+retrieval output yet. A second y-axis overlays the mean per-case combined normalized
+T/q RMSE in each AOD bin. **Ch1 always appears in this overlay**, including when
+disabled in the global Bands selector; Ch2 checkboxes beside the plot default off.
+Enable a Ch2 band globally to make its overlay checkbox available. Missing RMSE is
+excluded from means, but those cases remain in the histogram. Hover shows the number
+of RMSE comparisons contributing to each mean. Empty means are gaps, not zeros.
+**Inspect AOD bin** lists the dates, AOD values and sample counts in any bin and
+provides a CSV export with case IDs. Bin edges are shared by bars, curves and the
+case list; the final bin includes its upper endpoint. The common-case option affects
+scatter/correlations only; histogram means always use every usable case per band.
 
 The input stream is `sgpcsphotaodfiltqav3C1.a1`. The app discovers wavelength-specific
 fields in the files (for example `aod_500` and `aod_870`), defaulting to 500 nm.
@@ -563,10 +587,12 @@ bin centers in the selected layer**, default 0.1–3 km AGL. The combined score 
 
 This uses the same dimensionless definition as the vertical-error ranking; it
 does not add °C and g/kg directly. The two normalization scales are observed
-population standard deviations over the AOD-matched comparison cohort. Each
-sounding contributes once, and every band uses the same scales. By default each
-band uses its available cases; the optional common-case toggle restricts all bands
-to the same complete T/q/AOD cohort. Changing that cohort can change the scales.
+population standard deviations over AOD-matched cases with usable Ch1 or globally
+selected-band comparisons. Each sounding contributes once, and every band uses
+the same scales. By default each band uses its available cases; the optional
+common-case toggle restricts scatter/correlation pairs to the same complete
+T/q/AOD cohort without changing the scales or histogram means. Changing the
+global band selection or layer can change the normalization scales.
 No RMSE is computed through missing vertical coverage or by extrapolation.
 
 The table lists every selected band, number of finite case pairs, Pearson r,

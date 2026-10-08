@@ -14,11 +14,25 @@ def completion_summary(matrix):
     return per_band, int(matrix.all(axis=1).sum()), int((~matrix.any(axis=1)).sum())
 
 
-def render_catalog(cases, index, models, labels, tolerance, index_errors):
+def render_catalog(cases, index, models, labels, tolerance, index_errors, all_models=None, selection_key=None):
     st.subheader('Clear-sky retrieval completion')
     st.caption(f'Each row is a clear-sky sounding; each column is a selected band. '
                f'A green cell means a usable retrieval record occurs within ±{tolerance:g} seconds of the target retrieval time. '
                'Gray means missing or incomplete. Scroll the grid to see all cases.')
+    if selection_key:
+        st.write('Bands included in completion statistics and dashboard comparisons')
+        columns = st.columns(6)
+        def toggle_band(model, key):
+            selected = set(st.session_state[selection_key])
+            if st.session_state[key]:
+                selected.add(model)
+            else:
+                selected.discard(model)
+            st.session_state[selection_key] = [m for m in all_models if m in selected]
+        for n, model in enumerate(all_models):
+            key = 'catalog_band_'+selection_key+model
+            st.session_state[key] = model in models
+            columns[n % len(columns)].checkbox(model, key=key, on_change=toggle_band, args=(model, key))
     matrix = completion_matrix(cases, index, models, tolerance)
     summary, all_complete, none_complete = completion_summary(matrix)
     a, b, c = st.columns(3)
@@ -35,10 +49,13 @@ def render_catalog(cases, index, models, labels, tolerance, index_errors):
         return
     grid = matrix.copy()
     grid.insert(0, 'Case (UTC)', [labels.get(case, str(case)) for case in matrix.index])
-    # The native dataframe scrolls/virtualizes large catalogs; Styler would
-    # eagerly render a cell per case-band pair and hit its element limit.
-    grid[models] = grid[models].replace({True: '🟩', False: '⬜'})
-    st.dataframe(grid, height=650, width='stretch', hide_index=True)
+    # Streamlit virtualizes the styled table; raise Pandas' rendering limit so
+    # larger catalogs retain backgrounds for every row, not just the first chunk.
+    styled = grid.style.map(lambda value: 'background-color: #20854e; color: white' if value
+                            else 'background-color: #e5e7eb; color: #4b5563', subset=models)
+    styled = styled.format(lambda value: 'Complete' if value else 'Missing', subset=models)
+    with pd.option_context('styler.render.max_elements', max(262144, grid.size + 1)):
+        st.dataframe(styled, height=650, width='stretch', hide_index=True)
     with st.expander('Export completion and scan details'):
         export = matrix.reset_index()
         export.insert(1, 'Case (UTC)', grid['Case (UTC)'].to_numpy())

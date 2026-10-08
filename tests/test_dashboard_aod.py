@@ -8,10 +8,24 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import dashboard_data as data
-from dashboard_aod import available_fields, read_aod, match_aod, combined_errors, correlations, scatter_plot, aod_files
+from dashboard_aod import available_fields, read_aod, match_aod, combined_errors, correlations, scatter_plot, aod_files, aod_bins, histogram_plot
 
 
 class AODTests(unittest.TestCase):
+    def test_histogram_endpoints_missing_rmse_and_bin_means(self):
+        cases = pd.DataFrame({'case_id': ['a', 'b', 'c', 'd', 'missing'], 'aod': [0., .25, .5, 1., np.nan]})
+        binned, edges = aod_bins(cases, 2)
+        self.assertEqual(binned.bin.tolist(), [0, 0, 1, 1])
+        pairs = pd.DataFrame({'case_id': ['a', 'b', 'c', 'd', 'a'],
+                              'model': ['Ch1']*4+['Ch2_B6'], 'total_rmse': [1., 3., np.nan, 6., 8.]})
+        fig = histogram_plot(binned, edges, pairs, ['Ch1', 'Ch2_B6'], 'aod_500')
+        self.assertEqual(list(fig.data[0].y), [2, 2])
+        np.testing.assert_allclose(fig.data[1].y, [2., 6.])
+        self.assertEqual(fig.data[2].y[0], 8.)
+        self.assertTrue(np.isnan(fig.data[2].y[1]))
+        self.assertEqual(fig.data[1].yaxis, 'y2')
+        self.assertEqual(set(binned.case_id), {'a', 'b', 'c', 'd'})
+
     def test_reader_matching_qc_midnight_and_missing(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
