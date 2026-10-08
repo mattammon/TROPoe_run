@@ -138,7 +138,7 @@ def taylor_plot(analysis, models):
                                 hovertemplate='%{text}<extra></extra>'))
     fig.update_xaxes(range=[0, radius*1.06], constrain='domain')
     fig.update_yaxes(range=[-0.05, radius*1.1], scaleanchor='x', scaleratio=1)
-    return finish(fig, VARIABLES[analysis['variable']][0]+' · Taylor diagram', 'σretrieval / σobserved × correlation', 'Normalized standard deviation component'), table
+    return finish(fig, VARIABLES[analysis['variable']][0]+' · Taylor diagram', 'Normalized standard deviation', 'Normalized standard deviation'), table
 
 
 def taylor_pair(analyses, models):
