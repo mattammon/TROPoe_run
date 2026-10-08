@@ -9,7 +9,7 @@ import pandas as pd
 import xarray as xr
 from catalog_retrievals import scan
 from dashboard_classification import ClassificationRules, ReviewStore, save_run
-from retrieval_todo import completion_matrix, pending_retrievals, profile_index, save_todo, execute_todo, normalize_skip_bands
+from retrieval_todo import completion_matrix, pending_retrievals, profile_index, save_todo, execute_todo, normalize_skip_bands, pending_todo
 
 class TodoTests(unittest.TestCase):
     def setUp(self):
@@ -96,6 +96,13 @@ class TodoTests(unittest.TestCase):
         self.assertEqual(normalize_skip_bands(['Ch1','3, Ch2_B6']),{'Ch1','Ch2_B3','Ch2_B6'})
         with self.assertRaisesRegex(ValueError,'Unknown band'):
             normalize_skip_bands(['Ch2_B99'])
+    def test_download_plan_rechecks_completed_outputs_and_skipped_bands(self):
+        self.plan([1,6])
+        before=self.queue.read_bytes()
+        self.output('Ch1')
+        pending=pending_todo(self.queue,self.outputs,['1'])
+        self.assertEqual(pending.model.tolist(),['Ch2_B6'])
+        self.assertEqual(self.queue.read_bytes(),before)
     def test_group_entrypoint_uses_configured_queue(self):
         import runpy
         import types

@@ -22,7 +22,7 @@ import pandas as pd
 import xarray as xr
 
 import config
-from arm_download import ARMClient, CatalogError
+from arm_download import ARMClient, CatalogError, validate_netcdf
 from cloud_screening import (CATEGORIES, ScreenPolicy, dataset_times, evaluate_case,
                              filename_time, read_asi, read_radiance)
 
@@ -49,7 +49,7 @@ def parse_date(value):
 
 def index_files(directory, stream):
     """Include legacy group folders; prefer ALL for duplicate basenames."""
-    candidates = sorted(Path(directory).glob(f'*/{stream}.*'))
+    candidates = sorted([*Path(directory).glob(f'*/{stream}.*'), *Path(directory).glob(f'{stream}.*')])
     candidates.sort(key=lambda p: (p.parent.name != config.MASTER_DATA_FOLDER, str(p)))
     result = {}
     for p in candidates:
@@ -114,14 +114,44 @@ class SGP_DATA:
         if config.SITE != 'sgp':
             raise ValueError('This downloader supports SGP only')
         self.start_date, self.end_date = self.start.strftime('%Y-%m-%d'), self.end.strftime('%Y-%m-%d')
+        self.streams = dict(self.streams)
+        if getattr(config, 'AOD_DATASTREAM', None):
+            self.streams['aod'] = config.AOD_DATASTREAM
         self.directories = directories or {
             'sonde': config.SONDE_DIR, 'asi': config.ASI_DIR, 'ch1': config.CH1_DIR,
             'ch2': config.CH2_DIR, 'eng': config.ENG_DIR, 'sum': config.SUM_DIR, 'sfc': config.SFC_DIR}
+        if 'aod' in self.streams:
+            self.directories.setdefault('aod', getattr(config, 'AOD_DIR', str(Path(config.DATA_DIR)/'aod'/config.SITE)))
         self.client = client
         self.download_log = []
+        self._local_inputs = {}
 
     def dataset_download(self, stream, stream_dir, sdate, edate):
         logger.info('Download stage: %s [%s, %s] -> %s', stream, sdate, edate, stream_dir)
+        # VIPs read ALL. Reuse validated legacy/group files through links there.
+        destination = Path(stream_dir)/config.MASTER_DATA_FOLDER
+        destination.mkdir(parents=True, exist_ok=True)
+        cache_key = (stream, str(stream_dir))
+        if cache_key not in self._local_inputs:
+            by_day = {}
+            for name, path in index_files(stream_dir, self.streams[stream]).items():
+                try:
+                    by_day.setdefault(filename_time(name).date(), []).append((name, path))
+                except ValueError:
+                    continue
+            self._local_inputs[cache_key] = by_day
+        local_files = [entry for day in pd.date_range(parse_date(sdate), parse_date(edate))
+                       for entry in self._local_inputs[cache_key].get(day.date(), [])]
+        for name, path in local_files:
+            target = destination/name
+            if target.exists() or target.is_symlink():
+                continue
+            try:
+                validate_netcdf(path)
+                target.symlink_to(path)
+                logger.info('Reusing local input: %s -> %s', target, path)
+            except (OSError, ValueError) as exc:
+                logger.warning('Could not reuse %s: %s', path, exc)
         if self.client is None:
             self.client = ARMClient()
         try:
@@ -137,8 +167,11 @@ class SGP_DATA:
         logger.info('Download stage complete: %s; %s', stream, dict(Counter(r['status'] for r in records)))
         return records
 
+    def retrieval_streams(self, channels=(1, 2)):
+        return [f'ch{channel}' for channel in sorted(set(channels))]+['sum', 'eng', 'sfc']+(['aod'] if 'aod' in self.streams else [])
+
     def download_data_retrieval(self, sdate, edate):
-        for key in ('ch1', 'ch2', 'sum', 'eng', 'sfc'):
+        for key in self.retrieval_streams():
             records = self.dataset_download(key, self.directories[key], sdate, edate)
             if any(r['status'] == 'unavailable' for r in records) or not records:
                 raise RuntimeError(f'Retrieval input download incomplete for {key} on {sdate}')
@@ -220,7 +253,7 @@ class SGP_DATA:
             logger.warning('No soundings found within requested dates')
         if not offline:
             for day in wanted_days:
-                for key in ('ch2', 'sum', 'eng', 'sfc'):
+                for key in self.retrieval_streams(channels=(2,)):
                     try:
                         self.dataset_download(key, self.directories[key], day, day)
                     except CatalogError:
@@ -286,6 +319,57 @@ class SGP_DATA:
         return run_dir/'manifest.csv'
 
 
+def download_todo_inputs(path=None, *, skip_bands=None, directories=None, client=None):
+    """Download unique stream-days for the live, unskipped GROUP_TROPoe queue."""
+    from retrieval_todo import pending_todo
+    path = path or config.RETRIEVAL_TODO_MANIFEST
+    if not path:
+        raise ValueError('Set RETRIEVAL_TODO_MANIFEST or pass a to-do CSV path')
+    skipped = getattr(config, 'GROUP_TROPOE_SKIP_BANDS', []) if skip_bands is None else skip_bands
+    jobs = pending_todo(path, Path(config.RETRIEVAL_DIR)/config.GROUP_NAME, skipped)
+    report_path = Path(path).with_name(Path(path).stem+'_downloads.csv')
+    columns = ['stream', 'day', 'status', 'existing', 'downloaded', 'unavailable', 'error']
+    rows = []
+    if jobs.empty:
+        logger.info('No unfinished, unskipped retrievals need input data.')
+        shared_csv(pd.DataFrame(columns=columns), report_path, index=False)
+        return pd.DataFrame(columns=columns)
+    targets = pd.to_datetime(jobs.retrieval_time, utc=True)
+    downloader = SGP_DATA(targets.min().strftime('%Y-%m-%d'), targets.max().strftime('%Y-%m-%d'),
+                          directories=directories, client=client)
+    if 'aod' not in downloader.streams:
+        logger.warning('AOD download is not configured: set config.AOD_DATASTREAM to the ARM datastream identifier.')
+    padding = float(getattr(config, 'RETRIEVAL_INPUT_PADDING_MINUTES', 15.))
+    if not math.isfinite(padding) or padding < 0:
+        raise ValueError('RETRIEVAL_INPUT_PADDING_MINUTES must be finite and nonnegative')
+    requests = set()
+    for row in jobs.itertuples():
+        target = pd.to_datetime(row.retrieval_time, utc=True)
+        days = pd.date_range((target-pd.Timedelta(minutes=padding)).normalize(),
+                             (target+pd.Timedelta(minutes=padding)).normalize())
+        for day in days:
+            for stream in downloader.retrieval_streams(channels=(int(row.channel),)):
+                requests.add((day.strftime('%Y-%m-%d'), stream))
+    logger.info('Preparing inputs for %d cases / %d pending pairs: %d unique stream-days',
+                jobs.case_id.nunique(), len(jobs), len(requests))
+    for number, (day, stream) in enumerate(sorted(requests), 1):
+        logger.info('Input request %d/%d: %s %s', number, len(requests), day, stream)
+        result = dict(stream=stream, day=day, status='complete', existing=0, downloaded=0, unavailable=0, error='')
+        try:
+            records = downloader.dataset_download(stream, downloader.directories[stream], day, day)
+            counts = Counter(r['status'] for r in records)
+            result.update({key: counts[key] for key in ('existing', 'downloaded', 'unavailable')})
+            if not records or counts['unavailable']:
+                result.update(status='incomplete', error='No catalog files' if not records else 'Some files unavailable')
+        except (CatalogError, OSError, ValueError) as exc:
+            logger.error('Input request failed: %s %s: %s', day, stream, exc)
+            result.update(status='failed', error=str(exc))
+        rows.append(result)
+        shared_csv(pd.DataFrame(rows, columns=columns), report_path, index=False)
+    logger.info('Input download report: %s', report_path)
+    return pd.DataFrame(rows, columns=columns)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('start', nargs='?', help='First UTC date, inclusive (YYYY-MM-DD or YYYYMMDD)')
@@ -294,6 +378,10 @@ def main():
     parser.add_argument('--policy', type=Path, help='JSON policy overrides (unlisted fields retain defaults)')
     parser.add_argument('--output-dir', type=Path, help='Parent directory for a new immutable screening run')
     parser.add_argument('--retrieval-data', choices=('all', 'none'), default='all')
+    parser.add_argument('--retrieval-todo', nargs='?', const='configured', metavar='CSV',
+                        help='Download inputs for unfinished queued retrievals; default CSV is RETRIEVAL_TODO_MANIFEST')
+    parser.add_argument('--skip-bands', nargs='*', metavar='BAND',
+                        help='Override GROUP_TROPOE_SKIP_BANDS for --retrieval-todo (e.g. Ch1 3 6)')
     parser.add_argument('--write-default-policy', type=Path, help='Write a policy template and exit')
     parser.add_argument('--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO', help='Console verbosity (default: INFO)')
     parser.add_argument('--log-file', type=Path, help='Append timestamped output to this file as well as the console')
@@ -309,6 +397,16 @@ def main():
         with args.write_default_policy.open('x') as out:
             out.write(json.dumps(asdict(ScreenPolicy()), indent=2)+'\n')
         return
+    if args.retrieval_todo is not None:
+        if args.start or args.end or args.offline or args.policy or args.output_dir:
+            parser.error('--retrieval-todo cannot be combined with screening dates, --offline, --policy, or --output-dir')
+        report = download_todo_inputs(None if args.retrieval_todo == 'configured' else args.retrieval_todo,
+                                      skip_bands=args.skip_bands)
+        if not report.empty and report.status.ne('complete').any():
+            raise SystemExit(1)
+        return
+    if args.skip_bands is not None:
+        parser.error('--skip-bands requires --retrieval-todo')
     if not args.start or not args.end:
         parser.error('start and end dates are required')
     policy = ScreenPolicy.from_json(args.policy) if args.policy else ScreenPolicy()
@@ -318,4 +416,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 

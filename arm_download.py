@@ -65,9 +65,12 @@ class ARMClient:
             try:
                 if path.exists():
                     logger.info('Validating existing file: %s', path)
-                    validate_netcdf(path)
-                    record['status'] = 'existing'
-                else:
+                    try:
+                        validate_netcdf(path)
+                        record['status'] = 'existing'
+                    except Exception as exc:
+                        logger.warning('%s: existing file failed validation (%s); downloading replacement', name, type(exc).__name__)
+                if record['status'] != 'existing':
                     logger.info('Downloading %s; network timeout=180s', name)
                     received, last_report = 0, time.monotonic()
                     with tempfile.NamedTemporaryFile(dir=directory, prefix=name+'.', suffix='.part', delete=False) as out:
@@ -93,3 +96,4 @@ class ARMClient:
             logger.info('%s: %s (%.1fs)', name, record['status'], time.monotonic()-file_started)
             records.append(record)
         return records
+

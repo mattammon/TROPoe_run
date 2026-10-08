@@ -44,6 +44,10 @@ CH2_DIR = f'{DATA_DIR}/irs_ch2/{SITE}'
 SUM_DIR = f'{DATA_DIR}/irs_sum/{SITE}'
 ENG_DIR = f'{DATA_DIR}/irs_eng/{SITE}'
 SFC_DIR = f'{DATA_DIR}/met/{SITE}'
+AOD_DIR = f'{DATA_DIR}/aod/{SITE}'
+# Exact ARM datastream identifier for your AOD product (not yet in the pushed repo).
+# Set this before downloading AOD; None leaves AOD downloads disabled.
+AOD_DATASTREAM = None
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{SITE}'
 MASTER_DATA_FOLDER = 'ALL'
 SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}'
@@ -58,6 +62,8 @@ CLOUD_CLASSIFICATION_MANIFEST = None
 RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/{GROUP_NAME}/retrieval_todo.csv'
 RETRIEVAL_TODO_BANDS = list(range(1, 19))  # Expected Ch2 bands; Ch1 is also required.
 RETRIEVAL_TODO_TOLERANCE_SECONDS = 60.
+# Cover the retrieval averaging/surface-data window, including UTC midnight.
+RETRIEVAL_INPUT_PADDING_MINUTES = 15.
 # Leave empty to run every band. Entries can be Ch1, Ch2_B6, or 6 (Ch2 band 6).
 # GROUP_TROPoe.py --skip-bands overrides this setting for a single run.
 GROUP_TROPOE_SKIP_BANDS = []

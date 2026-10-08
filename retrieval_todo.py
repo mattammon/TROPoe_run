@@ -136,9 +136,8 @@ class LiveInventory:
         return profile_index([p for rows in self.profiles.values() for p in rows])
 
 
-def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
-    """Run only pending pairs. Keep the input plan and write a separate execution report."""
-    skipped = normalize_skip_bands(skip_bands)
+def read_todo(path, retrieval_dir):
+    """Validate a saved plan before downloading inputs or running retrievals."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError('Retrieval to-do manifest is missing. Apply a classification in TROPoe_APP.py first: '+str(path))
@@ -147,7 +146,7 @@ def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
         raise ValueError('Retrieval to-do manifest lacks required columns')
     if jobs.empty:
         LOG.info('Retrieval to-do manifest is empty; nothing to run.')
-        return []
+        return jobs
     root = Path(retrieval_dir).resolve()
     if any(Path(value).resolve() != root for value in jobs.retrieval_dir):
         raise ValueError('To-do retrieval directory differs from config.RETRIEVAL_DIR/GROUP_NAME')
@@ -176,6 +175,37 @@ def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
     tolerances = pd.to_numeric(jobs.tolerance_seconds)
     if not np.isfinite(tolerances).all() or (tolerances < 0).any() or (tolerances >= 450).any():
         raise ValueError('Invalid queued completion tolerance')
+    return jobs
+
+
+def pending_todo(path, retrieval_dir, skip_bands=()):
+    """Return unskipped pairs that still lack a completed output on disk."""
+    jobs = read_todo(path, retrieval_dir)
+    skipped = normalize_skip_bands(skip_bands)
+    jobs = jobs.loc[~jobs.model.isin(skipped)].copy()
+    if jobs.empty:
+        return jobs
+    tolerance = pd.to_numeric(jobs.tolerance_seconds)
+    live = LiveInventory(retrieval_dir, jobs.retrieval_time.unique(), jobs.model.unique(), float(tolerance.max()))
+    index = live.refresh()
+    pending = []
+    for row in jobs.itertuples():
+        target = pd.to_datetime(row.retrieval_time, utc=True)
+        complete = bool(((index.model == row.model) & (index.status == 'usable') &
+                         ((index.time-target).dt.total_seconds().abs() <= float(row.tolerance_seconds))).any()) if len(index) else False
+        pending.append(not complete)
+    return jobs.loc[pending].copy()
+
+
+def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
+    """Run only pending pairs. Keep the input plan and write a separate execution report."""
+    skipped = normalize_skip_bands(skip_bands)
+    path = Path(path)
+    jobs = read_todo(path, retrieval_dir)
+    if jobs.empty:
+        return []
+    root = Path(retrieval_dir).resolve()
+    tolerances = pd.to_numeric(jobs.tolerance_seconds)
     live = LiveInventory(root, jobs.retrieval_time.unique(), jobs.model.unique(), float(tolerances.max()))
     results = []
     for number, row in enumerate(jobs.itertuples(), 1):

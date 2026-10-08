@@ -256,6 +256,41 @@ default exclusion. Supplying `--skip-bands` overrides that default; an empty
 GROUP execution. Skipping Ch1 in legacy mode with the LWP gate enabled still
 requires an existing Ch1 output for the gate to assess before Ch2 runs.
 
+Before starting the group, download its missing inputs with:
+
+```bash
+python get_sgp_data.py --retrieval-todo
+python GROUP_TROPoe.py
+```
+
+An optional CSV path after `--retrieval-todo` selects another saved queue. The
+downloader validates the same queue as GROUP, honors `GROUP_TROPOE_SKIP_BANDS`,
+and rechecks completed retrieval files before deciding which inputs are needed.
+For a one-run band exclusion, pass the same `--skip-bands Ch1 3 6` option to both
+commands. These commands leave the original queue unchanged.
+
+Each required stream/day is queried once: the pending channel's radiances,
+summary, engineering, surface meteorology, and AOD when configured. Days are
+based on the rounded retrieval time, with `RETRIEVAL_INPUT_PADDING_MINUTES`
+(default 15) covering adjacent UTC days near midnight. ARM catalog queries still
+require `ARM_USERNAME` and `ARM_TOKEN`; valid files in `ALL` are not downloaded
+again. Valid files in older group folders are linked into `ALL`, where the VIP
+expects them. Invalid existing NetCDF files are replaced only after a new download
+passes validation. An empty/already-completed/all-skipped queue needs no network.
+
+Set `AOD_DATASTREAM` in `config.py` to the exact ARM product identifier for your
+AOD dataset. Its destination is `AOD_DIR/ALL`. No AOD product name is assumed;
+with `AOD_DATASTREAM = None`, a warning reports that AOD downloading is disabled.
+This also adds configured AOD to date-range/single-case downloads. Downloading
+AOD does not by itself enable an AOD constraint in the retrieval VIP.
+
+`retrieval_todo_downloads.csv` beside the queue records each stream/day request,
+counts of existing/downloaded/unavailable files, and failures. All requests are
+attempted; missing catalog data or failed downloads produce a nonzero exit code.
+This report checks file availability and readability, not scientific data quality
+or whether valid samples exist at the exact retrieval time. It does not rerun
+cloud classification.
+
 The input queue remains a record of the planned work. A separate
 `retrieval_todo_last_run.csv` records `already_complete`, `completed`, `failed`,
 `still_missing_or_incomplete`, or `skipped_band` after each pair. Skipped pairs
