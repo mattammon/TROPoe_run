@@ -223,16 +223,16 @@ if selected.empty:
 
 # Analysis controls do not cause disk rereads: native profiles are cached.
 a, b, c, d = st.columns([2, 1, 1, 1])
-variable = 'T' if view == 'Vertical errors' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
+variable = 'T' if view in ('Vertical errors', 'Taylor diagram') else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
 bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.1, step=0.1)
-top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=3., step=0.1)
+top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
 spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
 if bottom >= top:
     st.warning('Layer top must exceed layer bottom.')
     st.stop()
 edges = np.linspace(bottom, top, max(2, int(np.ceil((top-bottom)*1000/spacing)))+1)
 
-load_models = models
+load_models = list(dict.fromkeys(models + ['Ch1'])) if view == 'Vertical errors' else models
 problems = []
 matches = data.match_cases(selected, index, load_models, tolerance)
 shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
@@ -270,6 +270,31 @@ if view == 'Vertical errors':
     render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems)
     st.stop()
 
+if view == 'Taylor diagram':
+    st.caption('Temperature and water vapor use the same layer and band selection. '
+               'Each variable uses its own available/common cohort according to the comparison setting. '
+               'Angle encodes correlation; radius is retrieved / observed standard deviation. '
+               'Dotted arcs show normalized centered RMSE, which excludes bias.')
+    for column, v in zip(st.columns(2), ('T', 'q')):
+        with column:
+            analysis = data.build_analysis(selected, models, profiles, observations, v, edges, paired)
+            figure, table = plots.taylor_plot(analysis, models)
+            display_chart(figure, 'taylor_'+v)
+            if analysis['metrics'].empty:
+                st.info('No complete '+data.VARIABLES[v][0]+' comparisons in this layer.')
+            st.dataframe(table, **STRETCH, hide_index=True)
+            download_table('Download '+data.VARIABLES[v][0]+' Taylor statistics', table,
+                           'taylor_'+v+'_statistics.csv', 'taylor_csv_'+v)
+    with st.expander('Load errors and comparison settings'):
+        if problems:
+            st.dataframe(pd.DataFrame(problems), **STRETCH)
+        download_table('Download Taylor comparison settings', pd.DataFrame([dict(
+            classification_manifest=active['path'], bands=','.join(models),
+            start_date=str(dates[0]), end_date=str(dates[1]), layer_bottom_km=bottom,
+            layer_top_km=top, bins=len(edges)-1, paired=paired, tolerance_seconds=tolerance)]),
+            'taylor_settings.csv', 'taylor_settings_csv')
+    st.stop()
+
 analysis = data.build_analysis(selected, models, profiles, observations, variable, edges, paired)
 metrics = analysis['metrics']
 issues = pd.concat([pd.DataFrame(problems), analysis['problems']], ignore_index=True)
@@ -291,22 +316,16 @@ if view == 'Vertical profiles':
         st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
     if not any((case, m) in profiles and variable in profiles[(case, m)] for m in models):
         st.warning('No selected retrieval profile is available for this case and variable.')
-elif view in ('RMSE comparisons', 'Taylor diagram'):
+elif view == 'RMSE comparisons':
     if metrics.empty:
         st.warning('No complete radiosonde comparisons in this layer. Review exclusions below, reduce the layer, or turn off paired comparisons.')
-    elif view == 'RMSE comparisons':
+    else:
         style = st.radio('RMSE view', ['Distributions', 'Timeline', 'Case heatmap'], horizontal=True)
         baseline = None
         if style == 'Case heatmap':
             baseline = st.selectbox('Subtract baseline', ['None']+models)
             baseline = None if baseline == 'None' else baseline
         display_chart(plots.rmse_plot(analysis, models, style, baseline), 'rmse')
-    else:
-        figure, table = plots.taylor_plot(analysis, models)
-        display_chart(figure, 'taylor')
-        st.caption('Angle encodes correlation; radius is retrieved / observed standard deviation. Dotted arcs are normalized centered RMSE. Bias is excluded from centered RMSE.')
-        st.dataframe(table, **STRETCH)
-        download_table('Download Taylor statistics', table, 'taylor_statistics.csv', 'taylor_csv')
 elif view in ('Information content', 'DFS vs RMSE'):
     if info.empty:
         st.warning('No valid DFS diagnostics cover this layer for the current cohort. Review source selection and exclusions below.')

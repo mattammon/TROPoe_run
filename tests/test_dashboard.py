@@ -109,6 +109,17 @@ class DashboardTests(unittest.TestCase):
         missing = data.build_analysis(cases, models, profiles, obs, 'T', edges, False)
         self.assertTrue(missing['metrics'].empty)
 
+    def test_band_colors_are_unique_and_stable(self):
+        models = ['Ch1']+['Ch2_B'+str(n) for n in range(1, 19)]
+        mapping = plots.colors(models)
+        self.assertEqual(len(set(mapping.values())), 19)
+        for model in models:
+            self.assertEqual(plots.colors([model])[model], mapping[model])
+        cases, bands, profiles, obs = data.demo_data()
+        analysis = data.build_analysis(cases, bands, profiles, obs, 'T', np.linspace(.1, 1.5, 15))
+        for trace in plots.info_plot(analysis, 'Layer distributions').data:
+            self.assertEqual(trace.marker.color, mapping[trace.name.split(' · ')[0]])
+
     def test_all_plot_types(self):
         cases, models, profiles, obs = data.demo_data()
         a = data.build_analysis(cases, models, profiles, obs, 'T', np.linspace(.1, 3, 30))
@@ -159,7 +170,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(data.display_cases(cases, labels, keep_id=True).case_id.tolist(), cases.case_id.tolist())
 
     def test_vertical_joint_rmse_and_difference(self):
-        from dashboard_vertical import compare_variables, case_error_panels, plotly_size_kwargs
+        from dashboard_vertical import compare_variables, case_error_panels, plotly_size_kwargs, vertical_rmse
         cases, models, profiles, obs = data.demo_data()
         cases = cases.iloc[:2]
         models = ['Ch1', 'Ch2_B1']
@@ -169,6 +180,17 @@ class DashboardTests(unittest.TestCase):
                 profiles[(case, m)]['q'] = obs[case]['q']+factor*3
         analyses, common, table, scales = compare_variables(cases, models, profiles, obs, np.linspace(.1, 3, 30))
         self.assertEqual(len(common), 2)
+        heat = vertical_rmse(analyses['T'], models, common)
+        self.assertEqual(list(heat.data[0].x), models)
+        self.assertEqual(np.asarray(heat.data[0].z).shape, (29, 2))
+        np.testing.assert_allclose(np.asarray(heat.data[0].z)[:, 0], 1.)
+        np.testing.assert_allclose(np.asarray(heat.data[0].z)[:, 1], 2.)
+        delta = vertical_rmse(analyses['T'], models, common, difference=True)
+        np.testing.assert_allclose(np.asarray(delta.data[0].z)[:, 0], 0.)
+        np.testing.assert_allclose(np.asarray(delta.data[0].z)[:, 1], 1.)
+        self.assertEqual(delta.data[0].zmin, -delta.data[0].zmax)
+        blank = vertical_rmse(analyses['T'], models, [], difference=True)
+        self.assertTrue(np.isnan(np.asarray(blank.data[0].z)).all())
         self.assertAlmostEqual(table.loc['Ch1', 'Temperature RMSE (°C)'], 1)
         self.assertAlmostEqual(table.loc['Ch2_B1', 'Mixing ratio RMSE (g/kg)'], 6)
         self.assertAlmostEqual(table.loc['Ch2_B1', 'Combined normalized RMSE'], 2*table.loc['Ch1', 'Combined normalized RMSE'])
@@ -268,6 +290,14 @@ class DashboardTests(unittest.TestCase):
         for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))
+            if view in ('Vertical errors', 'Taylor diagram'):
+                self.assertFalse(any(w.label == 'Variable' for w in app.selectbox))
+                self.assertEqual(next(w for w in app.number_input if w.label == 'Layer top (km AGL)').value, 1.5)
+            if view == 'Vertical errors':
+                next(w for w in app.radio if w.label == 'Vertical RMSE shading').set_value('RMSE difference from Ch1').run()
+                self.assertFalse(app.exception, msg=str(app.exception))
+            if view == 'Taylor diagram':
+                self.assertEqual(len(app.get('plotly_chart')), 2)
         next(s for s in app.selectbox if s.label == 'Manual classification').select('not_clear_sky')
         next(b for b in app.button if b.label == 'Save persistent manual override').click().run()
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.

@@ -390,7 +390,7 @@ differ. Counts and exclusions are available below every plot.
 | Vertical profiles | Choose an individual case; overlay sounding and selected bands on their native grids. |
 | RMSE comparisons | Case distributions with individual points, time scatter, case/band heatmap, or heatmap differences from a selected baseline. |
 | Vertical errors | Case-height retrieval-minus-sounding errors, or RMSE at each height across cases for a selected band. |
-| Taylor diagram | Correlation, normalized standard deviation, centered RMSE contours, and a downloadable table with full RMSE and bias. Negative correlations are supported. |
+| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, normalized standard deviation, centered RMSE contours, and a downloadable table with full RMSE and bias. Negative correlations are supported. |
 | Information content | Median cumulative DFS or DFS density with interquartile ranges; distributions of DFS integrated over the selected layer. |
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
 | 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
@@ -581,7 +581,7 @@ ordinary least-squares line fits AOD as a function of RMSE over the displayed
 case pairs, without extrapolating beyond their RMSE range.
 
 For each case, T and q RMSE pool squared errors over **all equally spaced height
-bin centers in the selected layer**, default 0.1–3 km AGL. The combined score is:
+bin centers in the selected layer**, default 0.1–1.5 km AGL. The combined score is:
 
 `sqrt(((RMSE_T / sigma_T)**2 + (RMSE_q / sigma_q)**2) / 2)`
 
@@ -604,12 +604,18 @@ case AODs, paired errors, correlation table and settings/normalization scales.
 
 ## Vertical-error comparison page
 
-The page displays temperature and water-vapor vertical RMSE curves side by side,
-with one line per selected band. Sidebar band checkboxes control visibility only;
+The page displays temperature and water-vapor RMSE checkerboards side by side,
+with bands on the horizontal axis, height on the vertical axis, and full cells
+shaded by RMSE. **Vertical RMSE shading** switches to band RMSE minus Ch1 RMSE;
+blue/negative values indicate lower RMSE than Ch1 and red/positive values indicate
+higher RMSE. This subtracts RMSEs, not signed errors or squared errors. Difference
+mode requires a common cohort across the selected bands and Ch1, which is loaded
+as a reference even if disabled in Bands. Missing comparisons are blank.
+Sidebar band checkboxes control visibility only;
 the common case cohort and ranking remain unchanged when a line is hidden. Use
 the main Bands selection to change the compared cohort. This page always uses
 cases with complete T **and** q profiles in every selected band for its aggregate
-curves/table, regardless of the general paired-comparison checkbox.
+checkerboards/table, regardless of the general paired-comparison checkbox.
 
 The table pools squared errors across all common cases and equal-height bin
 centers before taking the square root. It gives temperature RMSE (°C), mixing
@@ -645,3 +651,17 @@ the pooled summary, per-case T/q metrics, and exclusions.
 
 
 
+
+### Shared plot defaults and band colors
+
+All dashboard layer controls, including AOD comparisons, default to **0.1–1.5 km
+AGL**. The top remains adjustable. Each of the 19 supported bands (Ch1 and
+Ch2 B1–B18) has a fixed distinct color shared by profiles, Taylor markers, RMSE
+distributions/timelines, DFS plots, rankings, and AOD curves/scatters. Colors do
+not change when bands are reordered or hidden. Heatmaps use a numerical
+colorscale instead, with band identities labeled along the axis.
+
+Taylor diagrams share the chosen height layer and bands but each variable uses
+its own valid comparison cohort; the paired option requires common cases across
+bands separately for temperature and mixing ratio. Each table records sample
+and case counts. The variable selector is omitted on this page.

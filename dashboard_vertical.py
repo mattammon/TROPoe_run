@@ -32,14 +32,26 @@ def compare_variables(cases, models, profiles, observations, edges):
     return analyses, common, pd.DataFrame(rows).set_index('Band'), scales
 
 
-def vertical_rmse(analysis, models, common):
-    fig = go.Figure()
-    for m in models:
-        errors = np.array([analysis['curves'][(c, m)]['error'] for c in common])
-        if errors.size:
-            fig.add_trace(go.Scatter(x=np.sqrt(np.mean(errors**2, axis=0)), y=analysis['centers'], mode='lines', name=m, line=dict(color=colors(models)[m])))
+def vertical_rmse(analysis, models, common, difference=False):
+    """Height-by-band RMSE, with subtraction AFTER averaging squared errors."""
+    centers = analysis['centers']
+    def rmse(model):
+        errors = np.array([analysis['curves'][(c, model)]['error'] for c in common])
+        return np.sqrt(np.mean(errors**2, axis=0)) if errors.size else np.full(len(centers), np.nan)
+    values = np.column_stack([rmse(m) for m in models]) if models else np.empty((len(centers), 0))
+    if difference:
+        values = values - rmse('Ch1')[:, None]
     name, units, _ = VARIABLES[analysis['variable']]
-    return finish(fig, f'{name} · {len(common)} common cases', f'RMSE ({units})', 'Height AGL (km)')
+    finite = values[np.isfinite(values)]
+    limit = max(float(np.max(np.abs(finite))), 1e-9) if finite.size else 1.
+    title = ('RMSE − Ch1 RMSE' if difference else 'RMSE')+f' ({units})'
+    fig = go.Figure(go.Heatmap(z=values, x=models, y=centers, xgap=2, ygap=1,
+        colorscale='RdBu_r' if difference else 'Viridis', zmin=-limit if difference else 0., zmax=limit,
+        colorbar=dict(title=title, thickness=14),
+        hovertemplate='%{x}<br>Height: %{y:.2f} km<br>'+title+': %{z:.3f}<extra></extra>'))
+    fig.update_xaxes(type='category', categoryorder='array', categoryarray=models, tickangle=-45)
+    fig.update_yaxes(range=[analysis['edges'][0], analysis['edges'][-1]])
+    return finish(fig, f'{name} · {len(common)} common cases', 'Retrieval band', 'Height AGL (km)')
 
 
 def ranking_plot(table):
@@ -85,16 +97,23 @@ def case_error_panels(analysis, model, visible_models, case, ordered_cases):
 def render_vertical(cases, models, profiles, observations, edges, display_chart, download_table, load_problems):
     import streamlit as st
     table_size = {'width': 'stretch'} if tuple(int(x) for x in st.__version__.split('.')[:2]) >= (1, 50) else {'use_container_width': True}
-    analyses, common, table, scales = compare_variables(cases, models, profiles, observations, edges)
+    difference = st.radio('Vertical RMSE shading', ['RMSE', 'RMSE difference from Ch1'], horizontal=True) != 'RMSE'
+    comparison_models = list(dict.fromkeys(models + ['Ch1'])) if difference else models
+    analyses, common, table, scales = compare_variables(cases, comparison_models, profiles, observations, edges)
+    table = table.reindex(models)
+    if difference:
+        st.caption('Shading = band RMSE − Ch1 RMSE. Blue/negative means lower RMSE than Ch1; '
+                   'red/positive means higher RMSE. Ch1 is loaded as a reference even if deselected. '
+                   'All displayed bands and Ch1 use the same cases with complete T and q coverage.')
     with st.sidebar:
         st.subheader('Vertical-error band visibility')
         visible = [m for m in models if st.checkbox(m, value=True, key='vertical_visible_'+m)]
         st.caption('Visibility only; the common comparison cohort and ranking remain fixed. Use Bands above to change the comparison cohort.')
-    st.caption(f'{len(common)} cases have finite T and q throughout the layer for every selected band. Both RMSE curves and the table use this identical cohort.')
+    st.caption(f'{len(common)} cases have finite T and q throughout the layer for every selected band. Both RMSE checkerboards and the table use this identical cohort.')
     left, right = st.columns(2)
     for column, v in zip((left, right), ('T', 'q')):
         with column:
-            display_chart(vertical_rmse(analyses[v], visible, common), 'vertical_rmse_'+v)
+            display_chart(vertical_rmse(analyses[v], visible, common, difference), 'vertical_rmse_'+v)
     st.dataframe(table, **table_size)
     st.caption('Each RMSE pools squared errors over all common cases and equally spaced height-bin centers, then takes the square root. '
                'Combined = sqrt(((RMSE_T / σobs,T)² + (RMSE_q / σobs,q)²) / 2); the observed population standard deviations are shared by all bands. '
@@ -107,7 +126,7 @@ def render_vertical(cases, models, profiles, observations, edges, display_chart,
         display_chart(ranking_plot(table), 'vertical_ranking')
     download_table('Download pooled RMSE and ranking', table.reset_index(), 'vertical_rmse_summary.csv', 'vertical_summary_csv')
     download_table('Download common comparison cases', cases.loc[cases.case_id.isin(common)], 'vertical_common_cases.csv', 'vertical_common_csv')
-    download_table('Download vertical comparison settings', pd.DataFrame([dict(bands=', '.join(models), layer_bottom_km=edges[0], layer_top_km=edges[-1], bins=len(edges)-1, common_cases=len(common), temperature_scale=scales['T'], mixing_ratio_scale=scales['q'], combined_formula='sqrt(mean((RMSE_variable / observed_population_std_variable)^2))')]), 'vertical_settings.csv', 'vertical_settings_csv')
+    download_table('Download vertical comparison settings', pd.DataFrame([dict(bands=', '.join(models), shading='rmse_minus_ch1' if difference else 'rmse', layer_bottom_km=edges[0], layer_top_km=edges[-1], bins=len(edges)-1, common_cases=len(common), temperature_scale=scales['T'], mixing_ratio_scale=scales['q'], combined_formula='sqrt(mean((RMSE_variable / observed_population_std_variable)^2))')]), 'vertical_settings.csv', 'vertical_settings_csv')
     st.subheader('Case-height errors and individual profiles')
     band = st.selectbox('Band for case-height errors', models)
     candidates = [c for c in cases.case_id if any((c, m) in analyses[v]['curves'] for m in models for v in analyses)]

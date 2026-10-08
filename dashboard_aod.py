@@ -10,7 +10,7 @@ import xarray as xr
 
 import dashboard_data as data
 from cloud_screening import dataset_times, filename_time
-from dashboard_plots import finish
+from dashboard_plots import finish, colors
 
 
 def aod_files(root, stream, cases, half_window):
@@ -130,14 +130,14 @@ def correlations(pairs, models):
 def scatter_plot(pairs, model, label, stats):
     frame = pairs.loc[pairs.model.eq(model) & np.isfinite(pairs.total_rmse) & np.isfinite(pairs.aod)].copy()
     frame['Case'] = frame.sounding_time.map(data.case_label)
-    fig = go.Figure(go.Scatter(x=frame.total_rmse, y=frame.aod, mode='markers', name=model,
+    fig = go.Figure(go.Scatter(x=frame.total_rmse, y=frame.aod, mode='markers', name=model, marker=dict(color=colors([model])[model]),
         customdata=frame[['Case', 'temperature_rmse', 'mixing_ratio_rmse', 'aod_samples']].to_numpy(),
         hovertemplate='%{customdata[0]}<br>Combined RMSE: %{x:.4f}<br>AOD: %{y:.4f}<br>T RMSE: %{customdata[1]:.3f} °C<br>q RMSE: %{customdata[2]:.3f} g/kg<br>AOD samples: %{customdata[3]}<extra></extra>'))
     row = stats.set_index('Band').loc[model]
     if np.isfinite(row['Slope (AOD / RMSE)']):
         x = np.array([frame.total_rmse.min(), frame.total_rmse.max()])
         fig.add_trace(go.Scatter(x=x, y=row['Intercept']+row['Slope (AOD / RMSE)']*x,
-                                mode='lines', name=f'OLS fit · r={row["Pearson r"]:.3f}'))
+                                mode='lines', line=dict(color=colors([model])[model]), name=f'OLS fit · r={row["Pearson r"]:.3f}'))
     return finish(fig, f'{model} · {len(frame)} matched cases', 'Combined normalized T/q RMSE (dimensionless)', label)
 
 
@@ -162,7 +162,7 @@ def histogram_plot(binned, edges, pairs, models, field):
         usable = joined.loc[joined.model.eq(model) & np.isfinite(joined.total_rmse)].drop_duplicates('case_id')
         stats = usable.groupby('bin').total_rmse.agg(['mean', 'count']).reindex(range(len(centers)))
         fig.add_trace(go.Scatter(x=centers, y=stats['mean'], mode='lines+markers', yaxis='y2',
-            name=model+' mean RMSE', connectgaps=False,
+            name=model+' mean RMSE', connectgaps=False, line=dict(color=colors([model])[model]),
             customdata=np.column_stack([intervals, stats['count'].fillna(0).astype(int)]),
             hovertemplate='%{customdata[0]}<br>Mean RMSE: %{y:.4f}<br>RMSE cases: %{customdata[1]}<extra>%{fullData.name}</extra>'))
     finish(fig, 'Clear-sky AOD distribution and mean retrieval error', field+' (dimensionless)', 'Number of cases')
@@ -274,7 +274,7 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
     selected = cases.loc[cases.case_id.isin(valid.case_id)]
     a, b, c = st.columns(3)
     bottom = a.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=.1, step=.1)
-    top = b.number_input('Layer top (km AGL)', min_value=.1, max_value=20., value=3., step=.1)
+    top = b.number_input('Layer top (km AGL)', min_value=.1, max_value=20., value=1.5, step=.1)
     spacing = c.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
     if bottom >= top:
         st.warning('Layer top must exceed layer bottom.')

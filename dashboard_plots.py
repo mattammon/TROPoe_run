@@ -6,11 +6,16 @@ import plotly.graph_objects as go
 
 from dashboard_data import VARIABLES, model_sort, case_metadata, GROUP_ORDERS
 
-PALETTE = ['#172B4D', '#007F86', '#D1495B', '#7057A3', '#C07800', '#167B48', '#356FDB', '#BA4C91']
+# Fixed identities for Ch1 and all 18 configured Ch2 bands. Never assign colors
+# by the currently visible subset or cycle through a short palette.
+PALETTE = ['#202020', '#E6194B', '#3CB44B', '#4363D8', '#F58231',
+           '#911EB4', '#00BCD4', '#F032E6', '#808000', '#9A6324',
+           '#469990', '#800000', '#000075', '#A170C4', '#C8AC00',
+           '#A6D854', '#E08095', '#0080FF', '#707070']
 
 
 def colors(models):
-    return {m: PALETTE[0] if m == 'Ch1' else PALETTE[1+(int(m.split('_B')[1])-1) % (len(PALETTE)-1)] for m in models}
+    return {m: PALETTE[0] if m == 'Ch1' else PALETTE[int(m.split('_B')[1])] for m in models}
 
 
 def finish(fig, title, x=None, y=None):
@@ -73,7 +78,7 @@ def error_plot(analysis, model, mode):
     unit = VARIABLES[analysis['variable']][1]
     if mode == 'Vertical RMSE':
         fig = go.Figure(go.Scatter(x=np.sqrt(np.mean(matrix**2, axis=0)), y=analysis['centers'],
-                                  mode='lines', name=model))
+                                  mode='lines', name=model, line=dict(color=colors([model])[model])))
         return finish(fig, f'{model} · RMSE across {len(entries)} cases', f'RMSE ({unit})', 'Height AGL (km)')
     fig = go.Figure(go.Heatmap(z=matrix.T, x=list(range(len(entries))), y=analysis['centers'],
                               customdata=np.tile([analysis['case_labels'][c] for c, _ in entries], (len(analysis['centers']), 1)),
@@ -127,7 +132,7 @@ def taylor_plot(analysis, models):
                                 hovertemplate='%{text}<extra></extra>'))
     fig.update_xaxes(range=[-radius*1.06, radius*1.06])
     fig.update_yaxes(range=[-0.05, radius*1.1], scaleanchor='x', scaleratio=1)
-    return finish(fig, 'Normalized Taylor diagram · pooled height samples', 'σretrieval / σobserved × correlation', 'Normalized standard deviation component'), table
+    return finish(fig, VARIABLES[analysis['variable']][0]+' · normalized Taylor diagram', 'σretrieval / σobserved × correlation', 'Normalized standard deviation component'), table
 
 
 def info_frame(analysis):
@@ -138,7 +143,8 @@ def info_frame(analysis):
 def info_plot(analysis, mode):
     df = info_frame(analysis)
     if mode == 'Layer distributions':
-        fig = px.box(df, x='series', y='dfs', color='series', points='all', hover_name='Case')
+        fig = px.box(df, x='series', y='dfs', color='series', points='all', hover_name='Case',
+                     color_discrete_map={row.series: colors([row.model])[row.model] for row in df.itertuples()})
         return finish(fig, 'Accumulated DFS in the selected layer', 'Band · diagnostic source', 'DFS')
     fig = go.Figure()
     for (model, source), group in df.groupby(['model', 'source'], sort=False):
@@ -232,3 +238,4 @@ def radiance_plot(cases, window, group_by, mean_limit, std_limit,
     fig.update_layout(legend=dict(title_text=group_by, itemclick='toggle', itemdoubleclick='toggleothers'),
                       uirevision=f'radiance-{window}-{group_by}')
     return fig, df
+
