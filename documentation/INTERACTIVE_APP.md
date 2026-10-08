@@ -390,8 +390,8 @@ differ. Counts and exclusions are available below every plot.
 | Vertical profiles | Choose an individual case; overlay sounding and selected bands on their native grids. |
 | RMSE comparisons | Case distributions with individual points, time scatter, case/band heatmap, or heatmap differences from a selected baseline. |
 | Vertical errors | Case-height retrieval-minus-sounding errors, or RMSE at each height across cases for a selected band. |
-| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, normalized standard deviation, centered RMSE contours, and a downloadable table with full RMSE and bias. Only nonnegative correlations are plotted; negative correlations remain in the tables. One shared legend toggles bands across both panels. |
-| Information content | Median cumulative DFS or DFS density with interquartile ranges; distributions of DFS integrated over the selected layer. |
+| Taylor diagram | Temperature and mixing-ratio diagrams side by side, with separate statistics tables and exports. Correlation, standard deviation in °C or g/kg, centered RMSE contours in the same units, and a downloadable table with full RMSE and bias. Only nonnegative correlations are plotted; negative correlations remain in the tables. One shared legend toggles bands across both panels. |
+| Information content | Median cumulative DFS or DFS density as smooth vertical color strips per band; distributions of DFS integrated over the selected layer. |
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
 | 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
 | Aerosol / AOD | Histogram of case-mean AOD, selectable-band AOD versus combined T/q RMSE with a regression line, and per-band Pearson correlations. |
@@ -665,3 +665,24 @@ Taylor diagrams share the chosen height layer and bands but each variable uses
 its own valid comparison cohort; the paired option requires common cases across
 bands separately for temperature and mixing ratio. Each table records sample
 and case counts. The variable selector is omitted on this page.
+
+### Taylor and information-content display details
+
+Taylor radius is the retrieved **population standard deviation in physical units**
+(°C for temperature; g/kg for mixing ratio). Larger, 60%-opaque band markers help
+expose overlaps. The radiosonde star is at its observed standard deviation. If
+bands use different observed standard deviations, separate colored reference stars
+are shown and common centered-RMSE contours are omitted. The statistics exports
+still include the standard-deviation ratio as an additional diagnostic.
+
+Information-content titles include the selected layer and actual diagnostic
+source(s). Layer-distribution axes and legends show band names only; source details
+remain in hover labels and exports. Cumulative/density profiles shade the median
+for each band, with vertical interpolation for display and no horizontal cell
+borders. Different diagnostic sources get separate panels with a shared color
+scale. Bands are not blended horizontally.
+
+DFS vs RMSE displays temperature and mixing ratio side by side. **Show individual
+cases** controls all case scatter points in both panels at once. Turning it off
+leaves the mean diamonds and case-spread bars visible. Each variable has its own
+summary and per-case download.

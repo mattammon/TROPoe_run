@@ -132,11 +132,35 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(set(tables), {'T', 'q'})
         for trace in figure.data:
             self.assertTrue(np.all(np.asarray(trace.x) >= 0))
+        panel, stats = plots.taylor_plot(analyses['T'], models)
+        for row in stats.itertuples():
+            point = next(t for t in panel.data if t.name == row.model)
+            self.assertAlmostEqual(np.hypot(point.x[0], point.y[0]), row.retrieved_std)
+            self.assertEqual(point.marker.size, 22)
+            self.assertLess(point.marker.opacity, 1)
+        reference = next(t for t in panel.data if t.name == 'Radiosonde')
+        self.assertAlmostEqual(reference.x[0], stats.observed_std.iloc[0])
         for curve in analyses['T']['curves'].values():
             curve['retrieved'] = -curve['observed']
         negative, table = plots.taylor_plot(analyses['T'], models)
         self.assertTrue((table.correlation < 0).all())
         self.assertFalse(any(t.name in models for t in negative.data))
+
+    def test_information_heatmaps_and_case_toggle(self):
+        cases, models, profiles, obs = data.demo_data()
+        analysis = data.build_analysis(cases, models, profiles, obs, 'T', np.linspace(.1, 1.5, 15))
+        for mode in ('Cumulative profiles', 'Density profiles'):
+            fig = plots.info_plot(analysis, mode)
+            self.assertTrue(all(t.type == 'heatmap' and t.ygap == 0 for t in fig.data))
+            self.assertIn('0.1–1.5 km AGL', fig.layout.title.text)
+            self.assertIn('Diagnostic:', fig.layout.title.text)
+        distributions = plots.info_plot(analysis, 'Layer distributions')
+        self.assertTrue(all(t.name in models for t in distributions.data))
+        self.assertEqual(distributions.layout.xaxis.title.text, 'Band')
+        means, _ = plots.dfs_rmse_plot(analysis, individual=False)
+        self.assertTrue(all(t.marker.symbol == 'diamond' for t in means.data))
+        points, _ = plots.dfs_rmse_plot(analysis, individual=True)
+        self.assertGreater(len(points.data), len(means.data))
 
     def test_all_plot_types(self):
         cases, models, profiles, obs = data.demo_data()
@@ -308,7 +332,7 @@ class DashboardTests(unittest.TestCase):
         for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))
-            if view in ('Vertical errors', 'Taylor diagram'):
+            if view in ('Vertical errors', 'Taylor diagram', 'DFS vs RMSE'):
                 self.assertFalse(any(w.label == 'Variable' for w in app.selectbox))
                 self.assertEqual(next(w for w in app.number_input if w.label == 'Layer top (km AGL)').value, 1.5)
             if view == 'Vertical errors':
@@ -316,6 +340,10 @@ class DashboardTests(unittest.TestCase):
                 self.assertFalse(app.exception, msg=str(app.exception))
             if view == 'Taylor diagram':
                 self.assertEqual(len(app.get('plotly_chart')), 1)
+            if view == 'DFS vs RMSE':
+                next(w for w in app.checkbox if w.label == 'Show individual cases').uncheck().run()
+                self.assertFalse(app.exception, msg=str(app.exception))
+                self.assertEqual(len(app.get('plotly_chart')), 2)
         next(s for s in app.selectbox if s.label == 'Manual classification').select('not_clear_sky')
         next(b for b in app.button if b.label == 'Save persistent manual override').click().run()
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.

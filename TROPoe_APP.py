@@ -223,7 +223,7 @@ if selected.empty:
 
 # Analysis controls do not cause disk rereads: native profiles are cached.
 a, b, c, d = st.columns([2, 1, 1, 1])
-variable = 'T' if view in ('Vertical errors', 'Taylor diagram') else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
+variable = 'T' if view in ('Vertical errors', 'Taylor diagram', 'DFS vs RMSE') else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
 bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.1, step=0.1)
 top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
 spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
@@ -273,8 +273,9 @@ if view == 'Vertical errors':
 if view == 'Taylor diagram':
     st.caption('Temperature and water vapor use the same layer and band selection. '
                'Each variable uses its own available/common cohort according to the comparison setting. '
-               'Angle encodes correlation; radius is retrieved / observed standard deviation. '
-               'Dotted arcs show normalized centered RMSE, which excludes bias.')
+               'Angle encodes correlation; radius is retrieved standard deviation in °C or g/kg. '
+               'Dotted arcs show centered RMSE in physical units, which excludes bias. '
+               'If bands use different observed standard deviations, colored reference stars identify their cohorts and shared RMSE arcs are omitted.')
     st.caption('Only nonnegative correlations are plotted; negative correlations remain in the statistics tables. '
                'The shared legend toggles each band in both panels.')
     analyses = {v: data.build_analysis(selected, models, profiles, observations, v, edges, paired) for v in ('T', 'q')}
@@ -296,6 +297,26 @@ if view == 'Taylor diagram':
             start_date=str(dates[0]), end_date=str(dates[1]), layer_bottom_km=bottom,
             layer_top_km=top, bins=len(edges)-1, paired=paired, tolerance_seconds=tolerance)]),
             'taylor_settings.csv', 'taylor_settings_csv')
+    st.stop()
+
+if view == 'DFS vs RMSE':
+    individual = st.checkbox('Show individual cases', value=True, key='dfs_show_individual')
+    st.caption('This toggle controls case points in both panels. Diamonds show band/source means; '
+               'bars show ±1 population standard deviation across the plotted pairs.')
+    for column, v in zip(st.columns(2), ('T', 'q')):
+        with column:
+            st.subheader(data.VARIABLES[v][0])
+            analysis = data.build_analysis(selected, models, profiles, observations, v, edges, paired)
+            if analysis['metrics'].empty or not analysis['metrics'].dfs.notna().any():
+                st.info('No cases have both valid RMSE and DFS in this layer.')
+                continue
+            figure, table = plots.dfs_rmse_plot(analysis, individual)
+            display_chart(figure, 'dfs_rmse_'+v)
+            st.dataframe(table, **STRETCH)
+            download_table('Download '+data.VARIABLES[v][0]+' DFS–RMSE summary', table,
+                           'dfs_rmse_'+v+'_summary.csv', 'dfs_rmse_csv_'+v)
+            download_table('Download '+data.VARIABLES[v][0]+' case pairs', analysis['metrics'].dropna(subset=['dfs']),
+                           'dfs_rmse_'+v+'_cases.csv', 'dfs_rmse_cases_'+v)
     st.stop()
 
 analysis = data.build_analysis(selected, models, profiles, observations, variable, edges, paired)
@@ -329,22 +350,14 @@ elif view == 'RMSE comparisons':
             baseline = st.selectbox('Subtract baseline', ['None']+models)
             baseline = None if baseline == 'None' else baseline
         display_chart(plots.rmse_plot(analysis, models, style, baseline), 'rmse')
-elif view in ('Information content', 'DFS vs RMSE'):
+elif view == 'Information content':
     if info.empty:
         st.warning('No valid DFS diagnostics cover this layer for the current cohort. Review source selection and exclusions below.')
-    elif view == 'Information content':
+    else:
         mode = st.radio('Information view', ['Cumulative profiles', 'Density profiles', 'Layer distributions'], horizontal=True)
         display_chart(plots.info_plot(analysis, mode), 'information')
+        st.caption('Profile shading is the median across cases, interpolated vertically for display. Diagnostic sources are kept in separate panels.')
         download_table('Download layer DFS', info, 'layer_dfs.csv', 'dfs_csv')
-    elif metrics.empty or not metrics.dfs.notna().any():
-        st.warning('No cases have both valid RMSE and DFS in this layer.')
-    else:
-        individual = st.checkbox('Show individual cases', value=True)
-        figure, table = plots.dfs_rmse_plot(analysis, individual)
-        display_chart(figure, 'dfs_rmse')
-        st.caption('Diamonds are band/source means over the same case pairs; bars show case spread (±1 population standard deviation), not confidence intervals.')
-        st.dataframe(table, **STRETCH)
-        download_table('Download DFS–RMSE summary', table, 'dfs_rmse_summary.csv', 'dfs_rmse_csv')
 elif view == 'Cloud diagnostics':
     fields = [k for k in selected if (k.startswith('asi_') or k.startswith('radiance_'))
               and pd.to_numeric(selected[k], errors='coerce').notna().any()]
