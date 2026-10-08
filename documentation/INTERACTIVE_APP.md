@@ -278,11 +278,11 @@ again. Valid files in older group folders are linked into `ALL`, where the VIP
 expects them. Invalid existing NetCDF files are replaced only after a new download
 passes validation. An empty/already-completed/all-skipped queue needs no network.
 
-Set `AOD_DATASTREAM` in `config.py` to the exact ARM product identifier for your
-AOD dataset. Its destination is `AOD_DIR/ALL`. No AOD product name is assumed;
-with `AOD_DATASTREAM = None`, a warning reports that AOD downloading is disabled.
+`AOD_DATASTREAM` in `config.py` defaults to `sgpcsphotaodfiltqav3C1.a1`, with
+destination `AOD_DIR/ALL`. Setting it to `None` disables AOD downloading.
 This also adds configured AOD to date-range/single-case downloads. Downloading
-AOD does not by itself enable an AOD constraint in the retrieval VIP.
+AOD does not by itself enable an AOD constraint in the retrieval VIP. Missing
+AOD is reported but does not block the single-retrieval input downloader.
 
 `retrieval_todo_downloads.csv` beside the queue records each stream/day request,
 counts of existing/downloaded/unavailable files, and failures. All requests are
@@ -351,6 +351,7 @@ differ. Counts and exclusions are available below every plot.
 | Information content | Median cumulative DFS or DFS density with interquartile ranges; distributions of DFS integrated over the selected layer. |
 | DFS vs RMSE | Individual matched cases and band/source means; error bars describe case spread, not confidence intervals. |
 | 985 radiance scatter | Mean versus standard deviation, annotated filter limits, core/context windows, category toggles, and dated hover labels. |
+| Aerosol / AOD | Histogram of case-mean AOD, selectable-band AOD versus combined T/q RMSE with a regression line, and per-band Pearson correlations. |
 | Cloud diagnostics | Choose numeric manifest diagnostics for either axis; color by final category and symbol by ASI classification. |
 | Case catalog | Default view after classification: scroll all clear-sky cases against the selected bands. Green cells have a usable retrieval within the configured to-do tolerance; gray cells are missing or incomplete. Per-band counts and the all-selected/none-selected case counts update when bands change. |
 
@@ -494,6 +495,58 @@ family, and the file-backed setup, Apply transition, dashboard views, and persis
 Run `python -m unittest discover -s tests -p test_classification.py -v` for rule,
 audit, snapshot, satellite matching, and master-integrity checks.
 
+
+## Aerosol / AOD page
+
+This page uses **all clear-sky cases** from the active classification, independently
+of the other pages' date filters. The global Bands selector controls which bands
+are compared. The histogram includes cases with matched AOD even if they have no
+retrieval output yet.
+
+The input stream is `sgpcsphotaodfiltqav3C1.a1`. The app discovers wavelength-specific
+fields in the files (for example `aod_500` and `aod_870`), defaulting to 500 nm.
+These field names are also used in ARM's
+[CIMEL input configuration](https://github.com/ARM-Development/qc_aod/blob/master/conf/qc_aod.process).
+Choose the wavelength and a matching half-window, default **±30 minutes around
+the sounding launch**. Each case gets the arithmetic mean of finite, nonnegative
+AOD samples in its window. Decoded fill values are excluded. Duplicate timestamps
+count once; duplicate filenames prefer the `ALL` folder. The optional QC toggle
+requires zero values in `qc_<AOD field>` and `qc_time` when those variables exist.
+The page displays available QC fields. Cases with no matching observations remain
+missing and are counted explicitly; nighttime and data gaps are not interpolated.
+
+**Download missing AOD files for all clear-sky cases** queries the required UTC
+days, including adjacent days at midnight, and reuses existing valid files. It
+requires ARM credentials in the app environment. Unlike the retrieval to-do
+download command, this also fetches AOD for cases whose retrievals are already
+complete. The AOD directory can be changed on the page. File reads are cached by
+path, modification time, size, wavelength and QC setting.
+
+The scatter plot has combined RMSE on x and AOD on y. Change **Band for AOD–RMSE
+scatter** to redraw it without reloading the comparison data. Hover shows the
+sounding date, combined RMSE, individual T/q RMSEs, AOD and sample count. An
+ordinary least-squares line fits AOD as a function of RMSE over the displayed
+case pairs, without extrapolating beyond their RMSE range.
+
+For each case, T and q RMSE pool squared errors over **all equally spaced height
+bin centers in the selected layer**, default 0.1–3 km AGL. The combined score is:
+
+`sqrt(((RMSE_T / sigma_T)**2 + (RMSE_q / sigma_q)**2) / 2)`
+
+This uses the same dimensionless definition as the vertical-error ranking; it
+does not add °C and g/kg directly. The two normalization scales are observed
+population standard deviations over the AOD-matched comparison cohort. Each
+sounding contributes once, and every band uses the same scales. By default each
+band uses its available cases; the optional common-case toggle restricts all bands
+to the same complete T/q/AOD cohort. Changing that cohort can change the scales.
+No RMSE is computed through missing vertical coverage or by extrapolation.
+
+The table lists every selected band, number of finite case pairs, Pearson r,
+R², fitted slope and intercept. Correlations are undefined for constant values or
+fewer than two pairs; two-point correlations can be ±1. These are descriptive
+associations, not attribution of retrieval errors to aerosols. Zero observed
+variance makes the combined score unavailable. Downloadable CSVs contain the
+case AODs, paired errors, correlation table and settings/normalization scales.
 
 ## Vertical-error comparison page
 

@@ -45,9 +45,8 @@ SUM_DIR = f'{DATA_DIR}/irs_sum/{SITE}'
 ENG_DIR = f'{DATA_DIR}/irs_eng/{SITE}'
 SFC_DIR = f'{DATA_DIR}/met/{SITE}'
 AOD_DIR = f'{DATA_DIR}/aod/{SITE}'
-# Exact ARM datastream identifier for your AOD product (not yet in the pushed repo).
-# Set this before downloading AOD; None leaves AOD downloads disabled.
-AOD_DATASTREAM = None
+# CIMEL sunphotometer: quality-assured aerosol optical depth, multiple wavelengths.
+AOD_DATASTREAM = 'sgpcsphotaodfiltqav3C1.a1'
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{SITE}'
 MASTER_DATA_FOLDER = 'ALL'
 SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}'

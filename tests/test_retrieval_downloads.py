@@ -47,7 +47,7 @@ class RetrievalDownloadTests(unittest.TestCase):
         with patch('retrieval_todo.pending_todo', return_value=jobs):
             report = download_todo_inputs(self.queue, directories=self.dirs, client=client)
         self.assertTrue(report.status.eq('incomplete').all())
-        self.assertEqual(len(report), 4)
+        self.assertEqual(len(report), 5)  # Ch1, summary, engineering, surface, and configured AOD.
 
     def test_legacy_file_is_linked_into_vip_input_directory(self):
         old = self.root/'ch2'/'old_group'
@@ -81,6 +81,14 @@ class RetrievalDownloadTests(unittest.TestCase):
         self.assertEqual(records[0]['status'], 'downloaded')
         self.assertEqual(path.read_bytes(), good)
         self.assertEqual(request.call_count, 2)
+
+    def test_missing_diagnostic_aod_does_not_block_single_retrieval_inputs(self):
+        downloader = SGP_DATA('20250101', '20250101', directories=self.dirs, client=Mock())
+        with patch.object(downloader, 'dataset_download', side_effect=lambda key, *args: [] if key == 'aod' else [{'status': 'existing'}]):
+            downloader.single_data_download()
+        with patch.object(downloader, 'dataset_download', return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, 'incomplete for ch1'):
+                downloader.single_data_download()
 
 
 if __name__ == '__main__':

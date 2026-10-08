@@ -172,8 +172,17 @@ class SGP_DATA:
 
     def download_data_retrieval(self, sdate, edate):
         for key in self.retrieval_streams():
-            records = self.dataset_download(key, self.directories[key], sdate, edate)
+            try:
+                records = self.dataset_download(key, self.directories[key], sdate, edate)
+            except CatalogError:
+                if key != 'aod':
+                    raise
+                logger.warning('AOD is unavailable; it is a dashboard diagnostic, not a required TROPoe VIP input.')
+                continue
             if any(r['status'] == 'unavailable' for r in records) or not records:
+                if key == 'aod':
+                    logger.warning('No complete AOD download on %s; retrieval execution can proceed without AOD.', sdate)
+                    continue
                 raise RuntimeError(f'Retrieval input download incomplete for {key} on {sdate}')
 
     def single_data_download(self):

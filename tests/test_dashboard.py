@@ -21,10 +21,15 @@ class DashboardTests(unittest.TestCase):
         self.todo_patch = patch('config.RETRIEVAL_TODO_MANIFEST', str(self.root/'todo.csv'))
         self.todo_patch.start()
         self.addCleanup(self.todo_patch.stop)
+        self.aod_patch = patch('config.AOD_DIR', str(self.root))
+        self.aod_patch.start()
+        self.addCleanup(self.aod_patch.stop)
         self.z = np.linspace(0, 3, 31)
         self.times = pd.date_range('2025-01-01T12:00', periods=2, freq='15min')
         # Filename time deliberately differs from BOTH actual record times.
         self.path = self.root/'tropoeOutput_Ch2_B6.20250101.115500.nc'
+        xr.Dataset({'aod_500': ('time', [.1, .2]), 'aod_870': ('time', [.05, .1])},
+                   coords={'time': self.times}).to_netcdf(self.root/'sgpcsphotaodfiltqav3C1.a1.20250101.000000.nc')
         temperature = np.stack([10-6*self.z, 12-6*self.z])
         ds = xr.Dataset(dict(temperature=(('time', 'height'), temperature, {'units': 'C'}),
                              waterVapor=(('time', 'height'), np.ones_like(temperature)*0.005, {'units': 'kg/kg'}),
@@ -211,6 +216,16 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['1', '0'])
         self.assertEqual(next(s for s in app.multiselect if s.label == 'Bands').value, ['Ch2_B6'])
+        next(s for s in app.selectbox if s.label == 'Plot').select('Aerosol / AOD').run()
+        self.assertFalse(app.exception, msg=str(app.exception))
+        self.assertEqual(next(s for s in app.selectbox if s.label == 'Band for AOD–RMSE scatter').value, 'Ch2_B6')
+        self.assertEqual(next(s for s in app.selectbox if s.label == 'AOD field / wavelength').value, 'aod_500')
+        next(s for s in app.selectbox if s.label == 'AOD field / wavelength').select('aod_870').run()
+        self.assertFalse(app.exception, msg=str(app.exception))
+        next(s for s in app.multiselect if s.label == 'Bands').set_value(['Ch1', 'Ch2_B6']).run()
+        next(s for s in app.selectbox if s.label == 'Band for AOD–RMSE scatter').select('Ch2_B6').run()
+        self.assertFalse(app.exception, msg=str(app.exception))
+        next(s for s in app.selectbox if s.label == 'Plot').select('Case catalog').run()
         next(s for s in app.multiselect if s.label == 'Bands').set_value(['Ch1']).run()
         self.assertFalse(app.exception)
         self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['0', '1'])
