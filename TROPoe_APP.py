@@ -10,6 +10,7 @@ import dashboard_data as data
 import dashboard_plots as plots
 from dashboard_vertical import plotly_size_kwargs, render_vertical
 from dashboard_catalog import render_catalog
+from catalog_retrievals import create_catalog
 from dashboard_setup import classification_gate, review_plot
 from dashboard_classification import ClassificationRules, ReviewStore, save_run, fingerprint
 from retrieval_todo import expected_models, pending_retrievals, save_todo
@@ -65,27 +66,32 @@ rules = ClassificationRules(**active['rules'])
 todo_path = getattr(config, 'RETRIEVAL_TODO_MANIFEST', None)
 todo_bands = getattr(config, 'RETRIEVAL_TODO_BANDS', list(range(1, 19)))
 todo_tolerance = getattr(config, 'RETRIEVAL_TODO_TOLERANCE_SECONDS', 60.)
-if st.sidebar.button('Refresh retrieval inventory and to-do'):
+if st.sidebar.button('Refresh retrieval catalog and to-do'):
     st.session_state.pop('loaded_source', None)
     st.session_state.pop('retrieval_todo_key', None)
-scope = (active['path'], source['root'])
+scope = ('full_catalog_v1', active['path'], source['root'], tuple(todo_bands), todo_tolerance)
 if st.session_state.get('loaded_source', {}).get('scope') != scope:
-    with st.spinner('Checking retrieval timestamps and clear-sky profile completeness…'):
+    with st.spinner('Scanning retrievals and updating the catalog for this classification…'):
         try:
-            if not Path(source['root']).exists() or cases.empty:
+            if not Path(source['root']).exists():
                 index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
                 index_errors = pd.DataFrame()
+                catalog_dir = None
             else:
-                # Read timestamps for discovery, but T/q only near clear-case targets.
-                # Cover the dashboard's allowed matching tolerance. The queue uses
-                # the stricter configured completion tolerance below.
-                index, index_errors = data.read_index(source['root'], target_times=cases.retrieval_time,
-                                                      tolerance_seconds=449.)
+                # Catalog CLI and dashboard share one full scan and summary format.
+                # Read the just-written profile table rather than scanning again.
+                catalog_dir, summary, scanned_files = create_catalog(source['root'], active['path'], todo_bands,
+                                                                      category='clear_sky', tolerance_seconds=todo_tolerance)
+                index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
+                file_errors = pd.DataFrame([f for f in scanned_files if f.get('error')])
+                if not file_errors.empty:
+                    index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
         except Exception as exc:
-            st.error('Could not check retrieval completion; no new to-do manifest was written: '+str(exc))
+            st.error('Could not update retrieval catalog or completion; no new to-do manifest was written: '+str(exc))
             st.stop()
     st.session_state.loaded_source = dict(index=index, errors=index_errors, manifest=source['master'],
-                                         root=source['root'], catalog=source['catalog'], sonde_root=source['sonde_root'], scope=scope)
+                                         root=source['root'], catalog=str(catalog_dir/'profiles.csv') if catalog_dir else '',
+                                         sonde_root=source['sonde_root'], scope=scope)
 loaded = st.session_state.loaded_source
 index, index_errors = loaded['index'], loaded['errors']
 catalog_models = expected_models(todo_bands)
@@ -103,6 +109,8 @@ if st.session_state.get('retrieval_todo_key') != todo_key:
 todo = st.session_state.retrieval_todo
 st.caption(f"{len(cases):,} clear-sky cases out of {len(all_cases):,} classified cases. Retrieval comparisons load only clear-sky cases.")
 st.caption(f"Master: {source['master']} · Classification: {active['path']}")
+if loaded['catalog']:
+    st.caption('Retrieval catalog: '+str(Path(loaded['catalog']).parent/'summary.json'))
 with st.sidebar:
     st.download_button('Download active classification', Path(active['path']).read_bytes(), 'classification.csv', 'text/csv')
     st.caption(f'Retrieval to-do: {todo.case_id.nunique():,} cases · {len(todo):,} missing case–band pairs (Ch1 + {len(todo_bands)} Ch2 bands).')

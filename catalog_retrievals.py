@@ -1,7 +1,7 @@
 """Inventory TROPoe files and compare usable T/q profiles with expected cases."""
 import argparse
 import csv
-from shared_outputs import shared_output, shared_directory
+from shared_outputs import atomic_text, shared_output, shared_directory
 import json
 import logging
 from pathlib import Path
@@ -171,6 +171,84 @@ def write_csv(path, fields, rows):
         writer.writerows(rows)
 
 
+def scan_inventory(root, out):
+    """Reuse structurally scanned profiles if the source file is unchanged."""
+    summary_path = out/'summary.json'
+    try:
+        previous = json.loads(summary_path.read_text())
+        if previous.get('scan_schema') != 1 or previous.get('retrieval_dir') != str(root.resolve()):
+            raise ValueError('Different or older inventory')
+        old_files = pd.read_csv(out/'files.csv', keep_default_na=False)
+        old_profiles = pd.read_csv(out/'profiles.csv', keep_default_na=False)
+        if not set(FILE_FIELDS).issubset(old_files) or not set(PROFILE_FIELDS).issubset(old_profiles):
+            raise ValueError('Incomplete inventory fields')
+        previous_files = {row['file']: row for row in old_files.to_dict('records')}
+        if len(previous_files) != len(old_files) or not set(old_profiles.file).issubset(previous_files):
+            raise ValueError('Inventory file rows disagree')
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        LOG.info('Full catalog scan (%s)', exc)
+        files, profiles = scan(root)
+        return files, profiles, 0
+    current = sorted((p for p in root.rglob('*') if p.is_file() and p.suffix.lower() in ('.nc', '.cdf') and NAME.match(p.name)),
+                     key=str)
+    unchanged, changed = set(), []
+    for path in current:
+        resolved = str(path.resolve())
+        old = previous_files.get(resolved)
+        stat = path.stat()
+        modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
+        if old and int(old['size_bytes']) == stat.st_size and old['modified_utc'] == modified:
+            unchanged.add(resolved)
+        else:
+            changed.append(path)
+    refreshed_files, refreshed_profiles = scan(root, paths=changed) if changed else ([], [])
+    files = sorted((row for path, row in previous_files.items() if path in unchanged), key=lambda row: row['file'])+refreshed_files
+    profiles = [row for row in old_profiles.to_dict('records') if row['file'] in unchanged]+refreshed_profiles
+    files.sort(key=lambda row: row['file'])
+    profiles.sort(key=lambda row: (row['file'], int(row['profile_index'])))
+    removed = len(set(previous_files)-{str(p.resolve()) for p in current})
+    LOG.info('Catalog inventory: %d unchanged files, %d rescanned, %d removed',
+             len(unchanged), len(changed), removed)
+    return files, profiles, len(unchanged)
+
+
+def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1=True,
+                   category='clear_sky', tolerance_seconds=60., output_dir=None):
+    """Scan once and write the same full inventory used by the catalog CLI."""
+    retrieval_dir = Path(retrieval_dir)
+    if not retrieval_dir.is_dir():
+        raise ValueError('Retrieval directory does not exist: '+str(retrieval_dir))
+    bands = list(bands)
+    if not np.isfinite(tolerance_seconds) or tolerance_seconds < 0 or any(b < 1 for b in bands):
+        raise ValueError('Tolerance must be finite and nonnegative; bands must be positive')
+    manifest = Path(manifest) if manifest else None
+    if manifest is not None and not manifest.is_file():
+        raise ValueError('Manifest does not exist: '+str(manifest))
+    out = Path(output_dir) if output_dir else retrieval_dir/'catalog'
+    shared_directory(out, writable=True)
+    files, profiles, reused = scan_inventory(retrieval_dir, out)
+    cases = expected_cases(manifest, profiles, bands, include_ch1, category, tolerance_seconds) if manifest else []
+    write_csv(out/'files.csv', FILE_FIELDS, files)
+    write_csv(out/'profiles.csv', PROFILE_FIELDS, profiles)
+    write_csv(out/'cases.csv', CASE_FIELDS, cases)
+    write_csv(out/'pending.csv', CASE_FIELDS, [r for r in cases if r['status'] not in ('complete', 'duplicate')])
+    from collections import Counter
+    summary = dict(created_utc=datetime.now(timezone.utc).isoformat(), retrieval_dir=str(retrieval_dir.resolve()),
+                   scan_schema=1, inventory_reused_files=reused,
+                   manifest=str(manifest.resolve()) if manifest else None, bands=bands, include_ch1=include_ch1,
+                   tolerance_seconds=tolerance_seconds, files=dict(Counter(r['status'] for r in files)),
+                   profiles=dict(Counter(r['status'] for r in profiles)), cases=dict(Counter(r['status'] for r in cases)),
+                   completed_by_band=completed_by_band(cases, profiles, bands, include_ch1, manifest is not None),
+                   completed_by_band_basis=('unique matched case IDs; duplicate outputs count once per case' if manifest else
+                                            'distinct usable profile times across scanned files'),
+                   completion_definition='Readable time-matched profiles with finite T/q and increasing heights; not scientific QC or convergence certification.')
+    # Summary is the completion marker; publish it only after the CSVs succeed.
+    atomic_text(out/'summary.json', json.dumps(summary, indent=2, allow_nan=False)+'\n', catalog=True)
+    LOG.info('Catalog saved: %s', out.resolve())
+    LOG.info('Expected retrievals: %s', summary['cases'])
+    return out, summary, files
+
+
 def main():
     import config
     parser = argparse.ArgumentParser(description=__doc__)
@@ -185,33 +263,12 @@ def main():
     parser.add_argument('--output-dir', type=Path, help='Output folder; default: retrieval-dir/catalog')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-    if not args.retrieval_dir.is_dir():
-        parser.error('Retrieval directory does not exist: '+str(args.retrieval_dir))
-    if not np.isfinite(args.tolerance_seconds) or args.tolerance_seconds < 0 or any(b < 1 for b in args.bands):
-        parser.error('Tolerance must be finite and nonnegative; bands must be positive')
     manifest = Path(args.manifest) if args.manifest and not args.inventory_only else None
-    if manifest is not None and not manifest.is_file():
-        parser.error('Manifest does not exist: '+str(manifest))
-    files, profiles = scan(args.retrieval_dir)
-    cases = expected_cases(manifest, profiles, args.bands, not args.no_ch1, args.category, args.tolerance_seconds) if manifest else []
-    out = args.output_dir or args.retrieval_dir/'catalog'
-    shared_directory(out)
-    write_csv(out/'files.csv', FILE_FIELDS, files)
-    write_csv(out/'profiles.csv', PROFILE_FIELDS, profiles)
-    write_csv(out/'cases.csv', CASE_FIELDS, cases)
-    write_csv(out/'pending.csv', CASE_FIELDS, [r for r in cases if r['status'] not in ('complete', 'duplicate')])
-    from collections import Counter
-    summary = dict(created_utc=datetime.now(timezone.utc).isoformat(), retrieval_dir=str(args.retrieval_dir.resolve()),
-                   manifest=str(manifest.resolve()) if manifest else None, bands=args.bands, include_ch1=not args.no_ch1,
-                   tolerance_seconds=args.tolerance_seconds, files=dict(Counter(r['status'] for r in files)),
-                   profiles=dict(Counter(r['status'] for r in profiles)), cases=dict(Counter(r['status'] for r in cases)),
-                   completed_by_band=completed_by_band(cases, profiles, args.bands, not args.no_ch1, manifest is not None),
-                   completed_by_band_basis=('unique matched case IDs; duplicate outputs count once per case' if manifest else
-                                            'distinct usable profile times across scanned files'),
-                   completion_definition='Readable time-matched profiles with finite T/q and increasing heights; not scientific QC or convergence certification.')
-    (out/'summary.json').write_text(json.dumps(summary, indent=2, allow_nan=False)+'\n')
-    LOG.info('Catalog saved: %s', out.resolve())
-    LOG.info('Expected retrievals: %s', summary['cases'])
+    try:
+        create_catalog(args.retrieval_dir, manifest, args.bands, not args.no_ch1,
+                       args.category, args.tolerance_seconds, args.output_dir)
+    except ValueError as exc:
+        parser.error(str(exc))
 
 
 if __name__ == '__main__':

@@ -225,9 +225,20 @@ including persistent manual overrides. The radiance scatter and satellite review
 retain all master cases so cases can still be inspected and reclassified.
 
 The app recursively discovers `.nc`/`.cdf` outputs named `tropoeOutput_Ch1.*` or
-`tropoeOutput_Ch2_B<number>.*`. It reads timestamps for discovery, and reads T/q
-profiles only within the allowed matching range of clear-case retrieval times.
-It checks live files instead of trusting an older profile catalog. Use one
+`tropoeOutput_Ch2_B<number>.*`. On opening a classification it updates
+`RETRIEVAL_DIR/GROUP_NAME/catalog/{files.csv,profiles.csv,cases.csv,pending.csv,summary.json}`
+with the selected `classification.csv` as its manifest. The summary's `manifest`
+field identifies that snapshot, and `completed_by_band` counts its matching
+clear-sky cases. The file/profile counts describe the **full retrieval directory**,
+including outputs outside that classification. The summary is written last.
+
+The first update structurally scans T/q and height in all retrieval files. Later
+updates reuse unchanged files according to their size and modification time,
+rescan changed/new files, remove deleted files, and recompute case matches for
+the active classification. The dashboard reads the updated profile catalog for
+comparisons and creates its separate clear-sky retrieval to-do manifest. Click
+**Refresh retrieval catalog and to-do** after retrieval files change; switching
+classifications also updates the catalog automatically. Use one
 experiment/group per retrieval directory to keep band configurations consistent.
 No retrieval profiles are loaded when the clear-sky cohort is empty.
 
@@ -312,7 +323,7 @@ The input queue remains a record of the planned work. A separate
 `retrieval_todo_last_run.csv` records `already_complete`, `completed`, `failed`,
 `still_missing_or_incomplete`, or `skipped_band` after each pair. Skipped pairs
 remain in the original queue, so a later run can execute them. Rerunning the same queue skips work
-now complete. In the app, **Refresh retrieval inventory and to-do** rebuilds the
+now complete. In the app, **Refresh retrieval catalog and to-do** rebuilds the
 queue from current files without reclassifying cases; the sidebar shows counts,
 the saved path, and a CSV download. A new classification or manual correction
 rebuilds it automatically. The most recently applied selection owns the configured
@@ -332,7 +343,7 @@ inspection; the app cannot infer which experiment you intended.
 
 Native profiles are cached by absolute file path, modification time, size, record,
 and diagnostic-source selection. Existing-file changes are noticed on rerun.
-Click **Refresh retrieval inventory and to-do** to find new files and update missing
+Click **Refresh retrieval catalog and to-do** to find new files and update missing
 bands. An existing cached profile whose timestamp changes produces an explicit
 load error rather than reading a different record silently.
 
