@@ -318,7 +318,7 @@ def main():
     parser.add_argument('--manifest', type=Path, default=getattr(config, 'CLOUD_CLASSIFICATION_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST)
     parser.add_argument('--reuse-inventory', action='store_true', help='Update case matches and summary from saved inventory without scanning retrieval files')
     parser.add_argument('--inventory-only', action='store_true', help='Do not compare against a manifest')
-    parser.add_argument('--bands', nargs='+', type=int, default=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
+    parser.add_argument('--bands', nargs='+', type=int, default=[1,2,5,6,9,11,13,14,17],
                         help='Expected Ch2 bands; default: all')
     parser.add_argument('--no-ch1', action='store_true', help='Exclude Ch1 from expected retrievals')
     parser.add_argument('--category', default=config.CLOUD_SCREEN_CATEGORY)

@@ -65,7 +65,7 @@ RETRIEVAL_TODO_TOLERANCE_SECONDS = 60.
 RETRIEVAL_INPUT_PADDING_MINUTES = 15.
 # Leave empty to run every band. Entries can be Ch1, Ch2_B6, or 6 (Ch2 band 6).
 # GROUP_TROPoe.py --skip-bands overrides this setting for a single run.
-GROUP_TROPOE_SKIP_BANDS = []
+GROUP_TROPOE_SKIP_BANDS = [3,4,7,8,10,12,15,16,18]
 # Cloud selections do not also apply the legacy retrieval-LWP gate.
 APPLY_RETRIEVAL_LWP_FILTER = (not (CLOUD_SCREEN_MANIFEST or CLOUD_MASTER_MANIFEST or CLOUD_CLASSIFICATION_MANIFEST)
                               and 'clear' in GROUP_NAME)
