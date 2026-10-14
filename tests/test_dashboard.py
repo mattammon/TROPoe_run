@@ -103,6 +103,34 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(ch1['n_matches'], 2)
         self.assertEqual(ch1['matched_file'], '/tmp/duplicate')
 
+    def test_cached_summary_grid_and_todo_agree_across_time_units(self):
+        from unittest.mock import patch
+        from catalog_retrievals import create_catalog
+        from retrieval_todo import completion_matrix, pending_retrievals
+        from dashboard_classification import prepare_master, save_run, ClassificationRules, ReviewStore, read_selection_manifest
+        master = prepare_master(self.manifest)
+        frame = pd.read_csv(master)
+        frame['radiance_core_radiance_mean'] = 2.
+        frame['radiance_core_radiance_std'] = .1
+        _, manifest = save_run(master, frame, ClassificationRules(use_asi=False), ReviewStore(self.root/'reviews'))
+        out, first, _ = create_catalog(self.root, manifest, [6])
+        signatures = {name: (out/name).stat().st_mtime_ns for name in ('files.csv', 'profiles.csv')}
+        with patch('catalog_retrievals.scan_inventory', side_effect=AssertionError('Unexpected scan')):
+            _, summary, _ = create_catalog(self.root, manifest, [6], reuse_inventory=True)
+        self.assertEqual(first['inventory_updated_utc'], summary['inventory_updated_utc'])
+        self.assertEqual(signatures, {name: (out/name).stat().st_mtime_ns for name in signatures})
+        cases = read_selection_manifest(manifest)
+        index, _ = data.read_index(self.root, catalog=out/'profiles.csv')
+        for target_unit, profile_unit in [('us', 'ns'), ('ns', 'us'), ('ms', 'ns')]:
+            cases['retrieval_time'] = pd.to_datetime(cases.retrieval_time, utc=True).dt.as_unit(target_unit)
+            index['time'] = pd.to_datetime(index.time, utc=True).dt.as_unit(profile_unit)
+            matrix = completion_matrix(cases, index, ['Ch1', 'Ch2_B6'])
+            self.assertEqual(matrix.sum().to_dict(), summary['completed_by_band'])
+            self.assertEqual(int(matrix.all(axis=1).sum()), summary['case_completion']['complete_all_bands'])
+            self.assertEqual(int((~matrix.any(axis=1)).sum()), summary['case_completion']['no_completed_bands'])
+            todo = pending_retrievals(cases, index, [6], manifest, self.root)
+            self.assertEqual(len(todo), int((~matrix).sum().sum()))
+
     def test_inclusive_dates_and_missing_cloud_values(self):
         cases, _, _, _ = data.demo_data()
         day = cases.sounding_time.iloc[0].date()
@@ -338,15 +366,15 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(summary['manifest'], app.session_state['cloud_active']['path'])
         self.assertEqual(summary['completed_by_band']['Ch2_B6'], 1)
         self.assertEqual(summary['completed_by_band']['Ch1'], 0)
-        # Saved mode reads CSVs only, and does not rewrite the saved summary.
+        # Saved mode updates the summary without scanning files or changing inventory age.
         from unittest.mock import patch
         before = catalog_summary.read_bytes()
-        with patch('catalog_retrievals.create_catalog', side_effect=AssertionError('Unexpected scan')):
+        with patch('catalog_retrievals.scan_inventory', side_effect=AssertionError('Unexpected scan')):
             app.session_state['loaded_source'] = {}
             app._run()
             self.assertFalse(app.exception, msg=str(app.exception))
             self.assertTrue(app.session_state['loaded_source']['saved_inventory'])
-            self.assertEqual(catalog_summary.read_bytes(), before)
+            self.assertEqual(json.loads(catalog_summary.read_text())['inventory_updated_utc'], json.loads(before)['inventory_updated_utc'])
         # A refresh after a new output must update the same persisted catalog.
         (self.root/'tropoeOutput_Ch1.20250101.121500.nc').write_bytes(self.path.read_bytes())
         next(b for b in app.button if b.label == 'Refresh retrieval catalog and to-do').click().run()
@@ -400,8 +428,9 @@ class DashboardTests(unittest.TestCase):
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state['cloud_active']['cases'].category.iloc[0], 'not_clear_sky')
-        self.assertNotEqual(json.loads(catalog_summary.read_text())['manifest'], app.session_state['cloud_active']['path'])
-        self.assertEqual(json.loads(catalog_summary.read_text())['inventory_reused_files'], 1)
+        self.assertEqual(json.loads(catalog_summary.read_text())['manifest'], app.session_state['cloud_active']['path'])
+        self.assertEqual(json.loads(catalog_summary.read_text())['cases'], {})
+        self.assertEqual(json.loads(catalog_summary.read_text())['inventory_reused_files'], 2)
         self.assertTrue(app.session_state['loaded_source']['saved_inventory'])
         self.assertTrue(pd.read_csv(self.root/'todo.csv').empty)
         self.assertFalse(app.session_state['loaded_source']['index'].empty)  # Full archive inventory remains available.

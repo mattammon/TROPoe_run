@@ -19,6 +19,8 @@ def render_catalog(cases, index, models, labels, tolerance, index_errors, all_mo
     st.caption(f'Each row is a clear-sky sounding; each column is a selected band. '
                f'A green cell means a usable retrieval record occurs within ±{tolerance:g} seconds of the target retrieval time. '
                'Gray means missing or incomplete. Scroll the grid to see all cases.')
+    st.caption('summary.json reports all configured bands for the active classification. '
+               'Band toggles below change the displayed all-selected/none-selected counts; they do not change the retrieval execution plan.')
     if selection_key:
         st.write('Bands included in completion statistics and dashboard comparisons')
         columns = st.columns(6)

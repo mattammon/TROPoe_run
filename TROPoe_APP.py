@@ -1,7 +1,6 @@
 """Launch: python -m streamlit run TROPoe_APP.py"""
 from pathlib import Path
 import logging
-import json
 
 import numpy as np
 import pandas as pd
@@ -73,7 +72,7 @@ refresh_requested = st.sidebar.button('Refresh retrieval catalog and to-do')
 if refresh_requested:
     st.session_state.pop('loaded_source', None)
     st.session_state.pop('retrieval_todo_key', None)
-scope = ('full_catalog_v1', active['path'], source['root'], tuple(todo_bands), todo_tolerance, use_saved)
+scope = ('shared_catalog_v2', active['path'], source['root'], tuple(todo_bands), todo_tolerance, use_saved)
 if st.session_state.get('loaded_source', {}).get('scope') != scope:
     saved_inventory = use_saved and not refresh_requested
     catalog_dir = Path(source['root'])/'catalog'
@@ -88,23 +87,14 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
         LOG.info('Retrieval catalog: %s', message)
     try:
         summary = {}
-        if saved_inventory:
-            summary = json.loads((catalog_dir/'summary.json').read_text())
-            if Path(summary['retrieval_dir']).resolve() != Path(source['root']).resolve():
-                raise ValueError('Saved catalog belongs to a different retrieval directory')
-            report_catalog('Reading saved retrieval profiles…')
-            index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
-            saved_files = pd.read_csv(catalog_dir/'files.csv', keep_default_na=False)
-            file_errors = saved_files.loc[saved_files['error'].ne('')]
-            index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
-        elif not Path(source['root']).exists():
+        if not Path(source['root']).exists():
             index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
             index_errors = pd.DataFrame()
             catalog_dir = None
         else:
             catalog_dir, summary, scanned_files = create_catalog(
                 source['root'], active['path'], todo_bands, category='clear_sky',
-                tolerance_seconds=todo_tolerance, progress=report_catalog)
+                tolerance_seconds=todo_tolerance, progress=report_catalog, reuse_inventory=saved_inventory)
             report_catalog('Reading updated retrieval profiles…')
             index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
             file_errors = pd.DataFrame([f for f in scanned_files if f.get('error')])
@@ -119,7 +109,7 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
     st.session_state.loaded_source = dict(index=index, errors=index_errors, manifest=source['master'],
                                          root=source['root'], catalog=str(catalog_dir/'profiles.csv') if catalog_dir else '',
                                          sonde_root=source['sonde_root'], scope=scope, saved_inventory=saved_inventory,
-                                         inventory_time=summary.get('created_utc', 'unknown'))
+                                         inventory_time=summary.get('inventory_updated_utc', 'unknown'))
 loaded = st.session_state.loaded_source
 index, index_errors = loaded['index'], loaded['errors']
 catalog_models = expected_models(todo_bands)
@@ -139,7 +129,7 @@ st.caption(f"{len(cases):,} clear-sky cases out of {len(all_cases):,} classified
 st.caption(f"Master: {source['master']} · Classification: {active['path']}")
 if loaded.get('saved_inventory'):
     st.caption('Using inventory saved '+loaded['inventory_time']+'. Retrieval files were not rescanned. '
-               'Completion and to-do counts use the current classification; the saved summary.json is unchanged. '
+               'summary.json, case counts and the to-do list now describe the active classification. '
                'Refresh the catalog to include new or removed retrievals.')
 if loaded['catalog']:
     st.caption('Retrieval catalog: '+str(Path(loaded['catalog']).parent/'summary.json'))

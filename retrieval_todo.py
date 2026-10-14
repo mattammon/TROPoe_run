@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from catalog_retrievals import scan, NAME
+from catalog_retrievals import scan, NAME, time_values, time_bounds
 from dashboard_classification import atomic_text, read_selection_manifest
 from spectralBands import ch2_bands
 
@@ -56,20 +56,16 @@ def completion_matrix(cases, index, models, tolerance=60.):
     targets = pd.to_datetime(clear.retrieval_time, utc=True, errors='raise')
     if targets.isna().any():
         raise ValueError('Invalid retrieval time in clear-sky cases')
-    values = targets.astype('int64').to_numpy()
+    values = time_values(targets)
     result = pd.DataFrame(False, index=pd.Index(clear.case_id, name='case_id'), columns=models)
-    offset = int(tolerance * 1e9)
     for model in models:
         subset = index.loc[(index.model == model) & (index.status == 'usable')]
         times = pd.to_datetime(subset.time, utc=True, errors='coerce').dropna()
         if times.empty or not len(values):
             continue
-        completed = np.sort(times.astype('int64').to_numpy())
-        positions = np.searchsorted(completed, values - offset)
-        in_range = positions < len(completed)
-        found = np.zeros(len(values), dtype=bool)
-        found[in_range] = completed[positions[in_range]] <= values[in_range] + offset
-        result[model] = found
+        completed = np.sort(time_values(times))
+        start, stop = time_bounds(values, completed, tolerance)
+        result[model] = stop > start
     return result
 
 
@@ -78,25 +74,26 @@ def pending_retrievals(cases, index, bands, classification_manifest, retrieval_d
         raise ValueError('Completion tolerance must be finite and between 0 and 450 seconds (exclusive upper limit)')
     clear = cases.loc[cases.category == 'clear_sky'].copy()
     rows = []
+    targets = time_values(clear.retrieval_time)
+    classification_manifest = str(Path(classification_manifest).resolve())
+    retrieval_dir = str(Path(retrieval_dir).resolve())
     for model in expected_models(bands):
         subset = index.loc[index.model == model]
-        usable = np.sort(pd.to_datetime(subset.loc[subset.status == 'usable', 'time'], utc=True).dt.as_unit('ns').astype('int64').to_numpy())
-        all_times = np.sort(pd.to_datetime(subset.time, utc=True).dt.as_unit('ns').astype('int64').to_numpy())
-        def found(times, target):
-            pos = np.searchsorted(times, target-int(tolerance*1e9))
-            return pos < len(times) and times[pos] <= target+int(tolerance*1e9)
-        for case in clear.itertuples():
-            target = pd.to_datetime(case.retrieval_time, utc=True, errors='raise')
-            if pd.isna(target):
-                raise ValueError('Invalid retrieval time for '+str(case.case_id))
-            if found(usable, target.value):
+        usable = np.sort(time_values(subset.loc[subset.status == 'usable', 'time']))
+        all_times = np.sort(time_values(subset.time))
+        start, stop = time_bounds(targets, usable, tolerance)
+        completed = stop > start
+        start, stop = time_bounds(targets, all_times, tolerance)
+        present = stop > start
+        for n, case in enumerate(clear.itertuples()):
+            if completed[n]:
                 continue
+            target = pd.Timestamp(targets[n], tz='UTC')
             rows.append(dict(case_id=str(case.case_id), sounding_time=pd.to_datetime(case.sounding_time, utc=True).isoformat(),
                 retrieval_time=target.isoformat(), sounding_file=str(case.sounding_file), category='clear_sky',
                 channel=1 if model == 'Ch1' else 2, band='' if model == 'Ch1' else model.split('_B')[1], model=model,
-                reason='incomplete_output' if found(all_times, target.value) else 'missing_or_unreadable_output',
-                classification_manifest=str(Path(classification_manifest).resolve()),
-                retrieval_dir=str(Path(retrieval_dir).resolve()), tolerance_seconds=tolerance))
+                reason='incomplete_output' if present[n] else 'missing_or_unreadable_output',
+                classification_manifest=classification_manifest, retrieval_dir=retrieval_dir, tolerance_seconds=tolerance))
     return pd.DataFrame(rows, columns=FIELDS).sort_values(['sounding_time', 'case_id', 'channel', 'band']).reset_index(drop=True)
 
 

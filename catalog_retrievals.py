@@ -1,6 +1,5 @@
 """Inventory TROPoe files and compare usable T/q profiles with expected cases."""
 import argparse
-from bisect import bisect_left, bisect_right
 import csv
 from shared_outputs import atomic_text, shared_output, shared_directory
 import json
@@ -20,6 +19,23 @@ NAME = re.compile(r'^tropoeOutput_Ch(?P<channel>[12])(?:_B(?P<band>\d+))?\.')
 FILE_FIELDS = ['file', 'channel', 'band', 'status', 'n_profiles', 'n_usable', 'size_bytes', 'modified_utc', 'error']
 PROFILE_FIELDS = ['file', 'channel', 'band', 'profile_index', 'time', 'status', 'n_levels', 'n_finite_pairs', 'error']
 CASE_FIELDS = ['case_id', 'sounding_time', 'retrieval_time', 'channel', 'band', 'status', 'n_matches', 'matched_file', 'profile_index', 'matched_time', 'offset_seconds', 'matching_files']
+
+
+def time_values(values):
+    """UTC nanoseconds explicitly: pandas may preserve us/ms input resolution."""
+    times = pd.DatetimeIndex(pd.to_datetime(values, utc=True, errors='raise'))
+    if times.isna().any():
+        raise ValueError('Invalid retrieval timestamp')
+    return times.as_unit('ns').asi8
+
+
+def time_bounds(target_ns, sorted_profile_ns, tolerance):
+    """Inclusive matching window shared by catalog, dashboard and to-do queue."""
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError('Tolerance must be finite and nonnegative')
+    offset = int(tolerance * 1e9)
+    return (np.searchsorted(sorted_profile_ns, target_ns-offset, side='left'),
+            np.searchsorted(sorted_profile_ns, target_ns+offset, side='right'))
 
 
 def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None, progress=None):
@@ -130,8 +146,7 @@ def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
                 index.setdefault((int(p['channel']), str(p['band'])), []).append((timestamp.value, p))
     for key, entries in index.items():
         entries.sort(key=lambda entry: entry[0])
-        index[key] = ([value for value, _ in entries], [profile for _, profile in entries])
-    tolerance_ns = int(tolerance * 1e9)
+        index[key] = (np.array([value for value, _ in entries], dtype=np.int64), [profile for _, profile in entries])
     rows = []
     for case in cases:
         target = pd.to_datetime(case['retrieval_time'], utc=True, errors='coerce')
@@ -143,8 +158,7 @@ def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
                 row['status'] = 'invalid_target_time'
             else:
                 times, records = index.get((channel, band), ([], []))
-                start = bisect_left(times, target.value-tolerance_ns)
-                stop = bisect_right(times, target.value+tolerance_ns)
+                start, stop = time_bounds(target.value, times, tolerance)
                 matches = [(records[i], (times[i]-target.value)/1e9) for i in range(start, stop)]
                 good = [(p, d) for p, d in matches if p['status'] == 'usable']
                 row['n_matches'] = len(good)
@@ -227,7 +241,7 @@ def scan_inventory(root, out, progress=None):
 
 
 def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1=True,
-                   category='clear_sky', tolerance_seconds=60., output_dir=None, progress=None):
+                   category='clear_sky', tolerance_seconds=60., output_dir=None, progress=None, reuse_inventory=False):
     """Scan once and write the same full inventory used by the catalog CLI."""
     retrieval_dir = Path(retrieval_dir)
     if not retrieval_dir.is_dir():
@@ -240,19 +254,37 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
         raise ValueError('Manifest does not exist: '+str(manifest))
     out = Path(output_dir) if output_dir else retrieval_dir/'catalog'
     shared_directory(out, writable=True)
-    files, profiles, reused = scan_inventory(retrieval_dir, out, progress=progress)
+    inventory_time = datetime.now(timezone.utc).isoformat()
+    if reuse_inventory:
+        if progress:
+            progress('Reading saved inventory; no retrieval scan…')
+        previous = json.loads((out/'summary.json').read_text())
+        if previous.get('retrieval_dir') != str(retrieval_dir.resolve()):
+            raise ValueError('Saved catalog belongs to a different retrieval directory')
+        file_table = pd.read_csv(out/'files.csv', keep_default_na=False)
+        profile_table = pd.read_csv(out/'profiles.csv', keep_default_na=False,
+                                    dtype={'band': str})
+        if not set(FILE_FIELDS).issubset(file_table) or not set(PROFILE_FIELDS).issubset(profile_table):
+            raise ValueError('Saved inventory is incomplete; refresh the retrieval catalog')
+        files, profiles = file_table.to_dict('records'), profile_table.to_dict('records')
+        reused = len(files)
+        inventory_time = previous.get('inventory_updated_utc', previous['created_utc'])
+    else:
+        files, profiles, reused = scan_inventory(retrieval_dir, out, progress=progress)
     if progress:
         progress(f'Matching {len(profiles):,} cached profiles to the selected cases…')
     cases = expected_cases(manifest, profiles, bands, include_ch1, category, tolerance_seconds) if manifest else []
     if progress:
         progress('Writing retrieval catalog tables and summary…')
-    write_csv(out/'files.csv', FILE_FIELDS, files)
-    write_csv(out/'profiles.csv', PROFILE_FIELDS, profiles)
+    if not reuse_inventory:
+        write_csv(out/'files.csv', FILE_FIELDS, files)
+        write_csv(out/'profiles.csv', PROFILE_FIELDS, profiles)
     write_csv(out/'cases.csv', CASE_FIELDS, cases)
     write_csv(out/'pending.csv', CASE_FIELDS, [r for r in cases if r['status'] not in ('complete', 'duplicate')])
     from collections import Counter
     summary = dict(created_utc=datetime.now(timezone.utc).isoformat(), retrieval_dir=str(retrieval_dir.resolve()),
-                   scan_schema=1, inventory_reused_files=reused,
+                   scan_schema=1, inventory_reused_files=reused, inventory_updated_utc=inventory_time,
+                   inventory_mode='saved' if reuse_inventory else 'refreshed', category=category,
                    manifest=str(manifest.resolve()) if manifest else None, bands=bands, include_ch1=include_ch1,
                    tolerance_seconds=tolerance_seconds, files=dict(Counter(r['status'] for r in files)),
                    profiles=dict(Counter(r['status'] for r in profiles)), cases=dict(Counter(r['status'] for r in cases)),
@@ -260,6 +292,18 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
                    completed_by_band_basis=('unique matched case IDs; duplicate outputs count once per case' if manifest else
                                             'distinct usable profile times across scanned files'),
                    completion_definition='Readable time-matched profiles with finite T/q and increasing heights; not scientific QC or convergence certification.')
+    if manifest:
+        models = list(summary['completed_by_band'])
+        complete = {model: set() for model in models}
+        case_ids = {row['case_id'] for row in cases}
+        for row in cases:
+            if row['status'] in ('complete', 'duplicate'):
+                model = 'Ch1' if int(row['channel']) == 1 else 'Ch2_B'+str(row['band'])
+                complete[model].add(row['case_id'])
+        any_complete = set().union(*complete.values())
+        all_complete = set.intersection(*complete.values()) if complete else set()
+        summary['case_completion'] = dict(total_cases=len(case_ids), models=models,
+            complete_all_bands=len(all_complete), no_completed_bands=len(case_ids-any_complete))
     # Summary is the completion marker; publish it only after the CSVs succeed.
     atomic_text(out/'summary.json', json.dumps(summary, indent=2, allow_nan=False)+'\n', catalog=True)
     LOG.info('Catalog saved: %s', out.resolve())
@@ -272,6 +316,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--retrieval-dir', type=Path, default=Path(config.RETRIEVAL_DIR)/config.GROUP_NAME)
     parser.add_argument('--manifest', type=Path, default=getattr(config, 'CLOUD_CLASSIFICATION_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST)
+    parser.add_argument('--reuse-inventory', action='store_true', help='Update case matches and summary from saved inventory without scanning retrieval files')
     parser.add_argument('--inventory-only', action='store_true', help='Do not compare against a manifest')
     parser.add_argument('--bands', nargs='+', type=int, default=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
                         help='Expected Ch2 bands; default: all')
@@ -284,7 +329,7 @@ def main():
     manifest = Path(args.manifest) if args.manifest and not args.inventory_only else None
     try:
         create_catalog(args.retrieval_dir, manifest, args.bands, not args.no_ch1,
-                       args.category, args.tolerance_seconds, args.output_dir)
+                       args.category, args.tolerance_seconds, args.output_dir, reuse_inventory=args.reuse_inventory)
     except ValueError as exc:
         parser.error(str(exc))
 

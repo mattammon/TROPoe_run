@@ -236,10 +236,11 @@ recompute case matches using time-indexed lookup.
 
 **Use saved retrieval catalog (skip scan)** is enabled by default. After a
 classification is applied or a saved classification is opened, the dashboard
-reads existing profile and file tables and recalculates its completion grid and
-clear-sky to-do manifest for that classification. It does not traverse NetCDF
-files or rewrite `summary.json`; that file describes the classification last
-explicitly refreshed. The inventory timestamp is shown. Refresh after new
+uses the same `create_catalog` function as the catalog CLI, in saved-inventory
+mode. It reads existing profile and file tables and updates `cases.csv`,
+`pending.csv`, and `summary.json` for the active classification, without traversing
+or opening NetCDF files. The grid and clear-sky to-do list share the catalog's
+inclusive timestamp-window logic and explicitly convert times to nanoseconds. The inventory timestamp is shown. Refresh after new
 retrievals finish or files are removed. If no catalog exists, the classification
 is saved and the app pauses with a button to build the initial inventory;
 it does not silently begin an hours-long scan. If a saved catalog is corrupt or
@@ -700,3 +701,24 @@ DFS–RMSE panels now belong to one figure, with a single band-only legend whose
 entries toggle both panels. The source remains in hover details and exported
 tables, and separate sources retain separate means. The figure camera and HTML
 export save both panels together.
+
+### One completion definition across the app and scripts
+
+Opening or applying a classification updates the catalog's case tables and
+`summary.json` from the saved file inventory. An explicit refresh also discovers
+and validates new/changed retrieval files. The CLI supports the same fast path:
+`python catalog_retrievals.py --manifest /path/to/classification.csv --reuse-inventory`.
+
+`created_utc` records when the classification summary was updated;
+`inventory_updated_utc` records when retrieval files were last checked.
+`manifest`, `category`, `bands`, and `tolerance_seconds` identify what is counted.
+`completed_by_band` counts completed case IDs (duplicate outputs count once).
+`case_completion` gives total cases, all-band-complete cases and cases with no
+completed band. These aggregate fields use all configured bands. Dashboard band
+toggles change the displayed aggregates only; they do not alter the execution
+plan. Inventory-only CLI summaries count unique usable profile times and are
+replaced with case-based summaries when a classification is opened in the app.
+
+The group catalog describes the most recently opened classification. Multiple
+app sessions using the same group can overwrite that shared summary; check its
+`manifest` against the classification shown in the dashboard.
