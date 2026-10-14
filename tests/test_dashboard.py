@@ -81,6 +81,28 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(refreshed['completed_by_band']['Ch2_B6'], 0)
         self.assertFalse(pd.read_csv(output/'profiles.csv').shape[0])
 
+    def test_catalog_case_matching_large_index_and_boundaries(self):
+        from catalog_retrievals import expected_cases
+        from dashboard_classification import prepare_master, save_run, ClassificationRules, ReviewStore
+        master = prepare_master(self.manifest)
+        frame = pd.read_csv(master)
+        frame['radiance_core_radiance_mean'] = 2.
+        frame['radiance_core_radiance_std'] = .1
+        _, manifest = save_run(master, frame, ClassificationRules(use_asi=False), ReviewStore(self.root/'reviews'))
+        target = pd.to_datetime(frame.retrieval_time.iloc[0], utc=True)
+        profiles = [dict(file=f'/tmp/unrelated{n}', time=(target+pd.Timedelta(hours=n+1)).isoformat(),
+                         channel=1, band='', status='usable', profile_index=0)
+                    for n in range(5000)]
+        profiles += [dict(file='/tmp/edge', time=(target+pd.Timedelta(seconds=60)).isoformat(),
+                          channel=1, band='', status='usable', profile_index=0),
+                     dict(file='/tmp/duplicate', time=target.isoformat(),
+                          channel=1, band='', status='usable', profile_index=0)]
+        matched = expected_cases(manifest, profiles, [6], True, 'clear_sky', 60.)
+        ch1 = next(row for row in matched if row['channel'] == 1)
+        self.assertEqual(ch1['status'], 'duplicate')
+        self.assertEqual(ch1['n_matches'], 2)
+        self.assertEqual(ch1['matched_file'], '/tmp/duplicate')
+
     def test_inclusive_dates_and_missing_cloud_values(self):
         cases, _, _, _ = data.demo_data()
         day = cases.sounding_time.iloc[0].date()
@@ -303,6 +325,10 @@ class DashboardTests(unittest.TestCase):
         next(b for b in app.button if b.label == 'Apply classification and open dashboard').click().run()
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
+        self.assertFalse((self.root/'catalog'/'summary.json').exists())
+        self.assertTrue(any('No retrieval catalog exists' in x.value for x in app.info))
+        next(b for b in app.button if b.label == 'Refresh retrieval catalog and to-do').click().run()
+        self.assertFalse(app.exception, msg=str(app.exception))
         pending = pd.read_csv(self.root/'todo.csv')
         self.assertEqual(set(pending.case_id), {'case'})
         self.assertEqual(len(pending), 18)  # Ch1 + 18 bands, with B6 already complete.
@@ -316,7 +342,8 @@ class DashboardTests(unittest.TestCase):
         from unittest.mock import patch
         before = catalog_summary.read_bytes()
         with patch('catalog_retrievals.create_catalog', side_effect=AssertionError('Unexpected scan')):
-            next(c for c in app.checkbox if c.label == 'Use saved retrieval catalog (skip scan)').check().run()
+            app.session_state['loaded_source'] = {}
+            app._run()
             self.assertFalse(app.exception, msg=str(app.exception))
             self.assertTrue(app.session_state['loaded_source']['saved_inventory'])
             self.assertEqual(catalog_summary.read_bytes(), before)
@@ -352,7 +379,7 @@ class DashboardTests(unittest.TestCase):
         next(s for s in app.multiselect if s.label == 'Bands').set_value(['Ch1']).run()
         self.assertFalse(app.exception)
         self.assertEqual([m.value for m in app.metric if m.label in ('Complete in all selected bands', 'No retrieval in selected bands')], ['1', '0'])
-        next(c for c in app.checkbox if c.label == 'Use saved retrieval catalog (skip scan)').uncheck().run()
+        self.assertTrue(next(c for c in app.checkbox if c.label == 'Use saved retrieval catalog (skip scan)').value)
         for view in ['Vertical errors', 'RMSE comparisons', 'Taylor diagram', 'Information content', 'DFS vs RMSE', 'Case catalog', '985 radiance scatter']:
             next(s for s in app.selectbox if s.label == 'Plot').select(view).run()
             self.assertFalse(app.exception, msg=str(app.exception))
@@ -373,9 +400,9 @@ class DashboardTests(unittest.TestCase):
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state['cloud_active']['cases'].category.iloc[0], 'not_clear_sky')
-        self.assertEqual(json.loads(catalog_summary.read_text())['manifest'], app.session_state['cloud_active']['path'])
-        self.assertEqual(json.loads(catalog_summary.read_text())['cases'], {})
-        self.assertEqual(json.loads(catalog_summary.read_text())['inventory_reused_files'], 2)
+        self.assertNotEqual(json.loads(catalog_summary.read_text())['manifest'], app.session_state['cloud_active']['path'])
+        self.assertEqual(json.loads(catalog_summary.read_text())['inventory_reused_files'], 1)
+        self.assertTrue(app.session_state['loaded_source']['saved_inventory'])
         self.assertTrue(pd.read_csv(self.root/'todo.csv').empty)
         self.assertFalse(app.session_state['loaded_source']['index'].empty)  # Full archive inventory remains available.
         self.assertEqual(len(list((self.root/'reviews'/'runs').glob('*/classification.csv'))), 2)
@@ -406,8 +433,13 @@ class DashboardTests(unittest.TestCase):
             next(b for b in app.button if b.label=='Open selected catalog in dashboard').click().run()
             app._run()
             self.assertFalse(app.exception,msg=str(app.exception))
-            self.assertEqual(next(s for s in app.selectbox if s.label=='Plot').value,'Case catalog')
+            self.assertFalse((self.root/'catalog'/'summary.json').exists())
+            self.assertTrue(any('No retrieval catalog exists' in x.value for x in app.info))
             self.assertEqual(app.session_state['cloud_active']['path'],str(path))
+            next(b for b in app.button if b.label=='Refresh retrieval catalog and to-do').click().run()
+            app._run()
+            self.assertFalse(app.exception,msg=str(app.exception))
+            self.assertEqual(next(s for s in app.selectbox if s.label=='Plot').value,'Case catalog')
             self.assertEqual(json.loads((self.root/'catalog'/'summary.json').read_text())['manifest'],str(path))
             self.assertEqual(app.session_state['cloud_active']['rules']['radiance_mean_max'],6.5)
             self.assertEqual(len(list((store.root/'runs').glob('*/classification.csv'))),1)

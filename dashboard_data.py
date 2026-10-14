@@ -107,7 +107,10 @@ def read_index(root, catalog='', target_times=None, tolerance_seconds=60.):
             raise ValueError('Select the catalog profiles.csv, not cases.csv or files.csv')
         # Catalog paths are absolute, as written by catalog_retrievals.py.
         root_path = Path(root).resolve()
-        within = df.file.map(lambda p: root_path in Path(p).resolve().parents)
+        # A NetCDF file can contribute many profile rows. Resolve each unique
+        # path once instead of doing a network-filesystem lookup per record.
+        valid_paths = {p: root_path in Path(p).resolve().parents for p in df.file.unique()}
+        within = df.file.map(valid_paths)
         df = df.loc[within].copy()
         errors = df.loc[df.status != 'usable'].copy()
     else:
@@ -352,4 +355,5 @@ def demo_data():
             profiles[(case, model)] = dict(z=z, T=t+bias+perturbation, q=q+0.2*perturbation,
                                            Td=t-5+perturbation, information=info)
     return pd.DataFrame(rows), models, profiles, observations
+
 

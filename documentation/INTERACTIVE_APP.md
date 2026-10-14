@@ -225,32 +225,31 @@ including persistent manual overrides. The radiance scatter and satellite review
 retain all master cases so cases can still be inspected and reclassified.
 
 The app recursively discovers `.nc`/`.cdf` outputs named `tropoeOutput_Ch1.*` or
-`tropoeOutput_Ch2_B<number>.*`. On opening a classification it updates
-`RETRIEVAL_DIR/GROUP_NAME/catalog/{files.csv,profiles.csv,cases.csv,pending.csv,summary.json}`
-with the selected `classification.csv` as its manifest. The summary's `manifest`
-field identifies that snapshot, and `completed_by_band` counts its matching
-clear-sky cases. The file/profile counts describe the **full retrieval directory**,
-including outputs outside that classification. The summary is written last.
+`tropoeOutput_Ch2_B<number>.*` when you explicitly click **Refresh retrieval catalog
+and to-do**. The catalog is stored at
+`RETRIEVAL_DIR/GROUP_NAME/catalog/{files.csv,profiles.csv,cases.csv,pending.csv,summary.json}`.
+The first refresh structurally scans T/q and height in all retrieval files and can
+take time. Progress in the dashboard shows the current file count and stage.
+Later refreshes reuse profiles from unchanged files according to size and
+modification time, revalidate changed/new files, remove deleted files, and
+recompute case matches using time-indexed lookup.
 
-The first update structurally scans T/q and height in all retrieval files. Later
-updates reuse unchanged files according to their size and modification time,
-rescan changed/new files, remove deleted files, and recompute case matches for
-the active classification. The dashboard reads the updated profile catalog for
-comparisons and creates its separate clear-sky retrieval to-do manifest. Click
-**Refresh retrieval catalog and to-do** after retrieval files change; switching
-classifications also updates the catalog automatically unless saved-catalog mode is enabled. Use one
-experiment/group per retrieval directory to keep band configurations consistent.
-No retrieval profiles are loaded when the clear-sky cohort is empty.
+**Use saved retrieval catalog (skip scan)** is enabled by default. After a
+classification is applied or a saved classification is opened, the dashboard
+reads existing profile and file tables and recalculates its completion grid and
+clear-sky to-do manifest for that classification. It does not traverse NetCDF
+files or rewrite `summary.json`; that file describes the classification last
+explicitly refreshed. The inventory timestamp is shown. Refresh after new
+retrievals finish or files are removed. If no catalog exists, the classification
+is saved and the app pauses with a button to build the initial inventory;
+it does not silently begin an hours-long scan. If a saved catalog is corrupt or
+belongs to another directory, an error prompts an explicit refresh.
 
-Before opening a saved classification, check **Use saved retrieval catalog (skip scan)**
-in the sidebar to reuse this retrieval directory's `catalog/profiles.csv`, `files.csv`,
-and `summary.json`. This skips discovery and NetCDF validation entirely. The saved
-inventory is matched to the current classification to compute dashboard completion
-counts and the to-do manifest; `summary.json` is left unchanged and may refer to a
-previous classification. The inventory timestamp is shown. Missing/invalid catalogs
-produce an error instead of silently starting a scan. **Refresh retrieval catalog
-and to-do** explicitly updates the catalog even with this option checked. New or
-deleted retrievals are reflected only after refreshing.
+The catalog is a full-directory inventory, including outputs outside the active
+clear-sky classification. Use one experiment/group per retrieval directory to
+keep band configurations consistent. A new classification does not load any
+retrieval profiles when its clear-sky cohort is empty.
+
 
 The Case catalog page also provides individual band checkboxes above the summary.
 They synchronize with the sidebar Bands selector and govern all-selected/none-selected

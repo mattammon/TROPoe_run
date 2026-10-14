@@ -60,7 +60,7 @@ except (ImportError, AttributeError):
 
 st.markdown('### TROPoe / Retrieval Explorer')
 st.caption('Classify cloud conditions, review satellite imagery, and compare retrievals.')
-use_saved = st.sidebar.checkbox('Use saved retrieval catalog (skip scan)', value=False,
+use_saved = st.sidebar.checkbox('Use saved retrieval catalog (skip scan)', value=True,
     help='Load this retrieval directory’s saved catalog without checking retrieval files. Refresh explicitly after new retrievals finish.')
 source, active = classification_gate(default_manifest, default_root, default_sonde, default_images, default_output)
 all_cases = active['cases']
@@ -75,36 +75,47 @@ if refresh_requested:
     st.session_state.pop('retrieval_todo_key', None)
 scope = ('full_catalog_v1', active['path'], source['root'], tuple(todo_bands), todo_tolerance, use_saved)
 if st.session_state.get('loaded_source', {}).get('scope') != scope:
-    with st.spinner('Loading saved retrieval catalog…' if use_saved and not refresh_requested else 'Updating retrieval catalog…'):
-        try:
-            summary = {}
-            saved_inventory = use_saved and not refresh_requested
-            if saved_inventory:
-                catalog_dir = Path(source['root'])/'catalog'
-                summary = json.loads((catalog_dir/'summary.json').read_text())
-                if Path(summary['retrieval_dir']).resolve() != Path(source['root']).resolve():
-                    raise ValueError('Saved catalog belongs to a different retrieval directory')
-                index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
-                saved_files = pd.read_csv(catalog_dir/'files.csv').fillna('')
-                file_errors = saved_files.loc[saved_files['error'].ne('')]
+    saved_inventory = use_saved and not refresh_requested
+    catalog_dir = Path(source['root'])/'catalog'
+    if saved_inventory and not (catalog_dir/'summary.json').is_file():
+        st.info('No retrieval catalog exists for this directory yet. The classification is saved. '
+                'Click Refresh retrieval catalog and to-do in the sidebar to build the first inventory. '
+                'The first scan validates each retrieval file and may take time; progress will be displayed.')
+        st.stop()
+    status = st.status('Loading saved retrieval catalog…' if saved_inventory else 'Updating retrieval catalog…', expanded=True)
+    def report_catalog(message):
+        status.update(label=message)
+        LOG.info('Retrieval catalog: %s', message)
+    try:
+        summary = {}
+        if saved_inventory:
+            summary = json.loads((catalog_dir/'summary.json').read_text())
+            if Path(summary['retrieval_dir']).resolve() != Path(source['root']).resolve():
+                raise ValueError('Saved catalog belongs to a different retrieval directory')
+            report_catalog('Reading saved retrieval profiles…')
+            index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
+            saved_files = pd.read_csv(catalog_dir/'files.csv', keep_default_na=False)
+            file_errors = saved_files.loc[saved_files['error'].ne('')]
+            index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
+        elif not Path(source['root']).exists():
+            index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
+            index_errors = pd.DataFrame()
+            catalog_dir = None
+        else:
+            catalog_dir, summary, scanned_files = create_catalog(
+                source['root'], active['path'], todo_bands, category='clear_sky',
+                tolerance_seconds=todo_tolerance, progress=report_catalog)
+            report_catalog('Reading updated retrieval profiles…')
+            index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
+            file_errors = pd.DataFrame([f for f in scanned_files if f.get('error')])
+            if not file_errors.empty:
                 index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
-            elif not Path(source['root']).exists():
-                index = pd.DataFrame(columns=['file', 'model', 'profile_index', 'time', 'status'])
-                index_errors = pd.DataFrame()
-                catalog_dir = None
-            else:
-                # Catalog CLI and dashboard share one full scan and summary format.
-                # Read the just-written profile table rather than scanning again.
-                catalog_dir, summary, scanned_files = create_catalog(source['root'], active['path'], todo_bands,
-                                                                      category='clear_sky', tolerance_seconds=todo_tolerance)
-                index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
-                file_errors = pd.DataFrame([f for f in scanned_files if f.get('error')])
-                if not file_errors.empty:
-                    index_errors = pd.concat([index_errors, file_errors], ignore_index=True)
-        except Exception as exc:
-            st.error('Could not load/update the retrieval catalog; no new to-do manifest was written. '
-                     'Use Refresh retrieval catalog and to-do to create or repair a saved catalog. Details: '+str(exc))
-            st.stop()
+    except Exception as exc:
+        status.update(label='Retrieval catalog could not be loaded', state='error')
+        st.error('Could not load/update the retrieval catalog; no new to-do manifest was written. '
+                 'Use Refresh retrieval catalog and to-do to create or repair a saved catalog. Details: '+str(exc))
+        st.stop()
+    status.update(label='Retrieval inventory ready', state='complete', expanded=False)
     st.session_state.loaded_source = dict(index=index, errors=index_errors, manifest=source['master'],
                                          root=source['root'], catalog=str(catalog_dir/'profiles.csv') if catalog_dir else '',
                                          sonde_root=source['sonde_root'], scope=scope, saved_inventory=saved_inventory,

@@ -1,5 +1,6 @@
 """Inventory TROPoe files and compare usable T/q profiles with expected cases."""
 import argparse
+from bisect import bisect_left, bisect_right
 import csv
 from shared_outputs import atomic_text, shared_output, shared_directory
 import json
@@ -21,7 +22,7 @@ PROFILE_FIELDS = ['file', 'channel', 'band', 'profile_index', 'time', 'status', 
 CASE_FIELDS = ['case_id', 'sounding_time', 'retrieval_time', 'channel', 'band', 'status', 'n_matches', 'matched_file', 'profile_index', 'matched_time', 'offset_seconds', 'matching_files']
 
 
-def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None):
+def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None, progress=None):
     files, profiles = [], []
     paths = sorted(p for p in (root.rglob('*') if paths is None else paths)
                    if p.is_file() and p.suffix.lower() in ('.nc', '.cdf') and NAME.match(p.name))
@@ -35,7 +36,11 @@ def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None
         return files, profiles
     tolerance_ns = int(tolerance_seconds*1e9)
     LOG.info('Scanning %d retrieval files under %s', len(paths), root)
+    if progress:
+        progress(f'Scanning {len(paths):,} retrieval files…')
     for number, path in enumerate(paths, 1):
+        if progress and (number == 1 or number % 25 == 0 or number == len(paths)):
+            progress(f'Validating retrieval file {number:,}/{len(paths):,}: {path.name}')
         ident = NAME.match(path.name).groupdict()
         row = dict(file=str(path.resolve()), channel=int(ident['channel']), band=ident['band'] or '',
                    status='unreadable', n_profiles=0, n_usable=0, size_bytes=0, modified_utc='', error='')
@@ -120,7 +125,13 @@ def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
     index = {}
     for p in profiles:
         if p['time']:
-            index.setdefault((p['channel'], str(p['band'])), []).append(p)
+            timestamp = pd.to_datetime(p['time'], utc=True, errors='coerce')
+            if pd.notna(timestamp):
+                index.setdefault((int(p['channel']), str(p['band'])), []).append((timestamp.value, p))
+    for key, entries in index.items():
+        entries.sort(key=lambda entry: entry[0])
+        index[key] = ([value for value, _ in entries], [profile for _, profile in entries])
+    tolerance_ns = int(tolerance * 1e9)
     rows = []
     for case in cases:
         target = pd.to_datetime(case['retrieval_time'], utc=True, errors='coerce')
@@ -131,11 +142,10 @@ def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
             if pd.isna(target):
                 row['status'] = 'invalid_target_time'
             else:
-                matches = []
-                for p in index.get((channel, band), []):
-                    delta = (pd.to_datetime(p['time'], utc=True)-target).total_seconds()
-                    if abs(delta) <= tolerance:
-                        matches.append((p, delta))
+                times, records = index.get((channel, band), ([], []))
+                start = bisect_left(times, target.value-tolerance_ns)
+                stop = bisect_right(times, target.value+tolerance_ns)
+                matches = [(records[i], (times[i]-target.value)/1e9) for i in range(start, stop)]
                 good = [(p, d) for p, d in matches if p['status'] == 'usable']
                 row['n_matches'] = len(good)
                 row['matching_files'] = json.dumps(sorted({p['file'] for p, _ in matches}))
@@ -171,8 +181,10 @@ def write_csv(path, fields, rows):
         writer.writerows(rows)
 
 
-def scan_inventory(root, out):
+def scan_inventory(root, out, progress=None):
     """Reuse structurally scanned profiles if the source file is unchanged."""
+    if progress:
+        progress('Checking the saved inventory and retrieval filenames…')
     summary_path = out/'summary.json'
     try:
         previous = json.loads(summary_path.read_text())
@@ -187,7 +199,7 @@ def scan_inventory(root, out):
             raise ValueError('Inventory file rows disagree')
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         LOG.info('Full catalog scan (%s)', exc)
-        files, profiles = scan(root)
+        files, profiles = scan(root, progress=progress)
         return files, profiles, 0
     current = sorted((p for p in root.rglob('*') if p.is_file() and p.suffix.lower() in ('.nc', '.cdf') and NAME.match(p.name)),
                      key=str)
@@ -201,7 +213,9 @@ def scan_inventory(root, out):
             unchanged.add(resolved)
         else:
             changed.append(path)
-    refreshed_files, refreshed_profiles = scan(root, paths=changed) if changed else ([], [])
+    if progress:
+        progress(f'{len(unchanged):,} unchanged files; {len(changed):,} new or changed files to validate…')
+    refreshed_files, refreshed_profiles = scan(root, paths=changed, progress=progress) if changed else ([], [])
     files = sorted((row for path, row in previous_files.items() if path in unchanged), key=lambda row: row['file'])+refreshed_files
     profiles = [row for row in old_profiles.to_dict('records') if row['file'] in unchanged]+refreshed_profiles
     files.sort(key=lambda row: row['file'])
@@ -213,7 +227,7 @@ def scan_inventory(root, out):
 
 
 def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1=True,
-                   category='clear_sky', tolerance_seconds=60., output_dir=None):
+                   category='clear_sky', tolerance_seconds=60., output_dir=None, progress=None):
     """Scan once and write the same full inventory used by the catalog CLI."""
     retrieval_dir = Path(retrieval_dir)
     if not retrieval_dir.is_dir():
@@ -226,8 +240,12 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
         raise ValueError('Manifest does not exist: '+str(manifest))
     out = Path(output_dir) if output_dir else retrieval_dir/'catalog'
     shared_directory(out, writable=True)
-    files, profiles, reused = scan_inventory(retrieval_dir, out)
+    files, profiles, reused = scan_inventory(retrieval_dir, out, progress=progress)
+    if progress:
+        progress(f'Matching {len(profiles):,} cached profiles to the selected cases…')
     cases = expected_cases(manifest, profiles, bands, include_ch1, category, tolerance_seconds) if manifest else []
+    if progress:
+        progress('Writing retrieval catalog tables and summary…')
     write_csv(out/'files.csv', FILE_FIELDS, files)
     write_csv(out/'profiles.csv', PROFILE_FIELDS, profiles)
     write_csv(out/'cases.csv', CASE_FIELDS, cases)
