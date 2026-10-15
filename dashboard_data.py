@@ -21,7 +21,7 @@ GROUP_ORDERS = {
     'Time of day (UTC)': ['00–06 UTC', '06–12 UTC', '12–18 UTC', '18–24 UTC'],
 }
 CLASS_LABELS = {'clear_sky': 'Clear sky', 'not_clear_sky': 'Not clear sky',
-                'uncertain': 'Uncertain', 'unknown': 'Unknown'}
+                'uncertain': 'Uncertain', 'unknown': 'Unknown', 'disabled': 'Disabled'}
 
 
 def case_label(timestamp):
@@ -357,3 +357,22 @@ def demo_data():
     return pd.DataFrame(rows), models, profiles, observations
 
 
+
+
+def filter_radiance_cases(cases, seasons=None, hours=None, asi_states=None,
+                          pwv_range=None, include_missing_pwv=False):
+    """OR within each selection; AND across filters. Empty lists match nothing."""
+    frame = case_metadata(cases)
+    mask = pd.Series(True, index=frame.index)
+    for field, selected in [('Season', seasons), ('Time of day (UTC)', hours),
+                            ('ASI classification', asi_states)]:
+        if selected is not None:
+            mask &= frame[field].isin(selected)
+    if pwv_range is not None:
+        lower, upper = pwv_range
+        if not np.isfinite([lower, upper]).all() or lower < 0 or lower > upper:
+            raise ValueError('PWV bounds must be finite, nonnegative, and ordered')
+        pwv = pd.to_numeric(frame.get('pwv_mm', pd.Series(np.nan, index=frame.index)), errors='coerce')
+        finite = np.isfinite(pwv)
+        mask &= (finite & pwv.between(lower, upper)) | (~finite & include_missing_pwv)
+    return frame.loc[mask].copy()

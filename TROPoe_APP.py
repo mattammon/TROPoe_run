@@ -164,7 +164,7 @@ if view == '985 radiance scatter':
             raise ValueError('Master changed; reload the master before applying')
         classified, path = save_run(source['master'], source['cases'], rules, store)
         st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
-    review_plot(all_cases, rules, source['image_root'], store, key='dashboard_review', on_review=refresh_review_snapshot)
+    review_plot(all_cases, rules, source['image_root'], store, key='dashboard_review', on_review=refresh_review_snapshot, source=source)
     download_table('Download classified radiance cases', all_cases, 'radiance_cases.csv', 'radiance_csv')
     st.stop()
 

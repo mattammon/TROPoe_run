@@ -722,3 +722,69 @@ replaced with case-based summaries when a classification is opened in the app.
 The group catalog describes the most recently opened classification. Multiple
 app sessions using the same group can overwrite that shared summary; check its
 `manifest` against the classification shown in the dashboard.
+
+## Classification scatter filters and observed PWV
+
+Both the opening classification plot and the dashboard's **985 radiance scatter**
+page have a **Filter plotted cases** panel. Select any combination of seasons
+(DJF/MAM/JJA/SON), six-hour UTC periods (based on sounding launch time), ASI
+classifications, and an inclusive observed PWV range in mm. Choices within a
+filter are OR'ed; different filters are AND'ed. Clearing all choices in a
+multi-select shows no cases. ASI classification follows the current window and
+ASI thresholds; it is `Disabled` when ASI is switched off.
+
+These are display filters: the scatter and satellite case selector contain only
+matching cases. Applying classification still classifies **all master cases**;
+manual overrides remain persistent. Radiance threshold lines stay on the plot.
+PWV appears in point hover text. Cases without finite radiance coordinates can
+still be inspected through the filtered case selector.
+
+On first opening the plot, observed-sounding PWV is computed for all master
+cases, with a progress indicator. Results are saved beside the classification
+catalogs as `sounding_pwv_<master-path-hash>.csv`. The page displays the exact
+path and offers a download. **Refresh sounding PWV** checks for new/changed
+soundings; unchanged results are reused using resolved filename, size,
+modification time, and calculation version. Subsequent widget interactions use
+the in-memory table. The CSV persists across app/container restarts when this
+directory is on a mounted volume. No retrieval files are needed.
+
+To precompute the same cache without starting Streamlit:
+
+```bash
+python sounding_pwv.py
+# Optional explicit inputs/output:
+python sounding_pwv.py --manifest /path/master_manifest.csv --sounding-root /path/sondes --output /path/pwv.csv
+```
+
+Defaults use `CLOUD_MASTER_MANIFEST` (or `CLOUD_SCREEN_MANIFEST`), `SONDE_DIR`,
+and `CLOUD_CLASSIFICATION_DIR`. An explicit `--output` is a standalone export;
+the app automatically finds the default per-master cache.
+
+### Calculation and coverage
+
+The calculation uses observed ARM sounding `pres`, `tdry`, `rh`, and `alt`,
+retains ascending observations and decreasing pressures, and integrates the
+available surface-to-sounding-top column. It is independent of the dashboard's
+selected analysis layer (e.g. 0–1.5 km). Temperature, pressure, and RH units are
+converted before computing vapor pressure using the Bolton-style liquid-water
+saturation formula. Mixing ratio is converted to **specific humidity**:
+
+`r = 0.622 e / (p - e)`, `q = r / (1 + r)`, `PWV_mm = integral(q dp_Pa) / 9.80665`.
+
+The integral uses the trapezoidal rule; kg/m² equals mm of liquid water. No
+water is extrapolated above the sounding top or below its first valid level.
+This is a measured-column estimate, not an exact full-atmosphere integral.
+
+Invalid humidity samples (including RH outside 0–100%) are omitted. Small gaps
+are bridged by the trapezoidal integration. The catalog records pressure bounds,
+largest pressure gap, valid level count, status, and errors. `pwv_mm` is available
+for filtering only if the profile reaches at least 100 hPa, starts within 20 hPa
+of the first valid ascent pressure, and has no humidity gap exceeding 100 hPa.
+These are pragmatic coverage checks, not a full sounding QC system. A partial
+profile retains its integral as `pwv_observed_mm` but leaves `pwv_mm` missing,
+so truncated columns cannot silently enter a dry-PWV bin. Failed/missing files
+are recorded per case and do not stop other cases.
+
+Without the PWV filter, missing/partial cases remain visible. With the PWV
+filter enabled, they are excluded unless **Include missing / incomplete PWV**
+is checked. These PWV coverage checks never alter cloud classification.

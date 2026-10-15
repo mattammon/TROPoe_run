@@ -113,7 +113,67 @@ def inspect_case(frame, image_root, store, key, on_review=None):
             st.rerun()
 
 
-def review_plot(preview, rules, image_root, store, key='classification', on_review=None):
+def plot_filter_controls(preview, source, key):
+    """Cache observed PWV independently of classification thresholds/retrievals."""
+    from sounding_pwv import catalog_pwv, pwv_cache_path, COLUMNS
+    with st.expander('Filter plotted cases', expanded=True):
+        st.caption('Selections combine: a case must match every active filter. Multiple choices within one filter are alternatives. These filters only change the plot and case selector; classification still applies to all master cases.')
+        if source is not None:
+            cache_path = pwv_cache_path(source['master'], source['output'])
+            cache_key = "observed_pwv:"+json.dumps([source["master"], source.get("master_hash"), source.get("sonde_root", ""), str(cache_path)])
+            refresh = st.button('Refresh sounding PWV', key=key+'_refresh_pwv',
+                                help='Checks for new or changed soundings; unchanged files use the saved PWV cache.')
+            if cache_key not in st.session_state or refresh:
+                progress = st.progress(0., text='Computing observed-sounding PWV for all cases…')
+                try:
+                    table = catalog_pwv(source['cases'], source['master'], source.get('sonde_root', ''), cache_path,
+                        progress=lambda n, total, reused: progress.progress(n/total, text=f'PWV {n:,}/{total:,} cases · {reused:,} cached'))
+                    st.session_state[cache_key] = table
+                except Exception as exc:
+                    st.error('PWV catalog could not be saved: '+str(exc))
+                finally:
+                    progress.empty()
+            table = st.session_state.get(cache_key)
+            if table is not None:
+                preview = preview.drop(columns=COLUMNS, errors='ignore').merge(table[['case_id']+COLUMNS], on='case_id', how='left', validate='one_to_one')
+                st.caption(f'PWV available for {preview.pwv_mm.notna().sum():,}/{len(preview):,} cases. Cache: {cache_path}')
+                st.download_button('Download sounding PWV catalog', table.to_csv(index=False), 'sounding_pwv.csv', 'text/csv', key=key+'_pwv_download')
+                issues = table.loc[table.pwv_status != 'ok']
+                if len(issues):
+                    st.caption('Missing/incomplete PWV cases remain visible unless excluded with the PWV filter. Partial-column integrals are recorded separately in the download.')
+                    if st.checkbox('Show PWV coverage / read problems', key=key+'_pwv_problems'):
+                        st.dataframe(issues[['case_id', 'pwv_status', 'pwv_observed_mm', 'pwv_top_hpa', 'pwv_error']], hide_index=True)
+        a, b, c = st.columns(3)
+        with a:
+            seasons = st.multiselect('Seasons', data.GROUP_ORDERS['Season'], default=data.GROUP_ORDERS['Season'], key=key+'_seasons')
+        with b:
+            hours = st.multiselect('Time of day (UTC)', data.GROUP_ORDERS['Time of day (UTC)'], default=data.GROUP_ORDERS['Time of day (UTC)'], key=key+'_hours')
+        with c:
+            options = ['Clear sky', 'Not clear sky', 'Uncertain', 'Disabled', 'Unknown']
+            asi = st.multiselect('ASI classifications', options, default=options, key=key+'_asi_filter',
+                                help='ASI state from the current window and ASI thresholds. Disabled means ASI is not enabled for classification.')
+        limits = None
+        missing = False
+        if st.checkbox('Filter by observed PWV', key=key+'_pwv_enabled'):
+            lo, hi = st.columns(2)
+            lower = lo.number_input('Minimum PWV (mm)', min_value=0., value=0., step=1., key=key+'_pwv_min')
+            upper = hi.number_input('Maximum PWV (mm)', min_value=0., value=100., step=1., key=key+'_pwv_max')
+            missing = st.checkbox('Include missing / incomplete PWV', value=False, key=key+'_pwv_missing')
+            st.caption('Inclusive range; observed surface-to-sounding-top column, independent of the dashboard layer. Requires ascent to ≤100 hPa, no humidity gap >100 hPa, and no missing launch layer >20 hPa.')
+            if lower > upper:
+                st.warning('Minimum PWV must not exceed maximum PWV.')
+                return preview.iloc[:0].copy()
+            limits = (lower, upper)
+        filtered = data.filter_radiance_cases(preview, seasons, hours, asi, limits, missing)
+        st.caption(f'{len(filtered):,} / {len(preview):,} cases match the plot filters.')
+        return filtered
+
+
+def review_plot(preview, rules, image_root, store, key='classification', on_review=None, source=None):
+    preview = plot_filter_controls(preview, source, key)
+    if preview.empty:
+        st.info('No cases match these filters. Broaden the selections to show cases.')
+        return
     left, right = st.columns([3, 2])
     with left:
         grouping = st.selectbox('Group cases by', ['Classification', 'Season', 'Month', 'Time of day (UTC)',
@@ -135,7 +195,7 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
             if points:
                 point = points[-1]
                 payload = point.get('customdata', [])
-                if len(payload) >= 6:
+                if len(payload) >= 7:
                     picked = payload[-1]
                     # Do not override a subsequent dropdown selection on every rerun.
                     event_token = json.dumps(points, sort_keys=True, default=str)
@@ -143,7 +203,7 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                         st.session_state[key+'_case'] = picked
                         st.session_state[key+'_image_request'] = picked
                         st.session_state[key+'_last_event'] = event_token
-            st.caption(f'{len(plotted):,} / {len(preview):,} cases have finite radiance mean/std. All cases are classified; missing-coordinate cases remain accessible in the case selector. Click a point to inspect it.')
+            st.caption(f'{len(plotted):,} / {len(preview):,} filtered cases have finite radiance mean/std. Missing-coordinate cases remain accessible in the filtered case selector. Click a point to inspect it.')
         else:
             st.info('Radiance summaries for this window are absent. All cases remain available in the case selector; enabled radiance evidence will be uncertain.')
         st.caption('The shaded rectangle represents the radiance criterion only. With an “either” rule, ASI may also establish clear sky outside that rectangle. Manual decisions always take precedence.')
@@ -272,7 +332,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     counts = preview.category.value_counts()
     for column, category in zip(st.columns(3), ('clear_sky', 'not_clear_sky', 'uncertain')):
         column.metric(category.replace('_', ' ').title(), int(counts.get(category, 0)))
-    review_plot(preview, rules, loaded['image_root'], store)
+    review_plot(preview, rules, loaded['image_root'], store, source=loaded)
     st.caption(f'{int(preview.classification_source.eq("manual").sum())} persistent manual overrides applied. Review revision {revision}.')
     with st.expander('Manual review history'):
         history = store.history()

@@ -335,13 +335,16 @@ def radiance_plot(cases, window, group_by, mean_limit, std_limit,
     order = GROUP_ORDERS.get(group_by, sorted(df[group_by].unique()))
     color_map = {name: px.colors.qualitative.Dark24[i % 24] for i, name in enumerate(order)}
     df['Group'] = df[group_by]
+    if 'pwv_mm' not in df:
+        df['pwv_mm'] = np.nan
     fig = px.scatter(df, x=x, y=y, color=group_by, hover_name='Case',
                      category_orders={group_by: order}, color_discrete_map=color_map,
-                     custom_data=['Case', 'Classification', 'ASI classification', 'Radiance classification', 'Group'])
+                     custom_data=['Case', 'Classification', 'ASI classification', 'Radiance classification', 'Group', 'pwv_mm'])
     fig.update_traces(marker=dict(size=9, opacity=0.8, line=dict(width=0.5, color='white')),
                       hovertemplate='<b>%{customdata[0]}</b><br>Mean: %{x:.3f}<br>Std: %{y:.3f}'
                                     '<br>Class: %{customdata[1]}<br>ASI: %{customdata[2]}'
-                                    '<br>Radiance: %{customdata[3]}<br>Group: %{customdata[4]}<extra></extra>')
+                                    '<br>Radiance: %{customdata[3]}<br>Group: %{customdata[4]}'
+                                    '<br>Observed PWV: %{customdata[5]:.2f} mm<extra></extra>')
     # Bounds include negative radiances if present, and always keep limits visible.
     xmin = min(0., float(df[x].min())) if len(df) else 0.
     ymin = min(0., float(df[y].min())) if len(df) else 0.
