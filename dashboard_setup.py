@@ -13,6 +13,7 @@ from dashboard_classification import (ClassificationRules, ReviewStore, classify
                                       saved_catalogs, restore_saved_catalog)
 from dashboard_satellite import generate_satellite_image
 from dashboard_vertical import plotly_size_kwargs
+from dashboard_scatter import persistent_scatter
 
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -188,21 +189,16 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                 trace_ids = plotted.loc[plotted[grouping] == trace.name, 'case_id'].tolist()
                 if len(trace_ids) == len(trace.x):
                     trace.customdata = [list(row)+[case_id] for row, case_id in zip(trace.customdata, trace_ids)]
-            figure.update_layout(clickmode='event+select')
-            event = st.plotly_chart(figure, **plotly_size_kwargs(st.plotly_chart), key=key+'_scatter',
-                                   on_select='rerun', selection_mode='points', config={'displaylogo': False})
-            points = event.selection.points
-            if points:
-                point = points[-1]
-                payload = point.get('customdata', [])
-                if len(payload) >= 7:
-                    picked = payload[-1]
-                    # Do not override a subsequent dropdown selection on every rerun.
-                    event_token = json.dumps(points, sort_keys=True, default=str)
-                    if st.session_state.get(key+'_last_event') != event_token and picked in set(preview.case_id):
-                        st.session_state[key+'_case'] = picked
-                        st.session_state[key+'_image_request'] = picked
-                        st.session_state[key+'_last_event'] = event_token
+            figure.update_layout(clickmode='event')
+            event = persistent_scatter(figure, key=key+'_scatter',
+                                       scope=source['master'] if source else '')
+            if event:
+                picked = event.get('case_id')
+                token = event.get('token')
+                if st.session_state.get(key+'_last_event') != token and picked in set(preview.case_id):
+                    st.session_state[key+'_case'] = picked
+                    st.session_state[key+'_image_request'] = picked
+                    st.session_state[key+'_last_event'] = token
             st.caption(f'{len(plotted):,} / {len(preview):,} filtered cases have finite radiance mean/std. Missing-coordinate cases remain accessible in the filtered case selector. Click a point to inspect it.')
         else:
             st.info('Radiance summaries for this window are absent. All cases remain available in the case selector; enabled radiance evidence will be uncertain.')

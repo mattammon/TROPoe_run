@@ -788,3 +788,14 @@ are recorded per case and do not stop other cases.
 Without the PWV filter, missing/partial cases remain visible. With the PWV
 filter enabled, they are excluded unless **Include missing / incomplete PWV**
 is checked. These PWV coverage checks never alter cloud classification.
+
+### Scatter zoom persistence
+
+The classification and dashboard radiance scatter preserve the user's x/y zoom
+and pan when filters, grouping, thresholds, or manual classifications change.
+Use **Reset zoom** above the plot to fit the current cases and threshold lines;
+Plotly's own zoom controls remain available. Viewports are kept per plot and
+master manifest within the browser tab, including temporary empty selections.
+The selectable chart uses the installed Plotly JavaScript bundle locally and
+requires no CDN or additional package. Zooming does not rerun Python; clicking
+a case still opens its satellite review.
