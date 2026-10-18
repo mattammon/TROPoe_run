@@ -45,6 +45,62 @@ def profile_plot(case, models, profiles, observations, variable, layer):
     return finish(fig, 'Vertical profiles', f'{name} ({unit})', 'Height AGL (km)')
 
 
+def skewed_profile_pair(case, models, profiles, observations, layer):
+    """Height-based skewed axes; hover retains untransformed physical values."""
+    bottom, top = layer
+    if top <= bottom:
+        raise ValueError('Layer top must exceed bottom')
+    fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=.10,
+                        subplot_titles=[VARIABLES[v][0] for v in ('T', 'q')])
+    seen = set()
+    for col, variable in enumerate(('T', 'q'), 1):
+        entries = []
+        for model in ['Radiosonde']+models:
+            profile = observations.get(case) if model == 'Radiosonde' else profiles.get((case, model))
+            if profile is None or variable not in profile:
+                continue
+            z = np.asarray(profile['z'], float)
+            values = np.asarray(profile[variable], float)
+            inside = np.isfinite(z) & (z >= bottom) & (z <= top)
+            z, values = z[inside], values[inside]
+            if not np.isfinite(values).any():
+                continue
+            entries.append((model, z, values))
+        values = np.concatenate([x[np.isfinite(x)] for _, _, x in entries]) if entries else np.array([0., 1.])
+        low, high = float(values.min()), float(values.max())
+        span = max(high-low, 1.)
+        low, high = low-.08*span, high+.08*span
+        # A constant value tilts right by 35% of the panel's data span at top.
+        shift = .35*(high-low)
+        ticks = np.linspace(low, high, 6)
+        for tick in ticks:
+            fig.add_trace(go.Scatter(x=[tick, tick+shift], y=[bottom, top], mode='lines',
+                line=dict(color='#D8DFE8', width=1), showlegend=False, hoverinfo='skip'), row=1, col=col)
+        for model, z, raw in entries:
+            x = raw + shift*(z-bottom)/(top-bottom)
+            fig.add_trace(go.Scatter(x=x, y=z, mode='lines', name=model, legendgroup=model,
+                showlegend=model not in seen, connectgaps=False,
+                line=dict(color='#111111' if model == 'Radiosonde' else colors(models)[model],
+                          width=2.5 if model == 'Radiosonde' else 2,
+                          dash='dash' if model == 'Radiosonde' else 'solid'),
+                customdata=raw,
+                hovertemplate=VARIABLES[variable][0]+': %{customdata:.3f} '+VARIABLES[variable][1]+
+                              '<br>Height: %{y:.3f} km AGL<extra>%{fullData.name}</extra>'), row=1, col=col)
+            seen.add(model)
+        if not entries:
+            fig.add_annotation(text='No profile data in this layer', x=.5, y=.5,
+                xref='x domain' if col == 1 else 'x2 domain',
+                yref='y domain' if col == 1 else 'y2 domain', showarrow=False)
+        fig.update_xaxes(range=[low, high+shift], tickmode='array', tickvals=ticks,
+                         ticktext=[f'{v:.2f}' for v in ticks], showgrid=False, zeroline=False,
+                         title_text=VARIABLES[variable][0]+' ('+VARIABLES[variable][1]+') · skewed', row=1, col=col)
+        fig.update_yaxes(range=[bottom, top], row=1, col=col)
+    finish(fig, 'Temperature and water vapor profiles')
+    fig.update_yaxes(title_text='Height AGL (km)', row=1, col=1)
+    fig.update_layout(height=650, legend=dict(groupclick='togglegroup'))
+    return fig
+
+
 def rmse_distributions(analyses, models, variables=('T', 'q')):
     """Overlaid boxes, with deterministic case jitter on opposite sides."""
     import hashlib

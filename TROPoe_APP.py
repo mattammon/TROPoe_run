@@ -225,7 +225,7 @@ if selected.empty:
 # Analysis controls do not cause disk rereads: native profiles are cached.
 rmse_style = st.radio('RMSE view', ['Distributions', 'Timeline', 'Case heatmap'], horizontal=True) if view == 'RMSE comparisons' else None
 a, b, c, d = st.columns([2, 1, 1, 1])
-variable = 'T' if view in ('Vertical errors', 'Taylor diagram', 'DFS vs RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
+variable = 'T' if view in ('Vertical profiles', 'Vertical errors', 'Taylor diagram', 'DFS vs RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
 bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.0, step=0.1)
 top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
 spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
@@ -318,6 +318,18 @@ if view == 'DFS vs RMSE':
                                'dfs_rmse_'+v+'_cases.csv', 'dfs_rmse_cases_'+v)
     st.stop()
 
+if view == 'Vertical profiles':
+    case = st.selectbox('Case', selected.case_id.tolist(), format_func=case_labels.get)
+    row = selected.set_index('case_id').loc[case]
+    st.caption(f"{case_labels[case]} · {row.category} · ASI: {row.asi_state} · radiance: {row.radiance_state}")
+    display_chart(plots.skewed_profile_pair(case, models, profiles, observations, (bottom, top)), 'profiles_both')
+    with st.expander('Source files and matched records'):
+        st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
+    st.caption('Slanted grid lines indicate constant temperature or mixing ratio; bottom-axis labels apply along those lines. '
+               'Hover shows actual values. Height remains linear in km AGL: this is not a log-pressure thermodynamic diagram. '
+               'The shared legend toggles bands in both panels.')
+    st.stop()
+
 if view == 'RMSE comparisons' and rmse_style == 'Distributions':
     choices = st.columns(2)
     show_t = choices[0].checkbox('Show temperature', value=True, key='rmse_show_t')
@@ -369,16 +381,7 @@ d.metric('DFS case-band pairs', f'{len(info):,}')
 st.caption(f"{'Paired' if paired else 'Available per band'} comparisons · {bottom:g}–{top:g} km AGL · {len(edges)-1} equal vertical bins. "
            'RMSE requires finite retrieval and sounding data throughout this layer. DFS has a separate cohort; sources stay labeled.')
 
-if view == 'Vertical profiles':
-    case = st.selectbox('Case', selected.case_id.tolist(), format_func=case_labels.get)
-    row = selected.set_index('case_id').loc[case]
-    st.caption(f"{case_labels[case]} · {row.category} · ASI: {row.asi_state} · radiance: {row.radiance_state}")
-    display_chart(plots.profile_plot(case, models, profiles, observations, variable, (bottom, top)), 'profiles')
-    with st.expander('Source files and matched records'):
-        st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
-    if not any((case, m) in profiles and variable in profiles[(case, m)] for m in models):
-        st.warning('No selected retrieval profile is available for this case and variable.')
-elif view == 'RMSE comparisons':
+if view == 'RMSE comparisons':
     if metrics.empty:
         st.warning('No complete radiosonde comparisons in this layer. Review exclusions below, reduce the layer, or turn off paired comparisons.')
     else:

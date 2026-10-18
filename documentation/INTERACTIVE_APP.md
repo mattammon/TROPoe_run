@@ -819,3 +819,14 @@ selector. All dashboard analysis layers, including AOD, now default to
 new extrapolation below the first valid profile level is introduced. Taylor
 retrieval markers are smaller thin crosses; their statistics and normalization
 are unchanged.
+
+### Side-by-side skewed profiles
+
+The Vertical profiles page shows temperature and water vapor mixing ratio
+side by side for the same case, bands, and layer. Both use a shared linear
+height axis in km AGL and a shared legend. Constant-value lines slope to the
+right with increasing height; follow each slanted line to its bottom-axis
+label to read its physical value. Hover values are untransformed °C or g/kg.
+This is a height-based skew display, not a conventional log-pressure Skew-T;
+no thermodynamic reference curves or new interpolation are introduced. Missing
+profile values retain gaps. Each panel uses its own physical-value scale.
