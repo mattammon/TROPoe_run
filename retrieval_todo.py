@@ -194,11 +194,20 @@ def pending_todo(path, retrieval_dir, skip_bands=()):
     return jobs.loc[pending].copy()
 
 
-def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
+def execute_todo(path, retrieval_dir, run_one, skip_bands=(), *, only_bands=None, report_path=None):
     """Run only pending pairs. Keep the input plan and write a separate execution report."""
-    skipped = normalize_skip_bands(skip_bands)
+    selected = normalize_skip_bands(only_bands) if only_bands is not None else None
+    if selected is not None and not selected:
+        raise ValueError("Select at least one band")
+    skipped = set() if selected is not None else normalize_skip_bands(skip_bands)
     path = Path(path)
+    report_path = Path(report_path) if report_path is not None else path.with_name(path.stem+'_last_run.csv')
+    if report_path.resolve() == path.resolve():
+        raise ValueError('Execution report must not overwrite the input queue')
     jobs = read_todo(path, retrieval_dir)
+    if selected is not None:
+        jobs = jobs.loc[jobs.model.isin(selected)].copy()
+        LOG.info('Selected %d queued pairs for bands: %s', len(jobs), ', '.join(sorted(selected)))
     if jobs.empty:
         return []
     root = Path(retrieval_dir).resolve()
@@ -210,7 +219,7 @@ def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
         if row.model in skipped:
             result = dict(case_id=row.case_id, model=row.model, status='skipped_band', error='')
             results.append(result)
-            atomic_text(path.with_name(path.stem+'_last_run.csv'), pd.DataFrame(results).to_csv(index=False), catalog=True)
+            atomic_text(report_path, pd.DataFrame(results).to_csv(index=False), catalog=True)
             LOG.info('%s: skipped by band selection', row.model)
             continue
         def complete():
@@ -230,7 +239,7 @@ def execute_todo(path, retrieval_dir, run_one, skip_bands=()):
             result.update(status='failed', error=str(exc))
             LOG.exception('Retrieval failed: %s %s', row.case_id, row.model)
         results.append(result)
-        atomic_text(path.with_name(path.stem+'_last_run.csv'), pd.DataFrame(results).to_csv(index=False), catalog=True)
+        atomic_text(report_path, pd.DataFrame(results).to_csv(index=False), catalog=True)
         LOG.info('%s: %s', row.model, result['status'])
     return results
 

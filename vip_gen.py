@@ -6,12 +6,16 @@ from spectralBands import *
 import secrets
 
 class VIP:
-    vip_id = secrets.token_hex(2)
     def __init__(self,sfc_block=True,irs_type=1,recenter=1,
                  mwr_type=0,cbh_type=1,add_tropoe=0,
                  model_block=False,default_pres=980.0,default_cbh=2.0,
-                 in_group=False,output_akernal=1,clobber=0):
+                 in_group=False,output_akernal=1,clobber=0,isolated_work=False):
 
+        self.vip_id = secrets.token_hex(16)
+        self.lbl_temp_dir = f'{DATA_DIR}/tmp2'
+        if isolated_work:
+            self.lbl_temp_dir = f'{self.lbl_temp_dir}/worker_{self.vip_id}'
+            os.makedirs(self.lbl_temp_dir, exist_ok=False)
         self.sfc_block = sfc_block
         self.irs_type = irs_type
         self.recenter = recenter
@@ -116,7 +120,7 @@ class VIP:
             f.write(f'spectral_bands = {vip_kwargs["spectral_bands"]} #{vip_kwargs["band_label2"]}\n')
             f.write('\n')
             f.write('lbl_tape3 = TAPE3.10-3500cm-1.first_7_molecules\n')
-            f.write(f'lbl_temp_dir = {DATA_DIR}/tmp2\n')
+            f.write(f'lbl_temp_dir = {self.lbl_temp_dir}\n')
             f.write('\n')
             f.write(f'recenter_prior = {self.recenter}\n')
             f.write(f'max_iterations = 9\n')

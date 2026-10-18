@@ -127,6 +127,54 @@ class TodoTests(unittest.TestCase):
         fake_single.run_tropoe.assert_not_called()
         fake_vip.VIP.assert_not_called()
 
+    def test_only_bands_overrides_skip_and_isolates_reports(self):
+        self.plan([1,6])
+        original = self.queue.read_bytes()
+        calls=[]
+        def run(date, channel, band):
+            calls.append((channel, band))
+            self.output('Ch1' if channel == 1 else 'Ch2_B'+str(band))
+        report = self.root/'worker.csv'
+        results=execute_todo(self.queue, self.outputs, run, skip_bands=['6'], only_bands=['6'], report_path=report)
+        self.assertEqual(calls, [(2,6)])
+        self.assertEqual([r['model'] for r in results], ['Ch2_B6'])
+        self.assertTrue(report.exists())
+        self.assertFalse((self.root/'todo_last_run.csv').exists())
+        self.assertEqual(self.queue.read_bytes(),original)
+        with self.assertRaises(ValueError):
+            execute_todo(self.queue,self.outputs,run,only_bands=[])
+
+    def test_cli_only_bands_ignores_config(self):
+        import runpy, types, config
+        from unittest.mock import Mock
+        self.plan([1,6])
+        fake_utils=types.ModuleType('utils')
+        fake_vip=types.ModuleType('vip_gen'); fake_vip.VIP=Mock()
+        fake_single=types.ModuleType('SINGLE_TROPoe')
+        def run(date,vip,channel=None,band=None,verbose=None):
+            self.output('Ch1' if channel == 1 else 'Ch2_B'+str(band))
+        fake_single.run_tropoe=Mock(side_effect=run)
+        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root),
+                            GROUP_NAME='outputs', GROUP_TROPOE_SKIP_BANDS=[6]), \
+             patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), \
+             patch.object(sys,'argv',['GROUP_TROPoe.py','--bands','6']):
+            runpy.run_path(str(Path(__file__).resolve().parents[1]/'GROUP_TROPoe.py'),run_name='__main__')
+        fake_single.run_tropoe.assert_called_once()
+        self.assertEqual(fake_single.run_tropoe.call_args.kwargs['band'],6)
+        fake_vip.VIP.assert_called_once_with(in_group=True, isolated_work=True)
+        self.assertEqual(len(list(self.root.glob('todo_run_Ch2_B6_*.csv'))),1)
+
+    def test_worker_vip_paths_are_distinct(self):
+        import vip_gen
+        with patch.object(vip_gen,'DATA_DIR',str(self.root)), patch.object(vip_gen,'VIP_DIR',str(self.root)):
+            first=vip_gen.VIP(in_group=True,isolated_work=True)
+            second=vip_gen.VIP(in_group=True,isolated_work=True)
+            self.assertNotEqual(first.vip_file,second.vip_file)
+            self.assertNotEqual(first.lbl_temp_dir,second.lbl_temp_dir)
+            self.assertTrue(Path(first.lbl_temp_dir).is_dir())
+            first.write_vip(irs_channel=2,band=6)
+            self.assertIn('lbl_temp_dir = '+first.lbl_temp_dir,Path(first.vip_file).read_text())
+
     def test_failure_empty_and_invalid_plans(self):
         self.output(); self.plan()
         def fails(*args): raise RuntimeError('retrieval failure')

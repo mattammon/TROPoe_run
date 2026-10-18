@@ -11,12 +11,13 @@ from SINGLE_TROPoe import run_tropoe
 
 ##########################################
 
-def run_legacy(skip_models=()):
+def run_legacy(skip_models=(), only_models=None):
     obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANIFEST, CLOUD_SCREEN_CATEGORY)
     dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
     do_ch1 = 'Ch1' not in skip_models
-    bands = [b for b in [1,3,4,5,8,9,11,12,13,17] if f'Ch2_B{b}' not in skip_models]
+    candidates = sorted(int(m.split('_B')[1]) for m in only_models if m != 'Ch1') if only_models is not None else [1,3,4,5,8,9,11,12,13,17]
+    bands = [b for b in candidates if f'Ch2_B{b}' not in skip_models]
     verbose='1'
 
     catalog = pd.read_csv(f'{RETRIEVAL_DIR}/{GROUP_NAME}/catalog/files.csv')
@@ -24,7 +25,7 @@ def run_legacy(skip_models=()):
 
     ##########################################
 
-    VIP_obj = VIP(in_group=True)
+    VIP_obj = VIP(in_group=True, isolated_work=True) if only_models is not None else VIP(in_group=True)
 
     if APPLY_RETRIEVAL_LWP_FILTER:
         for d in dates:
@@ -85,18 +86,28 @@ def main():
     import argparse
     import logging
     from pathlib import Path
-    from retrieval_todo import normalize_skip_bands
+    from retrieval_todo import normalize_skip_bands, expected_models
     parser = argparse.ArgumentParser(description='Run queued or legacy TROPoe retrievals.')
-    parser.add_argument('--skip-bands', nargs='*', metavar='BAND', default=None,
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--bands', nargs='+', metavar='BAND',
+                           help='Run ONLY these bands; ignores GROUP_TROPOE_SKIP_BANDS. '
+                                'Use Ch1 for channel 1 and integers or Ch2_Bn for channel 2, e.g. --bands Ch1 1 6.')
+    selection.add_argument('--skip-bands', nargs='*', metavar='BAND', default=None,
                         help='Skip Ch1 and/or Ch2 bands (e.g. --skip-bands Ch1 3 6 or --skip-bands 3,6). '
                              'Overrides GROUP_TROPOE_SKIP_BANDS in config.py.')
     args = parser.parse_args()
     try:
-        skip_models = normalize_skip_bands(GROUP_TROPOE_SKIP_BANDS if args.skip_bands is None else args.skip_bands)
+        only_models = normalize_skip_bands(args.bands) if args.bands is not None else None
+        if only_models is not None and not only_models:
+            parser.error('--bands requires at least one valid band')
+        skip_models = (set(expected_models(range(1, 19)))-only_models if only_models is not None else
+                       normalize_skip_bands(GROUP_TROPOE_SKIP_BANDS if args.skip_bands is None else args.skip_bands))
     except ValueError as exc:
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-    if skip_models:
+    if only_models is not None:
+        print('Running only: '+', '.join(sorted(only_models))+' (GROUP_TROPOE_SKIP_BANDS ignored)')
+    if skip_models and only_models is None:
         print('Skipping retrieval bands: '+', '.join(sorted(skip_models)))
     if RETRIEVAL_TODO_MANIFEST:
         from retrieval_todo import execute_todo
@@ -105,16 +116,24 @@ def main():
         def run_one(date, channel, band):
             nonlocal vip
             if vip is None:
-                vip = VIP(in_group=True)
+                vip = VIP(in_group=True, isolated_work=True) if only_models is not None else VIP(in_group=True)
             run_tropoe(date, vip, channel=channel, band=band, verbose='1')
-        results = execute_todo(RETRIEVAL_TODO_MANIFEST, Path(RETRIEVAL_DIR)/GROUP_NAME, run_one, skip_models)
+        options = {}
+        if only_models is not None:
+            from uuid import uuid4
+            plan = Path(RETRIEVAL_TODO_MANIFEST)
+            label = '_'.join(m for m in expected_models(range(1, 19)) if m in only_models)
+            report = plan.with_name(plan.stem+'_run_'+label+'_'+uuid4().hex[:12]+'.csv')
+            options = dict(only_bands=only_models, report_path=report)
+            print('Worker execution report: '+str(report))
+        results = execute_todo(RETRIEVAL_TODO_MANIFEST, Path(RETRIEVAL_DIR)/GROUP_NAME, run_one, skip_models, **options)
         remaining = sum(row['status'] in ('failed', 'still_missing_or_incomplete') for row in results)
         skipped = sum(row['status'] == 'skipped_band' for row in results)
         print(f'To-do execution finished: {len(results)-skipped} pairs checked; {skipped} skipped by band; {remaining} remain incomplete among attempted pairs.')
         if remaining:
             raise SystemExit(1)
     else:
-        run_legacy(skip_models)
+        run_legacy(skip_models, only_models)
 
 
 if __name__ == '__main__':

@@ -871,3 +871,39 @@ catalogs remain readable in saved-inventory mode, but their QC is unknown until
 run without `--reuse-inventory`). This schema upgrade scans the files once;
 subsequent unchanged inventories reuse the saved QC values. Missing QC in the
 source NetCDF remains unknown after refresh.
+
+### Run selected bands in parallel containers
+
+Use `GROUP_TROPoe.py --bands` to run only the specified bands. Bare integers
+mean Ch2 bands; `Ch1` explicitly selects channel 1. Spaces and commas work:
+
+```bash
+# Run each command in a different container:
+python GROUP_TROPoe.py --bands Ch1
+python GROUP_TROPoe.py --bands 1 2 5
+python GROUP_TROPoe.py --bands Ch2_B6,Ch2_B9
+```
+
+When `--bands` is supplied, `GROUP_TROPOE_SKIP_BANDS` is ignored completely,
+even if it contains one of the requested bands. `--bands` and `--skip-bands`
+are mutually exclusive. Omitting both preserves the configured skip behavior.
+An empty or invalid band selection is rejected.
+
+Queued execution filters to the requested bands before scanning outputs and
+iterating jobs. It still uses the saved clear-sky queue and live completion
+checks; it does not invent jobs absent from that queue. Legacy execution also
+honors explicit band selection, including bands outside its default list; its
+existing LWP gate still requires a matching Ch1 output when enabled.
+
+Each `--bands` invocation writes a separate
+`retrieval_todo_run_<bands>_<unique-id>.csv` report next to the input queue, with
+the path printed on startup. The original queue is preserved. VIP filenames
+use per-instance random IDs, and selected-band workers get separate
+`DATA_DIR/tmp2/worker_<id>` LBLRTM scratch directories. Scratch directories are
+retained for troubleshooting. This change has been tested with simulated
+retrievals; the external TROPoe/LBLRTM engine is not executed in those tests.
+
+Give workers disjoint band selections: there is no distributed lock preventing
+two containers assigned the same band from attempting the same output. They
+can share the retrieval/output and input-data volumes. Download required inputs
+before starting workers, and refresh the app's catalog after they finish.
