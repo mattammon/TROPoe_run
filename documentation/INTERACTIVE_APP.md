@@ -847,3 +847,27 @@ retained in the summary/download, and expanding the layer reveals the marker.
 Per-case exports include full-column total DFS. Nonpositive totals, invalid
 full-column profiles and nonmonotonic cumulative profiles are excluded from the
 height average and retain an exclusion reason.
+
+### QC flags in the case catalog
+
+The per-band summary includes counts of matched records with **QC 2** (not
+converged) and **QC 3** (converged, spectral RMS too large). The completion grid
+uses green for complete QC 0, yellow for complete QC 3, and red for QC 2.
+Missing/incomplete records remain gray, except QC 2 is red even if the profile
+is incomplete. Complete records with missing/other QC are blue, never silently
+assumed to be QC 0. A numeric QC-grid CSV is available beside the completion
+and summary downloads.
+
+Counts use one matched record per clear-sky case and selected band, not all
+files/duplicates. Matching uses the existing time tolerance; usable records
+are preferred, then nearest time, filename and record index. A valid rerun
+therefore supersedes an incomplete failed attempt. Completion counts and the
+retrieval execution plan retain their structural-completion definition; QC
+colors do not automatically exclude records from comparisons or queue reruns.
+
+QC is stored per profile in the shared catalog's `profiles.csv`. Existing
+catalogs remain readable in saved-inventory mode, but their QC is unknown until
+**Refresh retrieval catalog and to-do** is clicked once (or the catalog CLI is
+run without `--reuse-inventory`). This schema upgrade scans the files once;
+subsequent unchanged inventories reuse the saved QC values. Missing QC in the
+source NetCDF remains unknown after refresh.

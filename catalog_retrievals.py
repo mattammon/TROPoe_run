@@ -17,7 +17,7 @@ from cloud_screening import dataset_times
 LOG = logging.getLogger(__name__)
 NAME = re.compile(r'^tropoeOutput_Ch(?P<channel>[12])(?:_B(?P<band>\d+))?\.')
 FILE_FIELDS = ['file', 'channel', 'band', 'status', 'n_profiles', 'n_usable', 'size_bytes', 'modified_utc', 'error']
-PROFILE_FIELDS = ['file', 'channel', 'band', 'profile_index', 'time', 'status', 'n_levels', 'n_finite_pairs', 'error']
+PROFILE_FIELDS = ['file', 'channel', 'band', 'profile_index', 'time', 'status', 'n_levels', 'n_finite_pairs', 'qc_flag', 'error']
 CASE_FIELDS = ['case_id', 'sounding_time', 'retrieval_time', 'channel', 'band', 'status', 'n_matches', 'matched_file', 'profile_index', 'matched_time', 'offset_seconds', 'matching_files']
 
 
@@ -36,6 +36,22 @@ def time_bounds(target_ns, sorted_profile_ns, tolerance):
     offset = int(tolerance * 1e9)
     return (np.searchsorted(sorted_profile_ns, target_ns-offset, side='left'),
             np.searchsorted(sorted_profile_ns, target_ns+offset, side='right'))
+
+
+def profile_qc_flag(ds, time_dim, i):
+    """Read scalar or time-dependent QC without changing structural completion."""
+    if 'qc_flag' not in ds:
+        return ''
+    try:
+        value = ds['qc_flag']
+        if time_dim in value.dims:
+            value = value.isel({time_dim: i})
+        if value.size != 1:
+            return ''
+        number = float(value.values.item())
+        return int(number) if np.isfinite(number) and number >= 0 and number.is_integer() else ''
+    except (ValueError, TypeError, IndexError):
+        return ''
 
 
 def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None, progress=None):
@@ -81,16 +97,13 @@ def scan(root, target_times=None, tolerance_seconds=60., models=None, paths=None
                     row['status'] = 'outside_selection' if len(times) else 'empty'
                     files.append(row)
                     continue
-                for name in ('temperature', 'waterVapor', 'height'):
-                    if name not in ds:
-                        raise ValueError('Missing required variable '+name)
                 # Require an unambiguous time axis. Only read one profile at a time.
                 time_dim = ds['time'].dims[0] if 'time' in ds and ds['time'].ndim == 1 else ds['time_offset'].dims[0]
                 for i in selected_indices:
                     t = times[i]
                     pr = dict(file=row['file'], channel=row['channel'], band=row['band'], profile_index=i,
                               time='' if pd.isna(t) else pd.Timestamp(t).isoformat(), status='invalid',
-                              n_levels=0, n_finite_pairs=0, error='')
+                              n_levels=0, n_finite_pairs=0, qc_flag=profile_qc_flag(ds, time_dim, i), error='')
                     try:
                         arrays = []
                         for name in ('temperature', 'waterVapor', 'height'):
@@ -202,7 +215,7 @@ def scan_inventory(root, out, progress=None):
     summary_path = out/'summary.json'
     try:
         previous = json.loads(summary_path.read_text())
-        if previous.get('scan_schema') != 1 or previous.get('retrieval_dir') != str(root.resolve()):
+        if previous.get('scan_schema') != 2 or previous.get('retrieval_dir') != str(root.resolve()):
             raise ValueError('Different or older inventory')
         old_files = pd.read_csv(out/'files.csv', keep_default_na=False)
         old_profiles = pd.read_csv(out/'profiles.csv', keep_default_na=False)
@@ -264,7 +277,7 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
         file_table = pd.read_csv(out/'files.csv', keep_default_na=False)
         profile_table = pd.read_csv(out/'profiles.csv', keep_default_na=False,
                                     dtype={'band': str})
-        if not set(FILE_FIELDS).issubset(file_table) or not set(PROFILE_FIELDS).issubset(profile_table):
+        if not set(FILE_FIELDS).issubset(file_table) or not (set(PROFILE_FIELDS)-{'qc_flag'}).issubset(profile_table):
             raise ValueError('Saved inventory is incomplete; refresh the retrieval catalog')
         files, profiles = file_table.to_dict('records'), profile_table.to_dict('records')
         reused = len(files)
@@ -283,7 +296,7 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
     write_csv(out/'pending.csv', CASE_FIELDS, [r for r in cases if r['status'] not in ('complete', 'duplicate')])
     from collections import Counter
     summary = dict(created_utc=datetime.now(timezone.utc).isoformat(), retrieval_dir=str(retrieval_dir.resolve()),
-                   scan_schema=1, inventory_reused_files=reused, inventory_updated_utc=inventory_time,
+                   scan_schema=previous.get('scan_schema', 1) if reuse_inventory else 2, inventory_reused_files=reused, inventory_updated_utc=inventory_time,
                    inventory_mode='saved' if reuse_inventory else 'refreshed', category=category,
                    manifest=str(manifest.resolve()) if manifest else None, bands=bands, include_ch1=include_ch1,
                    tolerance_seconds=tolerance_seconds, files=dict(Counter(r['status'] for r in files)),

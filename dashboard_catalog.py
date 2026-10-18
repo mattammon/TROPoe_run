@@ -1,12 +1,69 @@
 """Scrollable completion grid for the active clear-sky classification."""
+import numpy as np
 import pandas as pd
 import streamlit as st
 
 from retrieval_todo import completion_matrix
+from catalog_retrievals import time_values, time_bounds
 
 
-def completion_summary(matrix):
+def qc_matrix(cases, index, models, tolerance, errors=None):
+    """One QC per case/band: usable first, then nearest time/file/record."""
+    clear = cases.loc[cases.category == 'clear_sky']
+    result = pd.DataFrame(np.nan, index=pd.Index(clear.case_id, name='case_id'), columns=models)
+    records = index.copy()
+    if errors is not None and {'time', 'profile_index', 'channel', 'band'}.issubset(errors):
+        extra = errors.loc[errors.time.notna() & errors.profile_index.notna()].copy()
+        extra['model'] = ['Ch1' if int(c) == 1 else 'Ch2_B'+str(int(b))
+                          for c, b in zip(extra.channel, extra.band)]
+        records = pd.concat([records, extra], ignore_index=True)
+    if records.empty or 'qc_flag' not in records:
+        return result
+    records['time'] = pd.to_datetime(records.time, utc=True, errors='coerce')
+    records = records.loc[records.time.notna()].drop_duplicates(['file', 'profile_index'])
+    records['qc_flag'] = pd.to_numeric(records.qc_flag, errors='coerce')
+    targets = time_values(clear.retrieval_time)
+    for model in models:
+        subset = records.loc[records.model.eq(model)].sort_values('time').copy()
+        if subset.empty:
+            continue
+        times = time_values(subset.time)
+        start, stop = time_bounds(targets, times, tolerance)
+        for case, target, lo, hi in zip(clear.case_id, targets, start, stop):
+            if hi <= lo:
+                continue
+            matches = subset.iloc[lo:hi].copy()
+            matches['unusable'] = ~matches.status.eq('usable')
+            matches['distance'] = np.abs(times[lo:hi]-target)
+            chosen = matches.sort_values(['unusable', 'distance', 'file', 'profile_index']).iloc[0]
+            result.loc[case, model] = chosen.qc_flag
+    return result
+
+
+def qc_grid(matrix, flags):
+    grid = pd.DataFrame('Missing / incomplete', index=matrix.index, columns=matrix.columns)
+    grid[matrix] = 'Complete · QC unknown/other'
+    grid[matrix & flags.eq(0)] = 'Complete · QC 0'
+    grid[matrix & flags.eq(3)] = 'Complete · QC 3'
+    grid[flags.eq(2)] = 'Not converged · QC 2'
+    return grid
+
+
+def qc_style(value):
+    color, text = {
+        'Complete · QC 0': ('#20854e', 'white'),
+        'Complete · QC 3': ('#facc15', '#422006'),
+        'Not converged · QC 2': ('#dc2626', 'white'),
+        'Complete · QC unknown/other': ('#bfdbfe', '#1e3a8a'),
+    }.get(value, ('#e5e7eb', '#4b5563'))
+    return f'background-color: {color}; color: {text}'
+
+
+def completion_summary(matrix, flags=None):
     per_band = pd.DataFrame({'Band': matrix.columns, 'Completed retrievals': matrix.sum(axis=0).astype(int).to_numpy()})
+    if flags is not None:
+        per_band['QC 2 · not converged'] = flags.eq(2).sum().astype(int).to_numpy()
+        per_band['QC 3 · spectral RMS too large'] = flags.eq(3).sum().astype(int).to_numpy()
     per_band['Clear-sky cases'] = len(matrix)
     per_band['Completion (%)'] = (per_band['Completed retrievals'] / len(matrix) * 100).round(1) if len(matrix) else 0.
     if matrix.shape[1] == 0:
@@ -17,8 +74,9 @@ def completion_summary(matrix):
 def render_catalog(cases, index, models, labels, tolerance, index_errors, all_models=None, selection_key=None):
     st.subheader('Clear-sky retrieval completion')
     st.caption(f'Each row is a clear-sky sounding; each column is a selected band. '
-               f'A green cell means a usable retrieval record occurs within ±{tolerance:g} seconds of the target retrieval time. '
-               'Gray means missing or incomplete. Scroll the grid to see all cases.')
+               f'Records are matched within ±{tolerance:g} seconds of the target retrieval time. '
+               'Green: complete, QC 0. Yellow: complete, QC 3 (spectral RMS too large). '
+               'Red: QC 2 (not converged). Gray: missing/incomplete. Blue: complete with unknown/other QC. Scroll to see all cases.')
     st.caption('summary.json reports all configured bands for the active classification. '
                'Band toggles below change the displayed all-selected/none-selected counts; they do not change the retrieval execution plan.')
     if selection_key:
@@ -36,7 +94,12 @@ def render_catalog(cases, index, models, labels, tolerance, index_errors, all_mo
             st.session_state[key] = model in models
             columns[n % len(columns)].checkbox(model, key=key, on_change=toggle_band, args=(model, key))
     matrix = completion_matrix(cases, index, models, tolerance)
-    summary, all_complete, none_complete = completion_summary(matrix)
+    flags = qc_matrix(cases, index, models, tolerance, index_errors)
+    summary, all_complete, none_complete = completion_summary(matrix, flags)
+    st.caption('QC counts refer to one matched record per case and band. Duplicate outputs prefer a usable record, then the nearest time. '
+               'Completion remains a structural check; a red cell can contain an incomplete output and still count toward QC 2.')
+    if 'qc_flag' not in index:
+        st.warning('This saved inventory does not contain QC flags. Click Refresh retrieval catalog and to-do once to collect them; subsequent loads reuse the saved flags.')
     a, b, c = st.columns(3)
     a.metric('Clear-sky cases', f'{len(matrix):,}')
     b.metric('Complete in all selected bands', f'{all_complete:,}')
@@ -49,19 +112,19 @@ def render_catalog(cases, index, models, labels, tolerance, index_errors, all_mo
     if matrix.empty:
         st.info('There are no clear-sky cases in this classification.')
         return
-    grid = matrix.copy()
+    grid = qc_grid(matrix, flags)
     grid.insert(0, 'Case (UTC)', [labels.get(case, str(case)) for case in matrix.index])
     # Streamlit virtualizes the styled table; raise Pandas' rendering limit so
     # larger catalogs retain backgrounds for every row, not just the first chunk.
-    styled = grid.style.map(lambda value: 'background-color: #20854e; color: white' if value
-                            else 'background-color: #e5e7eb; color: #4b5563', subset=models)
-    styled = styled.format(lambda value: 'Complete' if value else 'Missing', subset=models)
+    styled = grid.style.map(qc_style, subset=models)
     with pd.option_context('styler.render.max_elements', max(262144, grid.size + 1)):
         st.dataframe(styled, height=650, width='stretch', hide_index=True)
     with st.expander('Export completion and scan details'):
         export = matrix.reset_index()
         export.insert(1, 'Case (UTC)', grid['Case (UTC)'].to_numpy())
         st.download_button('Download completion grid', export.to_csv(index=False), 'retrieval_completion.csv', 'text/csv')
+        qc_export = flags.reset_index()
+        st.download_button('Download QC flag grid', qc_export.to_csv(index=False), 'retrieval_qc_flags.csv', 'text/csv')
         st.download_button('Download band summary', summary.to_csv(index=False), 'retrieval_completion_summary.csv', 'text/csv')
         if not index_errors.empty:
             st.write('Retrieval indexing errors')
