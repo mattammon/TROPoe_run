@@ -213,12 +213,23 @@ class DashboardTests(unittest.TestCase):
         points, _ = plots.dfs_rmse_plot(analysis, individual=True)
         self.assertGreater(len(points.data), len(means.data))
 
+    def test_full_column_height95_independent_of_display_layer(self):
+        cases = pd.DataFrame([dict(case_id='a', sounding_time=pd.Timestamp('2025-01-01', tz='UTC'), category='clear_sky')])
+        profiles = {('a', 'Ch1'): dict(z=np.array([0., 1., 2., 3.]),
+            information={'variables': {'T': dict(dfs_level=np.ones(4), source='Akernal')}})}
+        for edges in (np.array([0., .5, 1.]), np.linspace(.5, 2., 7), np.linspace(0., 3., 31)):
+            analysis = data.build_analysis(cases, ['Ch1'], profiles, {}, 'T', edges, paired=False)
+            summary, per_case = plots.dfs_height95(analysis)
+            self.assertAlmostEqual(per_case.height95_km.iloc[0], 2.9)
+            self.assertAlmostEqual(per_case.full_column_dfs.iloc[0], 4.)
+            self.assertAlmostEqual(summary['Mean 95% height (km AGL)'].iloc[0], 2.9)
+
     def test_dfs_height95_and_shared_figure(self):
         analysis = dict(edges=np.array([0., 1., 2.]), information={
-            ('a', 'Ch1'): dict(cumulative=[0., 1., 2.], source='akernel'),
-            ('b', 'Ch1'): dict(cumulative=[0., 2., 2.], source='akernel'),
-            ('c', 'Ch1'): dict(cumulative=[0., 3., 2.], source='akernel'),
-            ('d', 'Ch1'): dict(cumulative=[0., 0., 0.], source='akernel')})
+            ('a', 'Ch1'): dict(full_edges=[0., 1., 2.], full_cumulative=[0., 1., 2.], source='akernel'),
+            ('b', 'Ch1'): dict(full_edges=[0., 1., 2.], full_cumulative=[0., 2., 2.], source='akernel'),
+            ('c', 'Ch1'): dict(full_edges=[0., 1., 2.], full_cumulative=[0., 3., 2.], source='akernel'),
+            ('d', 'Ch1'): dict(full_edges=[0., 1., 2.], full_cumulative=[0., 0., 0.], source='akernel')})
         summary, cases = plots.dfs_height95(analysis)
         self.assertAlmostEqual(summary['Mean 95% height (km AGL)'].iloc[0], (1.9+.95)/2)
         self.assertEqual(summary['Valid cases'].iloc[0], 2)

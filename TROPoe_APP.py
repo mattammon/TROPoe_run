@@ -400,8 +400,8 @@ elif view == 'Information content':
         st.caption('Shading shows the median across cases. Cumulative DFS uses one color per height interval at its upper-edge value; zero is white. Diagnostic sources remain separate.')
         if mode == 'Cumulative profiles':
             heights, per_case = plots.dfs_height95(analysis)
-            st.caption('Black ticks mark the mean height where individual cases reach 95% of their total DFS within the selected layer. '
-                       'Heights are interpolated between edges, then averaged with equal case weights. Nonpositive totals and nonmonotonic profiles are excluded.')
+            st.caption('Black ticks mark the mean height where individual cases reach 95% of the full-column DFS over the entire retrieval depth. '
+                       'Heights use native retrieval cells, then are averaged with equal case weights for the plotted cohort. Nonpositive totals and nonmonotonic profiles are excluded. Heights outside the displayed layer remain in the table; expand the layer to see those ticks.')
             st.dataframe(heights, **STRETCH, hide_index=True)
             download_table('Download 95% DFS heights by band', heights, 'dfs_height95_summary.csv', 'dfs_h95_summary')
             download_table('Download case 95% DFS heights and exclusions', per_case, 'dfs_height95_cases.csv', 'dfs_h95_cases')

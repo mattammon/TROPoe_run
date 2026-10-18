@@ -276,16 +276,17 @@ def info_frame(analysis):
 
 
 def dfs_height95(analysis):
-    """Mean of individual-case 95%-of-layer-total heights, by band/source."""
+    """Mean of individual-case 95%-of-full-column heights, by band/source."""
     rows = []
-    edges = np.asarray(analysis['edges'], dtype=float)
     for (case, model), item in analysis['information'].items():
-        curve = np.asarray(item['cumulative'], dtype=float)
+        edges = np.asarray(item.get('full_edges', []), dtype=float)
+        curve = np.asarray(item.get('full_cumulative', []), dtype=float)
         height, reason = np.nan, ''
-        if len(curve) != len(edges) or not np.isfinite(curve).all():
-            reason = 'Missing/nonfinite cumulative profile'
+        if (len(curve) < 2 or len(curve) != len(edges) or not np.isfinite(curve).all()
+                or not np.isfinite(edges).all() or np.any(np.diff(edges) <= 0)):
+            reason = 'Missing/invalid full-column cumulative profile'
         elif curve[-1]-curve[0] <= 0:
-            reason = 'Nonpositive layer-total DFS'
+            reason = 'Nonpositive full-column DFS'
         elif np.any(np.diff(curve) < -1e-10):
             reason = 'Nonmonotonic cumulative DFS'
         else:
@@ -293,8 +294,9 @@ def dfs_height95(analysis):
             target = curve[0] + .95*(curve[-1]-curve[0])
             i = int(np.searchsorted(curve, target, side='left'))
             height = float(np.interp(target, curve[i-1:i+1], edges[i-1:i+1]))
-        rows.append(dict(case_id=case, Band=model, Source=item['source'], height95_km=height, exclusion=reason))
-    cases = pd.DataFrame(rows, columns=['case_id', 'Band', 'Source', 'height95_km', 'exclusion'])
+        rows.append(dict(case_id=case, Band=model, Source=item['source'], height95_km=height, exclusion=reason,
+                         full_column_dfs=float(curve[-1]-curve[0]) if len(curve) >= 2 else np.nan))
+    cases = pd.DataFrame(rows, columns=['case_id', 'Band', 'Source', 'height95_km', 'exclusion', 'full_column_dfs'])
     summary = cases.groupby(['Band', 'Source'], sort=False).height95_km.agg(['mean', 'count', 'size']).reset_index()
     summary.columns = ['Band', 'Source', 'Mean 95% height (km AGL)', 'Valid cases', 'Total cases']
     return summary, cases
@@ -356,7 +358,7 @@ def info_plot(analysis, mode):
         if field == 'cumulative':
             subset = heights.loc[heights.Source.eq(source) & heights['Mean 95% height (km AGL)'].notna()]
             fig.add_trace(go.Scatter(x=subset.Band, y=subset['Mean 95% height (km AGL)'],
-                mode='markers', name='Mean 95% DFS height', legendgroup='height95', showlegend=col == 1,
+                mode='markers', name='Mean 95% full-column DFS height', legendgroup='height95', showlegend=col == 1,
                 marker=dict(symbol='line-ew', size=22, color='black', line=dict(width=2, color='black')),
                 customdata=subset[['Valid cases', 'Total cases']].to_numpy(),
                 hovertemplate='%{x}<br>Mean 95% height: %{y:.3f} km AGL<br>%{customdata[0]}/%{customdata[1]} valid cases<extra></extra>'), row=1, col=col)

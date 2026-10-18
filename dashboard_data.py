@@ -7,7 +7,7 @@ import pandas as pd
 import xarray as xr
 
 from cloud_screening import dataset_times
-from information_content import height_km, read_information, remap_dfs
+from information_content import height_km, read_information, remap_dfs, native_edges
 
 LOG = logging.getLogger(__name__)
 VARIABLES = {'T': ('Temperature', '°C', 'temperature'),
@@ -276,7 +276,9 @@ def build_analysis(cases, models, profiles, observations, variable, edges, paire
                 if data:
                     mapped = remap_dfs(profile['z'], data['dfs_level'], edges)
                     if np.isfinite(mapped['dfs_bin']).all():
-                        infos[key] = dict(**mapped, source=data['source'], dfs=float(mapped['dfs_bin'].sum()))
+                        infos[key] = dict(**mapped, source=data['source'], dfs=float(mapped['dfs_bin'].sum()),
+                                          full_edges=native_edges(profile['z']),
+                                          full_cumulative=np.r_[0., np.cumsum(data['dfs_level'])])
                     else:
                         problems.append(dict(case_id=case, model=model, stage='DFS', reason='Incomplete layer coverage'))
                 else:

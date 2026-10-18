@@ -830,3 +830,20 @@ label to read its physical value. Hover values are untransformed °C or g/kg.
 This is a height-based skew display, not a conventional log-pressure Skew-T;
 no thermodynamic reference curves or new interpolation are introduced. Missing
 profile values retain gaps. Each panel uses its own physical-value scale.
+
+### Full-column 95% DFS height
+
+The cumulative-profile marker is now the mean of per-case heights containing
+95% of the **entire retrieval column's** DFS for the selected variable and
+diagnostic source. It uses the full native retrieval grid and the existing
+constant-density native-cell convention, not the displayed layer's cumulative
+curve. Changing the display-bin spacing or layer bounds does not change an
+individual case's height. The band mean still uses the plotted DFS cohort;
+changing the layer can change that cohort when coverage differs.
+
+The heatmap continues to show cumulative DFS within the selected layer. A mean
+95% height above or below that layer is not clamped to the plot boundary; it is
+retained in the summary/download, and expanding the layer reveals the marker.
+Per-case exports include full-column total DFS. Nonpositive totals, invalid
+full-column profiles and nonmonotonic cumulative profiles are excluded from the
+height average and retain an exclusion reason.
