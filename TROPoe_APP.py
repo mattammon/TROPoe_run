@@ -223,9 +223,10 @@ if selected.empty:
     st.stop()
 
 # Analysis controls do not cause disk rereads: native profiles are cached.
+rmse_style = st.radio('RMSE view', ['Distributions', 'Timeline', 'Case heatmap'], horizontal=True) if view == 'RMSE comparisons' else None
 a, b, c, d = st.columns([2, 1, 1, 1])
-variable = 'T' if view in ('Vertical errors', 'Taylor diagram', 'DFS vs RMSE') else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
-bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.1, step=0.1)
+variable = 'T' if view in ('Vertical errors', 'Taylor diagram', 'DFS vs RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
+bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.0, step=0.1)
 top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
 spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
 if bottom >= top:
@@ -317,6 +318,45 @@ if view == 'DFS vs RMSE':
                                'dfs_rmse_'+v+'_cases.csv', 'dfs_rmse_cases_'+v)
     st.stop()
 
+if view == 'RMSE comparisons' and rmse_style == 'Distributions':
+    choices = st.columns(2)
+    show_t = choices[0].checkbox('Show temperature', value=True, key='rmse_show_t')
+    show_q = choices[1].checkbox('Show water vapor mixing ratio', value=True, key='rmse_show_q')
+    variables = [v for v, enabled in [('T', show_t), ('q', show_q)] if enabled]
+    analyses = {v: data.build_analysis(selected, models, profiles, observations, v, edges, paired) for v in ('T', 'q')}
+    st.caption('Temperature: filled box, circles on the left. Water vapor: outline box, open diamonds on the right. '
+               'Band colors are shared across variables. The legend also toggles each variable across all bands. '
+               'Values retain their native units (°C and g/kg); equal numerical RMSE does not imply equal error importance.')
+    if not variables:
+        st.info('Enable at least one variable to display distributions.')
+    elif all(analyses[v]['metrics'].empty for v in variables):
+        st.warning('No complete comparisons for the selected variables in this layer. Review exclusions below.')
+    else:
+        display_chart(plots.rmse_distributions(analyses, models, variables), 'rmse_distributions_both')
+    st.caption(f"{'Paired across bands' if paired else 'Available per band'} comparisons · {bottom:g}–{top:g} km AGL. "
+               'Each variable uses its own valid case cohort; toggling visibility does not change the statistics.')
+    with st.expander('Sample counts, exclusions, and downloads'):
+        counts = pd.DataFrame({'model': models})
+        for v in ('T', 'q'):
+            frame = analyses[v]['metrics']
+            counts[v+' cases'] = [int(frame.model.eq(m).sum()) if len(frame) else 0 for m in models]
+            download_table('Download '+data.VARIABLES[v][0]+' case metrics', frame,
+                           'rmse_'+v+'_cases.csv', 'rmse_cases_'+v)
+            issues = analyses[v]['problems']
+            if not issues.empty:
+                st.write(data.VARIABLES[v][0]+' exclusions')
+                st.dataframe(data.display_cases(issues, case_labels), **STRETCH, hide_index=True)
+        st.dataframe(counts, **STRETCH, hide_index=True)
+        if problems:
+            st.dataframe(pd.DataFrame(problems), **STRETCH)
+        if not index_errors.empty:
+            st.dataframe(index_errors, **STRETCH)
+        download_table('Download distribution settings', pd.DataFrame([dict(
+            classification_manifest=active['path'], bands=','.join(models), visible_variables=','.join(variables),
+            start_date=str(dates[0]), end_date=str(dates[1]), layer_bottom_km=bottom, layer_top_km=top,
+            bins=len(edges)-1, paired=paired, tolerance_seconds=tolerance)]), 'rmse_settings.csv', 'rmse_settings')
+    st.stop()
+
 analysis = data.build_analysis(selected, models, profiles, observations, variable, edges, paired)
 metrics = analysis['metrics']
 issues = pd.concat([pd.DataFrame(problems), analysis['problems']], ignore_index=True)
@@ -342,7 +382,7 @@ elif view == 'RMSE comparisons':
     if metrics.empty:
         st.warning('No complete radiosonde comparisons in this layer. Review exclusions below, reduce the layer, or turn off paired comparisons.')
     else:
-        style = st.radio('RMSE view', ['Distributions', 'Timeline', 'Case heatmap'], horizontal=True)
+        style = rmse_style
         baseline = None
         if style == 'Case heatmap':
             baseline = st.selectbox('Subtract baseline', ['None']+models)

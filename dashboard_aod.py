@@ -273,7 +273,7 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
         return
     selected = cases.loc[cases.case_id.isin(valid.case_id)]
     a, b, c = st.columns(3)
-    bottom = a.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=.1, step=.1)
+    bottom = a.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0., step=.1)
     top = b.number_input('Layer top (km AGL)', min_value=.1, max_value=20., value=1.5, step=.1)
     spacing = c.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
     if bottom >= top:

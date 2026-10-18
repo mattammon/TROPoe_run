@@ -186,7 +186,8 @@ class DashboardTests(unittest.TestCase):
         for row in stats.itertuples():
             point = next(t for t in panel.data if t.name == row.model)
             self.assertAlmostEqual(np.hypot(point.x[0], point.y[0]), row.std_ratio)
-            self.assertEqual(point.marker.size, 22)
+            self.assertEqual(point.marker.size, 11)
+            self.assertEqual(point.marker.symbol, 'cross-thin')
             self.assertLess(point.marker.opacity, 1)
         reference = next(t for t in panel.data if t.name == 'Radiosonde')
         self.assertAlmostEqual(reference.x[0], 1.)

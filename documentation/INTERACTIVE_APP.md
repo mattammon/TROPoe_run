@@ -799,3 +799,23 @@ master manifest within the browser tab, including temporary empty selections.
 The selectable chart uses the installed Plotly JavaScript bundle locally and
 requires no CDN or additional package. Zooming does not rerun Python; clicking
 a case still opens its satellite review.
+
+### Overlaid RMSE distributions
+
+On **RMSE comparisons → Distributions**, temperature and water vapor boxes share
+the same band position. Temperature uses a translucent filled box and circle
+case markers to the left; water vapor uses an outline box and open diamonds to
+the right. Case jitter is deterministic. Band colors remain fixed. The two
+checkboxes or legend entries toggle variables independently, including their
+boxes and case points. Each variable retains its own valid/common-case cohort;
+visibility toggles do not change calculations. Per-variable case counts,
+metrics, and exclusions are available below the plot.
+
+These are raw RMSEs: temperature is in °C and water vapor in g/kg, plotted on the
+same numerical scale. They are not normalized and equal heights do not imply
+equal scientific significance. Timeline and case heatmap retain their variable
+selector. All dashboard analysis layers, including AOD, now default to
+**0.0–1.5 km AGL**. Existing finite-data coverage requirements still apply; no
+new extrapolation below the first valid profile level is introduced. Taylor
+retrieval markers are smaller thin crosses; their statistics and normalization
+are unchanged.

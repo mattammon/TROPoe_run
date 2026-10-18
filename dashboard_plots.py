@@ -45,6 +45,52 @@ def profile_plot(case, models, profiles, observations, variable, layer):
     return finish(fig, 'Vertical profiles', f'{name} ({unit})', 'Height AGL (km)')
 
 
+def rmse_distributions(analyses, models, variables=('T', 'q')):
+    """Overlaid boxes, with deterministic case jitter on opposite sides."""
+    import hashlib
+    fig = go.Figure()
+    palette = colors(models)
+    for variable in variables:
+        analysis = analyses[variable]
+        label, unit, _ = VARIABLES[variable]
+        seen = False
+        for position, model in enumerate(models):
+            frame = analysis['metrics']
+            if frame.empty:
+                continue
+            group = frame.loc[frame.model.eq(model) & np.isfinite(frame.rmse)]
+            if group.empty:
+                continue
+            color = palette[model]
+            rgb = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+            fill = f'rgba({rgb[0]},{rgb[1]},{rgb[2]},0.25)' if variable == 'T' else 'rgba(0,0,0,0)'
+            fig.add_trace(go.Box(x=[position]*len(group), y=group.rmse, width=.30,
+                name=label+' ('+unit+')', legendgroup=variable, showlegend=not seen,
+                boxpoints=False, fillcolor=fill, line=dict(color=color, width=2),
+                marker_color=color, quartilemethod='linear',
+                hovertemplate=model+' · '+label+'<br>RMSE: %{y:.3f} '+unit+'<extra></extra>'))
+            seen = True
+            # Fixed case-based offsets avoid moving points when filters change.
+            jitter = np.array([int(hashlib.sha256(str(case).encode()).hexdigest()[:8], 16)/0xffffffff
+                               for case in group.case_id])
+            sign = -1 if variable == 'T' else 1
+            x = position + sign*(.23+.17*jitter)
+            fig.add_trace(go.Scatter(x=x, y=group.rmse, mode='markers',
+                name=label, legendgroup=variable, showlegend=False,
+                marker=dict(color=color, size=6, opacity=.55,
+                            symbol='circle' if variable == 'T' else 'diamond-open', line=dict(width=1)),
+                text=group.case_id.map(analysis['case_labels']),
+                hovertemplate='%{text}<br>'+model+' · '+label+'<br>RMSE: %{y:.3f} '+unit+'<extra></extra>'))
+    edges = next(iter(analyses.values()))['edges']
+    finish(fig, f'Case RMSE distributions · {edges[0]:g}–{edges[-1]:g} km AGL',
+           'Retrieval band', 'RMSE (temperature: °C; water vapor: g/kg)')
+    fig.update_layout(boxmode='overlay', legend=dict(groupclick='togglegroup'))
+    fig.update_xaxes(tickmode='array', tickvals=list(range(len(models))), ticktext=models,
+                     range=[-.55, len(models)-.45])
+    fig.update_yaxes(rangemode='tozero')
+    return fig
+
+
 def rmse_plot(analysis, models, style, baseline=None):
     df = analysis['metrics'].copy()
     df['Case'] = df.case_id.map(analysis['case_labels'])
@@ -133,7 +179,7 @@ def taylor_plot(analysis, models):
         if not np.isfinite(row.correlation) or row.correlation < 0 or not np.isfinite(row.std_ratio):
             continue
         fig.add_trace(go.Scatter(x=[row.std_ratio*row.correlation], y=[row.std_ratio*np.sqrt(max(0, 1-row.correlation**2))],
-                                mode='markers', name=row.model, marker=dict(size=22, opacity=.6, color=colors(models)[row.model], line=dict(width=1, color=colors(models)[row.model])),
+                                mode='markers', name=row.model, marker=dict(symbol='cross-thin', size=11, opacity=.8, color=colors(models)[row.model], line=dict(width=1.5, color=colors(models)[row.model])),
                                 text=[f'{row.model}<br>r={row.correlation:.4f}<br>σ/σobs={row.std_ratio:.3f}<br>σretrieval={row.retrieved_std:.3f} {units}<br>σobserved={row.observed_std:.3f} {units}<br>RMSE={row.rmse:.3f} {units}<br>N={row.cases} cases'],
                                 hovertemplate='%{text}<extra></extra>'))
     fig.update_xaxes(range=[0, radius*1.06], constrain='domain')
