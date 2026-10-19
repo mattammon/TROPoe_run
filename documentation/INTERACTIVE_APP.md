@@ -907,3 +907,53 @@ Give workers disjoint band selections: there is no distributed lock preventing
 two containers assigned the same band from attempting the same output. They
 can share the retrieval/output and input-data volumes. Download required inputs
 before starting workers, and refresh the app's catalog after they finish.
+
+### Dashboard satellite viewer
+
+**Show satellite imagery panel** opens a right-hand viewer on every dashboard
+page; **Hide imagery panel** collapses it and restores full plot width. The
+viewer lists all classified cases and shares case selection with Vertical
+profiles when the selected case passes that page's active filters. Its case
+selection never changes aggregate cohorts. Exact/nearby matching uses the
+existing sounding/retrieval-time matching rules and a configurable tolerance.
+Missing images can be generated with the button; files can be refreshed or
+downloaded. Manual classifications remain in the classification review page.
+
+### Both-variable information profiles and Ch1 differences
+
+Information content now displays temperature above water vapor for all three
+views. **Shade differences from Ch1** is available for cumulative and density
+profiles. Ch1 remains on the actual-value scale; other bands use a separate
+symmetric blue–white–red scale: blue means less DFS than Ch1, red more. Ch1 is
+loaded as a reference even when its dashboard band toggle is off.
+
+Differences are computed for each matching case before taking the median.
+Only finite profiles with the same DFS diagnostic source are paired; sources
+remain separate plots, and missing pairs are blank. The per-band counts show
+which pairs contributed. The selected common/available cohort rule is applied
+first. Cumulative DFS starts at the selected layer bottom and is displayed at
+each bin's upper edge. The full-column 95% height remains an actual height,
+including in difference mode, with the paired cohort used for each band.
+
+### Case-specific diagnostics and RMSR
+
+Vertical profiles includes heatmaps beneath the temperature and water-vapor
+profiles, aligned in the same left/right variable order. **Case profile
+shading** switches both between cumulative DFS, DFS density and 1-sigma
+uncertainty. DFS uses the existing conservative native-cell remapping;
+uncertainty is interpolated to bin centers without extrapolation. Missing or
+negative uncertainties remain blank, with diagnostics listed below. Sources
+and units appear on each plot. Diagnostic CSVs include bin boundaries and the
+height at which each exported value is evaluated.
+
+The reader loads `sigma_temperature` and `sigma_waterVapor` from the matched
+retrieval record. Kelvin temperature uncertainties are numerically identical
+to Celsius uncertainties (no 273.15 offset). Water-vapor uncertainties in kg/kg
+are converted to g/kg. These are the uncertainties supplied by the retrieval,
+not the across-case error spread.
+
+The RMSR table and horizontal bar chart read scalar `rmsr` directly from each
+matched record, sorted smallest first. Missing values are listed without a
+rank; QC flags are included. RMSR is not substituted with `rmsa` or the
+radiosonde-profile RMSE. Its numerical ordering alone is not a cross-band
+retrieval-skill ranking.

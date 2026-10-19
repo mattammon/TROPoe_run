@@ -190,8 +190,24 @@ def load_retrieval(file_signature, record, expected_time, source='auto', no_mode
                 result[key] = _convert(da, key)
             except (KeyError, ValueError) as exc:
                 result['errors'][key] = str(exc)
+        for variable, field in [('T', 'sigma_temperature'), ('q', 'sigma_waterVapor')]:
+            key = 'sigma_'+variable
+            try:
+                da = sample[field]
+                if da.ndim != 1 or da.size != len(z):
+                    raise ValueError('Expected one uncertainty per height')
+                if variable == 'T':
+                    unit = str(da.attrs.get('units', '')).lower().replace(' ', '')
+                    if unit not in ('', 'k', 'kelvin', 'c', 'degc', 'degree_c', 'degrees_c', 'celsius', 'degree_celsius', 'degrees_celsius'):
+                        raise ValueError('Unsupported temperature uncertainty units: '+unit)
+                    values = np.asarray(da.values, float).reshape(-1)
+                else:
+                    values = _convert(da, 'q')
+                result[key] = np.where(np.isfinite(values) & (values >= 0), values, np.nan)
+            except (KeyError, ValueError) as exc:
+                result['errors'][key] = str(exc)
         result['information'] = read_information(sample, source=source, no_model=no_model)
-        for key in ('qc_flag', 'lwp', 'rmsa'):
+        for key in ('qc_flag', 'lwp', 'rmsa', 'rmsr'):
             if key in sample and sample[key].size == 1:
                 result[key] = float(sample[key].values.item())
         return result
