@@ -803,7 +803,7 @@ The Vertical profiles spectral-fit table includes RMSR, RMSA, gamma and QC
 from the matched NetCDF record. Both rank and bar-chart order now use RMSA,
 lowest first. Missing RMSA stays unranked; RMSR is never used as a fallback.
 
-Cumulative DFS actual values use 12 discrete `terrain_r` colors with fixed
+Cumulative DFS actual values use 100 discrete `terrain_r` colors with fixed
 limits: 0–5 for temperature and 0–3 for water vapor. These apply to individual
 cases, aggregate median profiles, and Ch1's actual column in difference mode.
 Values beyond the limits saturate in color; hover and CSV values stay intact.

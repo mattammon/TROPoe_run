@@ -60,6 +60,20 @@ def style_satellite_panel():
         border-left: 1px solid rgba(128,128,128,.25); border-radius: .5rem;
         min-width: 0;
     }
+    /* A fixed-width satellite column must share the remaining row width
+       with a shrinkable main column, rather than wrap below it. */
+    @media (min-width: 701px) {
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-satellite_dock) {
+            flex-wrap: nowrap !important; align-items: flex-start;
+        }
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-satellite_dock)
+        > [data-testid="stColumn"]:not(:has(.st-key-satellite_dock)) {
+            flex: 1 1 0% !important; min-width: 0 !important; width: 0 !important;
+        }
+        [data-testid="stColumn"]:has(.st-key-satellite_dock) {
+            flex: 0 0 390px; width: 390px; max-width: 65%;
+        }
+    }
     .st-key-satellite_dock {
         background: rgba(80,90,110,.08); padding: 2.8rem 1rem 1rem;
         max-height: calc(100vh - 4.5rem); overflow-y: auto;

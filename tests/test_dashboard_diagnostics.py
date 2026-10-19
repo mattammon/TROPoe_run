@@ -78,7 +78,7 @@ class DiagnosticTests(unittest.TestCase):
             for difference in (False, True):
                 fig = dfs_profile_panels(analysis, ['Ch1','Ch2_B1'], 'Cumulative profiles', difference)[0][1]
                 self.assertEqual((fig.layout.coloraxis.cmin, fig.layout.coloraxis.cmax), (0., maximum))
-                self.assertEqual(len(fig.layout.coloraxis.colorscale), 24)
+                self.assertEqual(len(fig.layout.coloraxis.colorscale), 200)
             profiles = {('case','Ch1'): dict(z=np.array([0.,1.,2.]), information={'variables':{
                 variable: dict(dfs_level=np.ones(3),source='kernel')}})}
             fig, _, _ = case_diagnostic('case',profiles,['Ch1'],variable,np.array([0.,1.,2.]),'Cumulative DFS')

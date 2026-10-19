@@ -36,7 +36,7 @@ def profile_heatmap(matrix, edges, models, title, unit, difference=False, counts
         from matplotlib import colormaps
         from matplotlib.colors import to_hex
         maximum = {'T': 5., 'q': 3.}[cumulative_variable]
-        shades = [to_hex(colormaps['terrain_r'](x)) for x in np.linspace(0, 1, 12)]
+        shades = [to_hex(colormaps['terrain_r'](x)) for x in np.linspace(0, 1, 100)]
         scale = [[edge, color] for i, color in enumerate(shades)
                  for edge in (i/len(shades), (i+1)/len(shades))]
         fig.update_layout(coloraxis=dict(colorscale=scale, cmin=0., cmax=maximum,

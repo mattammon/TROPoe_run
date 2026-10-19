@@ -9,7 +9,7 @@
   function apply(value) {
     if (!row || !column) return;
     const total = row.getBoundingClientRect().width;
-    if (total < 650) { column.style.removeProperty('flex'); column.style.removeProperty('width'); return; }
+    if (win.innerWidth <= 700) { column.style.removeProperty('flex'); column.style.removeProperty('width'); return; }
     width = clamp(value, total);
     column.style.setProperty('flex', `0 0 ${width}px`, 'important');
     column.style.setProperty('width', `${width}px`, 'important');
