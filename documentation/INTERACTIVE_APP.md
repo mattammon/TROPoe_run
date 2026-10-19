@@ -789,171 +789,23 @@ Without the PWV filter, missing/partial cases remain visible. With the PWV
 filter enabled, they are excluded unless **Include missing / incomplete PWV**
 is checked. These PWV coverage checks never alter cloud classification.
 
-### Scatter zoom persistence
 
-The classification and dashboard radiance scatter preserve the user's x/y zoom
-and pan when filters, grouping, thresholds, or manual classifications change.
-Use **Reset zoom** above the plot to fit the current cases and threshold lines;
-Plotly's own zoom controls remain available. Viewports are kept per plot and
-master manifest within the browser tab, including temporary empty selections.
-The selectable chart uses the installed Plotly JavaScript bundle locally and
-requires no CDN or additional package. Zooming does not rerun Python; clicking
-a case still opens its satellite review.
+### Resizable satellite panel and spectral fit diagnostics
 
-### Overlaid RMSE distributions
+The satellite viewer has a darker sidebar background. Drag its inner (left)
+edge to resize it; width is remembered in the browser tab across reruns.
+The upper-left collapse control appears on hover or keyboard focus (always
+visible on touch devices). Reopen it with **Show satellite imagery panel**.
+The resize edge also supports left/right arrow keys. Narrow layouts use the
+normal responsive column layout.
 
-On **RMSE comparisons → Distributions**, temperature and water vapor boxes share
-the same band position. Temperature uses a translucent filled box and circle
-case markers to the left; water vapor uses an outline box and open diamonds to
-the right. Case jitter is deterministic. Band colors remain fixed. The two
-checkboxes or legend entries toggle variables independently, including their
-boxes and case points. Each variable retains its own valid/common-case cohort;
-visibility toggles do not change calculations. Per-variable case counts,
-metrics, and exclusions are available below the plot.
+The Vertical profiles spectral-fit table includes RMSR, RMSA, gamma and QC
+from the matched NetCDF record. Both rank and bar-chart order now use RMSA,
+lowest first. Missing RMSA stays unranked; RMSR is never used as a fallback.
 
-These are raw RMSEs: temperature is in °C and water vapor in g/kg, plotted on the
-same numerical scale. They are not normalized and equal heights do not imply
-equal scientific significance. Timeline and case heatmap retain their variable
-selector. All dashboard analysis layers, including AOD, now default to
-**0.0–1.5 km AGL**. Existing finite-data coverage requirements still apply; no
-new extrapolation below the first valid profile level is introduced. Taylor
-retrieval markers are smaller thin crosses; their statistics and normalization
-are unchanged.
-
-### Side-by-side skewed profiles
-
-The Vertical profiles page shows temperature and water vapor mixing ratio
-side by side for the same case, bands, and layer. Both use a shared linear
-height axis in km AGL and a shared legend. Constant-value lines slope to the
-right with increasing height; follow each slanted line to its bottom-axis
-label to read its physical value. Hover values are untransformed °C or g/kg.
-This is a height-based skew display, not a conventional log-pressure Skew-T;
-no thermodynamic reference curves or new interpolation are introduced. Missing
-profile values retain gaps. Each panel uses its own physical-value scale.
-
-### Full-column 95% DFS height
-
-The cumulative-profile marker is now the mean of per-case heights containing
-95% of the **entire retrieval column's** DFS for the selected variable and
-diagnostic source. It uses the full native retrieval grid and the existing
-constant-density native-cell convention, not the displayed layer's cumulative
-curve. Changing the display-bin spacing or layer bounds does not change an
-individual case's height. The band mean still uses the plotted DFS cohort;
-changing the layer can change that cohort when coverage differs.
-
-The heatmap continues to show cumulative DFS within the selected layer. A mean
-95% height above or below that layer is not clamped to the plot boundary; it is
-retained in the summary/download, and expanding the layer reveals the marker.
-Per-case exports include full-column total DFS. Nonpositive totals, invalid
-full-column profiles and nonmonotonic cumulative profiles are excluded from the
-height average and retain an exclusion reason.
-
-### QC flags in the case catalog
-
-The per-band summary includes counts of matched records with **QC 2** (not
-converged) and **QC 3** (converged, spectral RMS too large). The completion grid
-uses green for complete QC 0, yellow for complete QC 3, and red for QC 2.
-Missing/incomplete records remain gray, except QC 2 is red even if the profile
-is incomplete. Complete records with missing/other QC are blue, never silently
-assumed to be QC 0. A numeric QC-grid CSV is available beside the completion
-and summary downloads.
-
-Counts use one matched record per clear-sky case and selected band, not all
-files/duplicates. Matching uses the existing time tolerance; usable records
-are preferred, then nearest time, filename and record index. A valid rerun
-therefore supersedes an incomplete failed attempt. Completion counts and the
-retrieval execution plan retain their structural-completion definition; QC
-colors do not automatically exclude records from comparisons or queue reruns.
-
-QC is stored per profile in the shared catalog's `profiles.csv`. Existing
-catalogs remain readable in saved-inventory mode, but their QC is unknown until
-**Refresh retrieval catalog and to-do** is clicked once (or the catalog CLI is
-run without `--reuse-inventory`). This schema upgrade scans the files once;
-subsequent unchanged inventories reuse the saved QC values. Missing QC in the
-source NetCDF remains unknown after refresh.
-
-### Run selected bands in parallel containers
-
-Use `GROUP_TROPoe.py --bands` to run only the specified bands. Bare integers
-mean Ch2 bands; `Ch1` explicitly selects channel 1. Spaces and commas work:
-
-```bash
-# Run each command in a different container:
-python GROUP_TROPoe.py --bands Ch1
-python GROUP_TROPoe.py --bands 1 2 5
-python GROUP_TROPoe.py --bands Ch2_B6,Ch2_B9
-```
-
-When `--bands` is supplied, `GROUP_TROPOE_SKIP_BANDS` is ignored completely,
-even if it contains one of the requested bands. `--bands` and `--skip-bands`
-are mutually exclusive. Omitting both preserves the configured skip behavior.
-An empty or invalid band selection is rejected.
-
-Queued execution filters to the requested bands before scanning outputs and
-iterating jobs. It still uses the saved clear-sky queue and live completion
-checks; it does not invent jobs absent from that queue. Legacy execution also
-honors explicit band selection, including bands outside its default list; its
-existing LWP gate still requires a matching Ch1 output when enabled.
-
-Each `--bands` invocation writes a separate
-`retrieval_todo_run_<bands>_<unique-id>.csv` report next to the input queue, with
-the path printed on startup. The original queue is preserved. VIP filenames
-use per-instance random IDs, and selected-band workers get separate
-`DATA_DIR/tmp2/worker_<id>` LBLRTM scratch directories. Scratch directories are
-retained for troubleshooting. This change has been tested with simulated
-retrievals; the external TROPoe/LBLRTM engine is not executed in those tests.
-
-Give workers disjoint band selections: there is no distributed lock preventing
-two containers assigned the same band from attempting the same output. They
-can share the retrieval/output and input-data volumes. Download required inputs
-before starting workers, and refresh the app's catalog after they finish.
-
-### Dashboard satellite viewer
-
-**Show satellite imagery panel** opens a right-hand viewer on every dashboard
-page; **Hide imagery panel** collapses it and restores full plot width. The
-viewer lists all classified cases and shares case selection with Vertical
-profiles when the selected case passes that page's active filters. Its case
-selection never changes aggregate cohorts. Exact/nearby matching uses the
-existing sounding/retrieval-time matching rules and a configurable tolerance.
-Missing images can be generated with the button; files can be refreshed or
-downloaded. Manual classifications remain in the classification review page.
-
-### Both-variable information profiles and Ch1 differences
-
-Information content now displays temperature above water vapor for all three
-views. **Shade differences from Ch1** is available for cumulative and density
-profiles. Ch1 remains on the actual-value scale; other bands use a separate
-symmetric blue–white–red scale: blue means less DFS than Ch1, red more. Ch1 is
-loaded as a reference even when its dashboard band toggle is off.
-
-Differences are computed for each matching case before taking the median.
-Only finite profiles with the same DFS diagnostic source are paired; sources
-remain separate plots, and missing pairs are blank. The per-band counts show
-which pairs contributed. The selected common/available cohort rule is applied
-first. Cumulative DFS starts at the selected layer bottom and is displayed at
-each bin's upper edge. The full-column 95% height remains an actual height,
-including in difference mode, with the paired cohort used for each band.
-
-### Case-specific diagnostics and RMSR
-
-Vertical profiles includes heatmaps beneath the temperature and water-vapor
-profiles, aligned in the same left/right variable order. **Case profile
-shading** switches both between cumulative DFS, DFS density and 1-sigma
-uncertainty. DFS uses the existing conservative native-cell remapping;
-uncertainty is interpolated to bin centers without extrapolation. Missing or
-negative uncertainties remain blank, with diagnostics listed below. Sources
-and units appear on each plot. Diagnostic CSVs include bin boundaries and the
-height at which each exported value is evaluated.
-
-The reader loads `sigma_temperature` and `sigma_waterVapor` from the matched
-retrieval record. Kelvin temperature uncertainties are numerically identical
-to Celsius uncertainties (no 273.15 offset). Water-vapor uncertainties in kg/kg
-are converted to g/kg. These are the uncertainties supplied by the retrieval,
-not the across-case error spread.
-
-The RMSR table and horizontal bar chart read scalar `rmsr` directly from each
-matched record, sorted smallest first. Missing values are listed without a
-rank; QC flags are included. RMSR is not substituted with `rmsa` or the
-radiosonde-profile RMSE. Its numerical ordering alone is not a cross-band
-retrieval-skill ranking.
+Cumulative DFS actual values use 12 discrete `terrain_r` colors with fixed
+limits: 0–5 for temperature and 0–3 for water vapor. These apply to individual
+cases, aggregate median profiles, and Ch1's actual column in difference mode.
+Values beyond the limits saturate in color; hover and CSV values stay intact.
+Paired differences retain their symmetric blue–white–red scale. Density and
+uncertainty scales are unchanged.

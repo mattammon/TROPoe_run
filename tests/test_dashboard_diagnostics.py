@@ -16,7 +16,7 @@ class DiagnosticTests(unittest.TestCase):
                 waterVapor=(('time','height'), [[.004,.005]], {'units':'kg/kg'}),
                 sigma_temperature=(('time','height'), [[1.,2.]], {'units':'K'}),
                 sigma_waterVapor=(('time','height'), [[.001,.002]], {'units':'kg/kg'}),
-                rmsr=('time',[1.2]), rmsa=('time',[9.])),
+                rmsr=('time',[1.2]), rmsa=('time',[9.]), gamma=('time',[.25])),
                 coords={'time':pd.to_datetime(['2025-01-01']), 'height':[0.,1.]})
             ds.to_netcdf(path)
             profile = load_retrieval(signature(path),0,pd.Timestamp('2025-01-01',tz='UTC'))
@@ -24,6 +24,7 @@ class DiagnosticTests(unittest.TestCase):
             np.testing.assert_allclose(profile['sigma_q'],[1.,2.])
             self.assertEqual(profile['rmsr'],1.2)
             self.assertEqual(profile['rmsa'],9.)
+            self.assertEqual(profile['gamma'],.25)
             self.assertAlmostEqual(profile['T'][0],6.85)
 
     def analysis(self):
@@ -57,9 +58,9 @@ class DiagnosticTests(unittest.TestCase):
         self.assertTrue(all(p[2].loc[p[2].Band.eq('Ch2_B1'),'Cases'].iloc[0] == 0 for p in panels))
 
     def test_case_heatmap_and_rmsr_missing_values(self):
-        profiles = {('case','Ch1'):dict(z=np.array([0.,1.,2.]),sigma_T=np.array([1.,2.,3.]), rmsr=2.,
+        profiles = {('case','Ch1'):dict(z=np.array([0.,1.,2.]),sigma_T=np.array([1.,2.,3.]), rmsr=2., rmsa=1., gamma=.5,
             information={'variables':{'T':dict(dfs_level=np.ones(3),source='kernel')}}),
-            ('case','Ch2_B1'):dict(z=np.array([0.,1.,2.]),rmsr=1.)}
+            ('case','Ch2_B1'):dict(z=np.array([0.,1.,2.]),rmsr=1., rmsa=2.)}
         edges=np.array([0.,1.,2.])
         fig, export, issues = case_diagnostic('case', profiles,['Ch1','Ch2_B1'],'T',edges,'1-sigma uncertainty')
         np.testing.assert_allclose(export.Ch1,[1.5,2.5])
@@ -68,8 +69,20 @@ class DiagnosticTests(unittest.TestCase):
         _, export, _ = case_diagnostic('case',profiles,['Ch1'],'T',edges,'Cumulative DFS')
         np.testing.assert_allclose(export.Ch1,[1.5,3.])
         table, _ = rmsr_summary('case',profiles,['Ch1','Ch2_B1','Ch2_B2'])
-        self.assertEqual(table.Band.tolist(),['Ch2_B1','Ch1','Ch2_B2'])
+        self.assertEqual(table.Band.tolist(),['Ch1','Ch2_B1','Ch2_B2'])
         self.assertTrue(pd.isna(table.Rank.iloc[-1]))
+
+    def test_fixed_cumulative_scales(self):
+        for variable, maximum in [('T', 5.), ('q', 3.)]:
+            analysis = dict(self.analysis(), variable=variable)
+            for difference in (False, True):
+                fig = dfs_profile_panels(analysis, ['Ch1','Ch2_B1'], 'Cumulative profiles', difference)[0][1]
+                self.assertEqual((fig.layout.coloraxis.cmin, fig.layout.coloraxis.cmax), (0., maximum))
+                self.assertEqual(len(fig.layout.coloraxis.colorscale), 24)
+            profiles = {('case','Ch1'): dict(z=np.array([0.,1.,2.]), information={'variables':{
+                variable: dict(dfs_level=np.ones(3),source='kernel')}})}
+            fig, _, _ = case_diagnostic('case',profiles,['Ch1'],variable,np.array([0.,1.,2.]),'Cumulative DFS')
+            self.assertEqual((fig.layout.coloraxis.cmin, fig.layout.coloraxis.cmax), (0., maximum))
 
     def test_satellite_panel_handles_missing_images(self):
         from streamlit.testing.v1 import AppTest
@@ -105,7 +118,7 @@ cases = cases.iloc[:1].copy()
 case = cases.case_id.iloc[0]
 models = ['Ch1','Ch2_B1']
 for m in models:
-    profiles[(case,m)].update(sigma_T=profiles[(case,m)]['T']*0+1., sigma_q=profiles[(case,m)]['q']*0+.1, rmsr=1.)
+    profiles[(case,m)].update(sigma_T=profiles[(case,m)]['T']*0+1., sigma_q=profiles[(case,m)]['q']*0+.1, rmsr=1., rmsa=2.)
 root = ROOT
 master = str(Path(root)/'master.csv')
 source = dict(root=root, master=master, sonde_root='', image_root=root, output=root, cases=cases)

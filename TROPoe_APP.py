@@ -23,7 +23,7 @@ STRETCH = {'width': 'stretch'} if tuple(int(x) for x in st.__version__.split('.'
 # File signatures invalidate the cache when a file changes. A new source load
 # invalidates the directory scan; missing clear-sky pairs are saved as a to-do CSV.
 @st.cache_data(show_spinner=False, max_entries=20000)
-def read_profile(signature, record, time, source, no_model, loader_schema=2):
+def read_profile(signature, record, time, source, no_model, loader_schema=3):
     return data.load_retrieval(signature, record, time, source, no_model)
 
 
@@ -145,7 +145,8 @@ with st.sidebar:
     # One immediate selector controls the grid, comparisons, and exported statistics.
     models = st.multiselect('Bands', catalog_models, default=catalog_models,
                             key='selection_'+active['path']+'bands')
-st.markdown('<style>.st-key-satellite_dock {position: sticky; top: 1rem; max-height: 85vh; overflow-y: auto;}</style>', unsafe_allow_html=True)
+from dashboard_satellite_panel import style_satellite_panel
+style_satellite_panel()
 show_satellite = st.checkbox('Show satellite imagery panel', value=False, key='show_dashboard_satellite')
 if show_satellite:
     dashboard_main, satellite_side = st.columns([3, 1.4], gap='large')
@@ -364,17 +365,17 @@ with dashboard_main:
             with st.expander('Missing case diagnostics'):
                 st.dataframe(pd.concat(diagnostics, ignore_index=True), **STRETCH, hide_index=True)
         rmsr, rmsr_fig = rmsr_summary(case, profiles, models)
-        st.subheader('Spectral RMSR by band')
-        st.caption('RMSR is read directly from the selected retrieval record (not profile RMSE or rmsa). Sorted smallest first; missing values remain listed without a rank.')
+        st.subheader('Spectral fit diagnostics by band')
+        st.caption('RMSR, RMSA and gamma are read directly from the selected retrieval record. Ranked by RMSA, smallest first; missing RMSA values remain unranked.')
         left, right = st.columns(2)
         with left:
             st.dataframe(rmsr, **STRETCH, hide_index=True)
-            download_table('Download RMSR comparison', rmsr, 'case_rmsr.csv', 'case_rmsr_csv')
+            download_table('Download spectral fit comparison', rmsr, 'case_rmsr.csv', 'case_rmsr_csv')
         with right:
-            if rmsr.RMSR.notna().any():
+            if rmsr.RMSA.notna().any():
                 display_chart(rmsr_fig, 'case_rmsr')
             else:
-                st.info('No scalar rmsr values are available for this case.')
+                st.info('No scalar rmsa values are available for this case.')
         with st.expander('Source files and matched records'):
             st.dataframe(data.display_cases(matches.loc[matches.case_id == case], case_labels), **STRETCH)
         st.caption('Slanted grid lines indicate constant temperature or mixing ratio; bottom-axis labels apply along those lines. '

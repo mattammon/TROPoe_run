@@ -207,7 +207,7 @@ def load_retrieval(file_signature, record, expected_time, source='auto', no_mode
             except (KeyError, ValueError) as exc:
                 result['errors'][key] = str(exc)
         result['information'] = read_information(sample, source=source, no_model=no_model)
-        for key in ('qc_flag', 'lwp', 'rmsa', 'rmsr'):
+        for key in ('qc_flag', 'lwp', 'rmsa', 'rmsr', 'gamma'):
             if key in sample and sample[key].size == 1:
                 result[key] = float(sample[key].values.item())
         return result

@@ -9,7 +9,7 @@ from information_content import remap_dfs
 SEQUENTIAL = ['#ffffff', '#ffffd9', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58']
 
 
-def profile_heatmap(matrix, edges, models, title, unit, difference=False, counts=None):
+def profile_heatmap(matrix, edges, models, title, unit, difference=False, counts=None, cumulative_variable=None):
     """One shaded cell per height interval, with no vertical cell borders."""
     fig = go.Figure()
     matrix = np.asarray(matrix, float)
@@ -31,6 +31,16 @@ def profile_heatmap(matrix, edges, models, title, unit, difference=False, counts
     fig.update_layout(coloraxis=dict(colorscale=SEQUENTIAL if low >= 0 else 'RdBu_r',
         cmin=low if low >= 0 else -max(abs(low),high), cmax=high if low >= 0 else max(abs(low),high),
         colorbar=dict(title=('Ch1 actual<br>' if difference else '')+unit, x=1.02)))
+    if cumulative_variable is not None:
+        # Discrete terrain_r intervals, shared by case and aggregate plots.
+        from matplotlib import colormaps
+        from matplotlib.colors import to_hex
+        maximum = {'T': 5., 'q': 3.}[cumulative_variable]
+        shades = [to_hex(colormaps['terrain_r'](x)) for x in np.linspace(0, 1, 12)]
+        scale = [[edge, color] for i, color in enumerate(shades)
+                 for edge in (i/len(shades), (i+1)/len(shades))]
+        fig.update_layout(coloraxis=dict(colorscale=scale, cmin=0., cmax=maximum,
+            colorbar=dict(tick0=0, dtick=1 if maximum == 5 else .5)))
     if difference:
         fig.add_trace(go.Heatmap(x=models, y=edges, z=delta, xgap=2, ygap=0, zsmooth=False, hoverongaps=False,
             coloraxis='coloraxis2', customdata=n,
@@ -78,7 +88,8 @@ def dfs_profile_panels(analysis, models, mode, difference=False):
         title = f"{VARIABLES[analysis['variable']][0]} · {mode} · {edges[0]:g}–{edges[-1]:g} km AGL<br>Diagnostic: {source}"
         if difference:
             title += ' · median paired differences from Ch1'
-        fig = profile_heatmap(matrix, edges, models, title, unit, difference, counts)
+        fig = profile_heatmap(matrix, edges, models, title, unit, difference, counts,
+            cumulative_variable=analysis['variable'] if field == 'cumulative' else None)
         if field == 'cumulative':
             heights, _ = dfs_height95(dict(analysis, information=used))
             for row in heights.itertuples(index=False, name=None):
@@ -124,7 +135,8 @@ def case_diagnostic(case, profiles, models, variable, edges, mode):
     matrix = np.column_stack(columns) if columns else np.empty((len(centers),0))
     unit = VARIABLES[variable][1] if mode == '1-sigma uncertainty' else 'DFS' if mode == 'Cumulative DFS' else 'DFS / km'
     fig = profile_heatmap(matrix, edges, models,
-        f'{VARIABLES[variable][0]} · {mode} · {edges[0]:g}–{edges[-1]:g} km AGL<br>Diagnostic: '+', '.join(sorted(sources)), unit)
+        f'{VARIABLES[variable][0]} · {mode} · {edges[0]:g}–{edges[-1]:g} km AGL<br>Diagnostic: '+', '.join(sorted(sources)), unit,
+        cumulative_variable=variable if mode == 'Cumulative DFS' else None)
     export = pd.DataFrame(matrix, columns=models)
     export.insert(0, 'height_km', edges[1:] if mode == 'Cumulative DFS' else centers)
     export.insert(1, 'bin_bottom_km', edges[:-1])
@@ -136,15 +148,17 @@ def rmsr_summary(case, profiles, models):
     rows = []
     for band in models:
         profile = profiles.get((case,band), {})
-        value = profile.get('rmsr', np.nan)
-        rows.append(dict(Band=band, RMSR=value if np.isfinite(value) else np.nan,
-                         QC=profile.get('qc_flag', np.nan)))
-    table = pd.DataFrame(rows).sort_values(['RMSR','Band'], na_position='last').reset_index(drop=True)
-    table.insert(0,'Rank',table.RMSR.rank(method='min').astype('Int64'))
-    available = table.loc[table.RMSR.notna()]
-    fig = go.Figure(go.Bar(x=available.RMSR, y=available.Band, orientation='h',
+        row = dict(Band=band, QC=profile.get('qc_flag', np.nan))
+        for key, label in [('rmsr', 'RMSR'), ('rmsa', 'RMSA'), ('gamma', 'Gamma')]:
+            value = profile.get(key, np.nan)
+            row[label] = value if np.isfinite(value) else np.nan
+        rows.append(row)
+    table = pd.DataFrame(rows).sort_values(['RMSA','Band'], na_position='last').reset_index(drop=True)
+    table.insert(0,'Rank',table.RMSA.rank(method='min').astype('Int64'))
+    available = table.loc[table.RMSA.notna()]
+    fig = go.Figure(go.Bar(x=available.RMSA, y=available.Band, orientation='h',
         marker=dict(color=[colors(models)[m] for m in available.Band]),
-        hovertemplate='%{y}<br>RMSR: %{x:.4f}<extra></extra>'))
-    finish(fig, 'Spectral RMSR by band · lower values first', 'RMSR (output value)', 'Band')
+        hovertemplate='%{y}<br>RMSA: %{x:.4f}<extra></extra>'))
+    finish(fig, 'Spectral RMSA by band · lower values first', 'RMSA (output value)', 'Band')
     fig.update_yaxes(autorange='reversed')
     return table, fig
