@@ -873,11 +873,12 @@ the shared case persists when the dock is hidden and reopened.
 ### Manual case collections and saved group bands
 
 On the classification/scatter screen, enable **Build a manual case collection**.
-Click a point or use Plotly lasso/box selection to add cases. Selections accumulate
+Click a point to inspect its satellite image, then press **Add to collection**.
+For Plotly lasso/box selections, press **Add selected cases to collection**.
+Plot selection alone never changes membership. Confirmed additions accumulate
 across plot filters; hidden selected cases remain in the collection. The list
 below the scatter removes individual cases, and Clear selected cases clears it.
-Cases without finite scatter coordinates can be added with **Add inspected case
-to collection**. Enter a collection name, choose **Bands included in this group**,
+Cases without finite scatter coordinates can be added with **Add to collection**. Enter a collection name, choose **Bands included in this group**,
 and click **Save collection and open dashboard**. From the dashboard radiance
 page, **Build a manual collection from master cases** returns to this editor.
 

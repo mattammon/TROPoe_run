@@ -196,8 +196,9 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                 picked = event.get('case_id')
                 token = event.get('token')
                 if collection_key and st.session_state.get(key+'_last_collection_event') != token:
-                    additions = set(event.get('case_ids', []) + ([picked] if picked else [])) & set(preview.case_id)
-                    st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | additions)
+                    # Plot selection is provisional; inspection never changes membership.
+                    pending = set(event.get('case_ids', [])) & set(preview.case_id)
+                    st.session_state[key+'_pending_collection_cases'] = sorted(pending)
                     st.session_state[key+'_last_collection_event'] = token
                 if st.session_state.get(key+'_last_event') != token and picked in set(preview.case_id):
                     st.session_state[key+'_case'] = picked
@@ -206,11 +207,21 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
             st.caption(f'{len(plotted):,} / {len(preview):,} filtered cases have finite radiance mean/std. Missing-coordinate cases remain accessible in the filtered case selector. Click a point to inspect it.')
         else:
             st.info('Radiance summaries for this window are absent. All cases remain available in the case selector; enabled radiance evidence will be uncertain.')
+        if collection_key:
+            pending = st.session_state.get(key+'_pending_collection_cases', [])
+            if pending:
+                st.caption(f'{len(pending):,} cases selected on the plot; not yet added.')
+                if st.button('Add selected cases to collection', key=key+'_add_selected'):
+                    st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | set(pending))
+                    st.session_state[key+'_pending_collection_cases'] = []
         st.caption('The shaded rectangle represents the radiance criterion only. With an “either” rule, ASI may also establish clear sky outside that rectangle. Manual decisions always take precedence.')
     with right:
         inspect_case(preview, image_root, store, key, on_review)
-        if collection_key and st.button('Add inspected case to collection', key=key+'_add_case'):
-            st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | {st.session_state[key+'_case']})
+        if collection_key:
+            inspected = st.session_state.get(key+'_case')
+            if st.button('Add to collection', key=key+'_add_case', disabled=inspected not in set(preview.case_id),
+                         help='Add only the currently inspected case. Selecting a case or viewing its image does not add it.'):
+                st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | {inspected})
 
 
 def classification_gate(default_manifest, default_root, default_sonde, default_images, default_output):
@@ -318,7 +329,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     group_models = st.multiselect('Bands included in this group', expected_models(range(1,19)),
         default=expected_models(config.RETRIEVAL_TODO_BANDS), key='new_group_models')
     if collection_mode:
-        st.info('Click points or use lasso/box selection to ADD cases. Selections accumulate across filters. Remove cases below. Membership is independent of cloud classification.')
+        st.info('Click points to inspect satellite imagery, then press Add to collection. For lasso/box selections, press Add selected cases to collection. Only confirmed additions accumulate across filters. Remove cases below. Membership is independent of cloud classification.')
         collection_name = st.text_input('Collection name', key='collection_name')
     st.subheader('Classify all available cases')
     st.caption('Choose limits, inspect satellite images, and then apply. Changing a threshold updates the preview; Apply saves a new classification snapshot and opens the dashboard.')
@@ -356,11 +367,11 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     if collection_mode:
         chosen = st.session_state.get(collection_key, [])
         labels = dict(zip(preview.case_id, preview.sounding_time.map(data.case_label)))
-        retained = st.multiselect('Selected collection cases (remove to exclude)', chosen, default=chosen,
-                                 format_func=labels.get, key='collection_edit:'+str(hash(tuple(chosen))))
-        if retained != chosen:
-            st.session_state[collection_key] = retained
-            st.rerun()
+        editor_key = 'collection_edit:'+str(hash(tuple(chosen)))
+        def remove_collection_cases():
+            st.session_state[collection_key] = st.session_state[editor_key]
+        st.multiselect('Selected collection cases (remove to exclude)', chosen, default=chosen,
+                       format_func=labels.get, key=editor_key, on_change=remove_collection_cases)
         st.caption(f'{len(chosen):,} selected cases, including cases hidden by current plot filters.')
         if st.button('Clear selected cases'):
             st.session_state[collection_key] = []
