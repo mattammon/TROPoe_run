@@ -95,7 +95,7 @@ render_satellite_panel(cases, {'image_root':ROOT})
 '''.replace('ROOT',repr(tmp))
             app=AppTest.from_string(script).run(timeout=30)
             self.assertFalse(app.exception)
-            self.assertEqual(app.selectbox(key='dashboard_case').value,'a')
+            self.assertEqual(app.selectbox(key='satellite_case_widget').value,'a')
             self.assertTrue(any('No matching satellite' in msg.value for msg in app.info))
 
     def test_dashboard_pages_with_satellite_panel(self):
@@ -115,7 +115,8 @@ import config
 import dashboard_data as data
 from dashboard_classification import ClassificationRules
 cases, models, profiles, observations = data.demo_data()
-cases = cases.iloc[:1].copy()
+cases = cases.iloc[:2].copy()
+cases['category'] = 'clear_sky'
 case = cases.case_id.iloc[0]
 models = ['Ch1','Ch2_B1']
 for m in models:
@@ -149,6 +150,14 @@ with patch.multiple(config,RETRIEVAL_TODO_MANIFEST=None,RETRIEVAL_TODO_BANDS=[1]
             self.assertFalse(app.exception)
             app.selectbox(key='dashboard_view').set_value('Vertical profiles').run(timeout=30)
             self.assertFalse(app.exception)
+            second = 'DEMO_20250101T1200'
+            app.selectbox(key='dashboard_profile_case').select(second).run(timeout=30)
+            self.assertFalse(app.exception)
+            self.assertEqual(app.selectbox(key='satellite_case_widget').value, app.selectbox(key='dashboard_profile_case').value)
+            chosen = app.session_state.dashboard_case
+            app.checkbox(key='show_dashboard_satellite').uncheck().run(timeout=30)
+            app.checkbox(key='show_dashboard_satellite').check().run(timeout=30)
+            self.assertEqual(app.selectbox(key='satellite_case_widget').value, chosen)
             next(r for r in app.radio if r.label == 'Case profile shading').set_value('1-sigma uncertainty').run(timeout=30)
             self.assertFalse(app.exception)
 

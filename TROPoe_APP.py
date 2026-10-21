@@ -349,6 +349,10 @@ with dashboard_main:
             st.session_state.dashboard_profile_case = st.session_state.dashboard_case
         elif st.session_state.get('dashboard_profile_case') not in set(selected.case_id):
             st.session_state.dashboard_profile_case = selected.case_id.iloc[0]
+        if st.session_state.get('dashboard_case') != st.session_state.dashboard_profile_case:
+            st.session_state.dashboard_case = st.session_state.dashboard_profile_case
+            if show_satellite:
+                st.rerun()
         def select_profile_case():
             st.session_state.dashboard_case = st.session_state.dashboard_profile_case
         case = st.selectbox('Case', selected.case_id.tolist(), format_func=case_labels.get,
@@ -432,7 +436,7 @@ with dashboard_main:
         show_q = choices[1].checkbox('Show water vapor mixing ratio', value=True, key='rmse_show_q')
         variables = [v for v, enabled in [('T', show_t), ('q', show_q)] if enabled]
         analyses = {v: data.build_analysis(selected, models, profiles, observations, v, edges, paired) for v in ('T', 'q')}
-        st.caption('Temperature: filled box, circles on the left. Water vapor: outline box, open diamonds on the right. '
+        st.caption('Within each band: temperature on the left (filled box, circles), water vapor on the right (outline box, open diamonds). '
                    'Band colors are shared across variables. The legend also toggles each variable across all bands. '
                    'Values retain their native units (°C and g/kg); equal numerical RMSE does not imply equal error importance.')
         if not variables:

@@ -16,14 +16,16 @@ class OverlayTests(unittest.TestCase):
                 curves={(c,m):dict(observed=np.array([1.,2.,3.]), retrieved=np.array([1.2,2.,3.1]))
                         for m in self.models for c in ('a','b')})
 
-    def test_overlay_and_separate_points(self):
+    def test_side_by_side_boxes_and_points(self):
         fig = rmse_distributions(self.analyses, self.models)
         for i, model in enumerate(self.models):
             tbox, tpoints = fig.data[2*i:2*i+2]
             qbox, qpoints = fig.data[4+2*i:6+2*i]
-            self.assertEqual(list(tbox.x), list(qbox.x))
-            self.assertTrue(all(x < i-.15 for x in tpoints.x))
-            self.assertTrue(all(x > i+.15 for x in qpoints.x))
+            self.assertTrue(all(x == i-.21 for x in tbox.x))
+            self.assertTrue(all(x == i+.21 for x in qbox.x))
+            self.assertLess(tbox.x[0]+tbox.width/2, qbox.x[0]-qbox.width/2)
+            self.assertTrue(all(x < i for x in tpoints.x))
+            self.assertTrue(all(x > i for x in qpoints.x))
             self.assertEqual(tpoints.marker.symbol, 'circle')
             self.assertEqual(qpoints.marker.symbol, 'diamond-open')
             self.assertNotEqual(tbox.fillcolor, qbox.fillcolor)
@@ -36,6 +38,7 @@ class OverlayTests(unittest.TestCase):
         fig = rmse_distributions(self.analyses, self.models, ['q'])
         self.assertTrue(all(t.legendgroup == 'q' for t in fig.data))
         self.assertEqual(len(fig.data), 4)
+        self.assertEqual(list(fig.data[0].x), [0.,0.])
         self.analyses['T']['metrics'] = pd.DataFrame()
         fig = rmse_distributions(self.analyses, self.models)
         self.assertEqual(len(fig.data), 4)

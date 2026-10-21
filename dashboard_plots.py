@@ -102,7 +102,7 @@ def skewed_profile_pair(case, models, profiles, observations, layer):
 
 
 def rmse_distributions(analyses, models, variables=('T', 'q')):
-    """Overlaid boxes, with deterministic case jitter on opposite sides."""
+    """Side-by-side variable boxes, with deterministic case jitter within each slot."""
     import hashlib
     fig = go.Figure()
     palette = colors(models)
@@ -120,7 +120,9 @@ def rmse_distributions(analyses, models, variables=('T', 'q')):
             color = palette[model]
             rgb = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
             fill = f'rgba({rgb[0]},{rgb[1]},{rgb[2]},0.25)' if variable == 'T' else 'rgba(0,0,0,0)'
-            fig.add_trace(go.Box(x=[position]*len(group), y=group.rmse, width=.30,
+            offset = (-.21 if variable == 'T' else .21) if len(variables) > 1 else 0.
+            center = position + offset
+            fig.add_trace(go.Box(x=[center]*len(group), y=group.rmse, width=.32,
                 name=label+' ('+unit+')', legendgroup=variable, showlegend=not seen,
                 boxpoints=False, fillcolor=fill, line=dict(color=color, width=2),
                 marker_color=color, quartilemethod='linear',
@@ -129,8 +131,7 @@ def rmse_distributions(analyses, models, variables=('T', 'q')):
             # Fixed case-based offsets avoid moving points when filters change.
             jitter = np.array([int(hashlib.sha256(str(case).encode()).hexdigest()[:8], 16)/0xffffffff
                                for case in group.case_id])
-            sign = -1 if variable == 'T' else 1
-            x = position + sign*(.23+.17*jitter)
+            x = center + (jitter-.5)*.24
             fig.add_trace(go.Scatter(x=x, y=group.rmse, mode='markers',
                 name=label, legendgroup=variable, showlegend=False,
                 marker=dict(color=color, size=6, opacity=.55,

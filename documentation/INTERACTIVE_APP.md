@@ -852,3 +852,19 @@ Core reusable functions are in `averaging_kernel_rmse.py`; the shared
 `dashboard_data.build_analysis` accepts `reference='ak_smoothed'` and
 `allow_prior_extension=False`. `load_retrieval(..., load_ak=True)` opts into
 reading the matrix; other pages avoid caching these larger arrays.
+
+
+### Side-by-side RMSE boxes and fixed imagery dock
+
+RMSE distributions place temperature to the left and water vapor to the right
+within each band. Filled/circle and outline/diamond styling distinguishes the
+variables; case points are jittered within their corresponding box positions.
+When only one variable is enabled, its boxes are centered on each band.
+
+On desktop, the satellite dock is fixed to the right viewport edge and fills
+the screen height. Its contents scroll independently of the dashboard. The
+initial width is 480 pixels (clamped to available space), and the inner edge
+remains draggable. Images fill the dock width; tolerance and refresh controls
+are under Image settings. Narrow/mobile layouts retain normal document flow.
+Selecting a case in Vertical profiles updates the dock on the same rerun;
+the shared case persists when the dock is hidden and reopened.

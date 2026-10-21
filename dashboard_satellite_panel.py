@@ -21,13 +21,17 @@ def render_satellite_panel(cases, source):
     labels = dict(zip(cases.case_id, cases.sounding_time.map(case_label)))
     if st.session_state.get('dashboard_case') not in labels:
         st.session_state.dashboard_case = cases.case_id.iloc[0]
-    selected = st.selectbox('Satellite case', list(labels), format_func=labels.get, key='dashboard_case')
+    # Keep shared selection separate from widget state, which Streamlit deletes
+    # when the panel is hidden. Profile callbacks update it before this render.
+    st.session_state.satellite_case_widget = st.session_state.dashboard_case
+    def select_satellite_case():
+        st.session_state.dashboard_case = st.session_state.satellite_case_widget
+    selected = st.selectbox('Satellite case', list(labels), format_func=labels.get,
+                            key='satellite_case_widget', on_change=select_satellite_case)
     row = cases.set_index('case_id').loc[selected]
     st.caption(labels[selected]+' · '+str(row.get('category', '')))
     root = str(Path(source['image_root']).expanduser().resolve())
-    tolerance = st.number_input('Image time tolerance (minutes)', min_value=0., max_value=60., value=15., key='panel_image_tolerance')
-    if st.button('Refresh imagery', key='panel_image_refresh'):
-        read_satellite_inventory.clear()
+    tolerance = st.session_state.get('panel_image_tolerance', 15.)
     try:
         inventory = read_satellite_inventory(root) if Path(root).exists() else []
         result = match_satellite_images(inventory, row.sounding_time, row.get('retrieval_time'), tolerance)
@@ -41,11 +45,16 @@ def render_satellite_panel(cases, source):
         else:
             matches = result['matches']
             paths = [str(item['path']) for item in matches]
-            image = st.selectbox('Image', paths, format_func=lambda p: Path(p).name, key='panel_image_'+str(selected))
+            image = paths[0] if len(paths) == 1 else st.selectbox('Image', paths, format_func=lambda p: Path(p).name, key='panel_image_'+str(selected))
             st.image(image, caption=Path(image).name, **plotly_size_kwargs(st.image))
             st.caption('Match: '+result['basis'])
             st.download_button('Download image', Path(image).read_bytes(), Path(image).name, 'image/png', key='panel_image_download')
-        st.caption('Image directory: '+root)
+        with st.expander('Image settings'):
+            st.number_input('Image time tolerance (minutes)', min_value=0., max_value=60., value=15., key='panel_image_tolerance')
+            if st.button('Refresh imagery', key='panel_image_refresh'):
+                read_satellite_inventory.clear()
+                st.rerun()
+            st.caption('Image directory: '+root)
         st.caption('This viewer does not change the case cohort used for aggregate statistics. On Vertical profiles, it also selects the profile case when that case passes the active filters.')
     except Exception as exc:
         st.error('Satellite image could not be displayed: '+str(exc))
@@ -55,7 +64,7 @@ def style_satellite_panel():
     """Scoped styling; the native button keeps Streamlit's collapse callback."""
     st.markdown("""<style>
     [data-testid="stColumn"]:has(.st-key-satellite_dock) {
-        position: sticky; top: 3.5rem; align-self: flex-start;
+        align-self: flex-start;
         background: var(--secondary-background-color, #e9edf2);
         border-left: 1px solid rgba(128,128,128,.25); border-radius: .5rem;
         min-width: 0;
@@ -71,12 +80,21 @@ def style_satellite_panel():
             flex: 1 1 0% !important; min-width: 0 !important; width: 0 !important;
         }
         [data-testid="stColumn"]:has(.st-key-satellite_dock) {
-            flex: 0 0 390px; width: 390px; max-width: 65%;
+            flex: 0 0 480px; width: 480px; max-width: 65%;
+        }
+        .st-key-satellite_dock {
+            position: fixed !important; right: 0; top: 0; z-index: 1000001;
+            width: var(--tropoe-satellite-width, min(480px, 65vw)) !important;
+            height: 100vh; height: 100dvh !important; max-height: none;
+            border-left: 1px solid rgba(128,128,128,.3);
         }
     }
     .st-key-satellite_dock {
-        background: rgba(80,90,110,.08); padding: 2.8rem 1rem 1rem;
-        max-height: calc(100vh - 4.5rem); overflow-y: auto;
+        background: var(--secondary-background-color, #e9edf2); padding: 2.8rem .6rem .6rem;
+        box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain;
+    }
+    body:has(.st-key-satellite_dock) [data-baseweb="popover"] {
+        z-index: 1000003 !important;
     }
     .st-key-hide_satellite_panel {
         position: absolute; top: .35rem; left: .35rem; z-index: 5;
@@ -85,8 +103,9 @@ def style_satellite_panel():
     .st-key-satellite_dock:hover .st-key-hide_satellite_panel,
     .st-key-satellite_dock:focus-within .st-key-hide_satellite_panel {opacity: 1;}
     .tropoe-satellite-resize {
-        position: absolute; left: -6px; top: 0; bottom: 0; width: 12px;
-        cursor: col-resize; z-index: 10; touch-action: none;
+        position: fixed; right: calc(var(--tropoe-satellite-width, 480px) - 6px);
+        top: 0; bottom: 0; width: 12px;
+        cursor: col-resize; z-index: 1000002; touch-action: none;
     }
     .tropoe-satellite-resize:hover, .tropoe-satellite-resize:focus-visible {
         background: rgba(128,128,128,.25);
