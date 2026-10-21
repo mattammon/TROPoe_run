@@ -1,5 +1,6 @@
 """Clear-sky retrieval plans and execution against live NetCDF completion evidence."""
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,7 @@ import pandas as pd
 from catalog_retrievals import scan, NAME, time_values, time_bounds
 from dashboard_classification import atomic_text, read_selection_manifest
 from spectralBands import ch2_bands
+from case_collections import selected_cases
 
 LOG = logging.getLogger(__name__)
 FIELDS = ['case_id', 'sounding_time', 'retrieval_time', 'sounding_file', 'category',
@@ -52,7 +54,7 @@ def completion_matrix(cases, index, models, tolerance=60.):
     """Completion by clear-sky case and band, using the to-do queue's rule."""
     if not np.isfinite(tolerance) or not 0 <= tolerance < 450:
         raise ValueError('Completion tolerance must be finite and between 0 and 450 seconds (exclusive upper limit)')
-    clear = cases.loc[cases.category == 'clear_sky']
+    clear = selected_cases(cases)
     targets = pd.to_datetime(clear.retrieval_time, utc=True, errors='raise')
     if targets.isna().any():
         raise ValueError('Invalid retrieval time in clear-sky cases')
@@ -69,15 +71,15 @@ def completion_matrix(cases, index, models, tolerance=60.):
     return result
 
 
-def pending_retrievals(cases, index, bands, classification_manifest, retrieval_dir, tolerance=60.):
+def pending_retrievals(cases, index, bands, classification_manifest, retrieval_dir, tolerance=60., models=None):
     if not np.isfinite(tolerance) or not 0 <= tolerance < 450:
         raise ValueError('Completion tolerance must be finite and between 0 and 450 seconds (exclusive upper limit)')
-    clear = cases.loc[cases.category == 'clear_sky'].copy()
+    clear = selected_cases(cases)
     rows = []
     targets = time_values(clear.retrieval_time)
     classification_manifest = str(Path(classification_manifest).resolve())
     retrieval_dir = str(Path(retrieval_dir).resolve())
-    for model in expected_models(bands):
+    for model in (expected_models(bands) if models is None else models):
         subset = index.loc[index.model == model]
         usable = np.sort(time_values(subset.loc[subset.status == 'usable', 'time']))
         all_times = np.sort(time_values(subset.time))
@@ -90,7 +92,7 @@ def pending_retrievals(cases, index, bands, classification_manifest, retrieval_d
                 continue
             target = pd.Timestamp(targets[n], tz='UTC')
             rows.append(dict(case_id=str(case.case_id), sounding_time=pd.to_datetime(case.sounding_time, utc=True).isoformat(),
-                retrieval_time=target.isoformat(), sounding_file=str(case.sounding_file), category='clear_sky',
+                retrieval_time=target.isoformat(), sounding_file=str(case.sounding_file), category=case.category,
                 channel=1 if model == 'Ch1' else 2, band='' if model == 'Ch1' else model.split('_B')[1], model=model,
                 reason='incomplete_output' if present[n] else 'missing_or_unreadable_output',
                 classification_manifest=classification_manifest, retrieval_dir=retrieval_dir, tolerance_seconds=tolerance))
@@ -146,17 +148,17 @@ def read_todo(path, retrieval_dir):
         return jobs
     root = Path(retrieval_dir).resolve()
     if any(Path(value).resolve() != root for value in jobs.retrieval_dir):
-        raise ValueError('To-do retrieval directory differs from config.RETRIEVAL_DIR/GROUP_NAME')
-    if not jobs.category.eq('clear_sky').all():
-        raise ValueError('To-do manifest must contain only clear-sky cases')
+        raise ValueError('To-do retrieval directory differs from the configured universal retrieval directory')
     # Validate every row before starting any expensive retrieval.
     classifications = {}
     for row in jobs.itertuples():
+        if Path(row.classification_manifest).name != 'collection.csv' and row.category != 'clear_sky':
+            raise ValueError('Classification queues must contain only clear-sky cases')
         if row.classification_manifest not in classifications:
             classified = read_selection_manifest(row.classification_manifest)
-            classifications[row.classification_manifest] = classified.set_index('case_id')
+            classifications[row.classification_manifest] = selected_cases(classified).set_index('case_id')
         classified = classifications[row.classification_manifest]
-        if row.case_id not in classified.index or classified.loc[row.case_id, 'category'] != 'clear_sky':
+        if row.case_id not in classified.index:
             raise ValueError('Queued case is absent or not clear in its saved classification: '+row.case_id)
         case = classified.loc[row.case_id]
         for field in ('sounding_time', 'retrieval_time'):
@@ -165,6 +167,10 @@ def read_todo(path, retrieval_dir):
         model = 'Ch1' if row.channel == '1' and row.band == '' else 'Ch2_B'+row.band if row.channel == '2' else ''
         if model != row.model or model not in expected_models(range(1, 19)):
             raise ValueError('Invalid queued channel/band: '+row.model)
+        from case_collections import read_bands
+        group_models = read_bands(row.classification_manifest)
+        if group_models is not None and row.model not in group_models:
+            raise ValueError('Queued band is no longer selected for this group: '+row.model)
         sounding = pd.to_datetime(row.sounding_time, utc=True).floor('min')
         rounded = (sounding+pd.Timedelta(minutes=7, seconds=30)).floor('15min')
         if rounded != pd.to_datetime(row.retrieval_time, utc=True):
@@ -229,12 +235,21 @@ def execute_todo(path, retrieval_dir, run_one, skip_bands=(), *, only_bands=None
                          ((index.time-target).dt.total_seconds().abs() <= float(row.tolerance_seconds))).any()) if len(index) else False
         result = dict(case_id=row.case_id, model=row.model, status='', error='')
         try:
-            if complete():
-                result['status'] = 'already_complete'
-            else:
-                date = pd.to_datetime(row.sounding_time, utc=True).strftime('%Y%m%d%H%M')
-                run_one(date, int(row.channel), None if row.channel == '1' else int(row.band))
-                result['status'] = 'completed' if complete() else 'still_missing_or_incomplete'
+            from shared_outputs import shared_directory
+            import fcntl
+            lock_root = root/'.retrieval_locks'
+            shared_directory(lock_root, writable=True)
+            stamp = pd.to_datetime(row.retrieval_time, utc=True).strftime('%Y%m%dT%H%M%S')
+            lock_path = lock_root/(row.model+'_'+stamp+'.lock')
+            with open(lock_path, 'a+') as lock:
+                os.chmod(lock_path, 0o666)
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                if complete():
+                    result['status'] = 'already_complete'
+                else:
+                    date = pd.to_datetime(row.sounding_time, utc=True).strftime('%Y%m%d%H%M')
+                    run_one(date, int(row.channel), None if row.channel == '1' else int(row.band))
+                    result['status'] = 'completed' if complete() else 'still_missing_or_incomplete'
         except Exception as exc:
             result.update(status='failed', error=str(exc))
             LOG.exception('Retrieval failed: %s %s', row.case_id, row.model)

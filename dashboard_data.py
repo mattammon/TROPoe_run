@@ -143,7 +143,8 @@ def match_cases(cases, index, models, tolerance):
             if len(candidates):
                 candidates['offset_seconds'] = (candidates.time-case.retrieval_time).dt.total_seconds()
                 candidates['distance'] = candidates.offset_seconds.abs()
-                best = candidates.sort_values(['distance', 'file', 'profile_index']).iloc[0]
+                candidates['incomplete'] = candidates.status.ne('usable')
+                best = candidates.sort_values(['incomplete', 'distance', 'file', 'profile_index']).iloc[0]
                 row.update(file=best.file, profile_index=int(best.profile_index),
                            offset_seconds=best.offset_seconds, matched_time=best.time.isoformat(),
                            status='duplicate' if len(candidates) > 1 else 'matched')

@@ -116,13 +116,13 @@ class TodoTests(unittest.TestCase):
             self.assertEqual((date,channel,band),('202501011212',1,None))
             self.output('Ch1')
         fake_single.run_tropoe=Mock(side_effect=run)
-        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), patch.object(sys,'argv',['GROUP_TROPoe.py']):
+        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), UNIVERSAL_RETRIEVAL_DIR=str(self.outputs), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), patch.object(sys,'argv',['GROUP_TROPoe.py']):
             runpy.run_path(str(Path(__file__).resolve().parents[1]/'GROUP_TROPoe.py'),run_name='__main__')
         fake_single.run_tropoe.assert_called_once()
-        fake_vip.VIP.assert_called_once_with(in_group=True)
+        fake_vip.VIP.assert_called_once_with(in_group=True, isolated_work=True)
         fake_single.run_tropoe.reset_mock()
         fake_vip.VIP.reset_mock()
-        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), patch.object(sys,'argv',['GROUP_TROPoe.py','--skip-bands','Ch1,6']):
+        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), UNIVERSAL_RETRIEVAL_DIR=str(self.outputs), GROUP_NAME='outputs'), patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), patch.object(sys,'argv',['GROUP_TROPoe.py','--skip-bands','Ch1,6']):
             runpy.run_path(str(Path(__file__).resolve().parents[1]/'GROUP_TROPoe.py'),run_name='__main__')
         fake_single.run_tropoe.assert_not_called()
         fake_vip.VIP.assert_not_called()
@@ -154,7 +154,7 @@ class TodoTests(unittest.TestCase):
         def run(date,vip,channel=None,band=None,verbose=None):
             self.output('Ch1' if channel == 1 else 'Ch2_B'+str(band))
         fake_single.run_tropoe=Mock(side_effect=run)
-        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root),
+        with patch.multiple(config, RETRIEVAL_TODO_MANIFEST=str(self.queue), RETRIEVAL_DIR=str(self.root), UNIVERSAL_RETRIEVAL_DIR=str(self.outputs),
                             GROUP_NAME='outputs', GROUP_TROPOE_SKIP_BANDS=[6]), \
              patch.dict(sys.modules, {'utils':fake_utils,'vip_gen':fake_vip,'SINGLE_TROPoe':fake_single}), \
              patch.object(sys,'argv',['GROUP_TROPoe.py','--bands','6']):
@@ -166,7 +166,7 @@ class TodoTests(unittest.TestCase):
 
     def test_worker_vip_paths_are_distinct(self):
         import vip_gen
-        with patch.object(vip_gen,'DATA_DIR',str(self.root)), patch.object(vip_gen,'VIP_DIR',str(self.root)):
+        with patch.object(vip_gen,'DATA_DIR',str(self.root)), patch.object(vip_gen,'VIP_DIR',str(self.root)), patch.object(vip_gen,'SHARED_RETRIEVAL_OUTPUT_DIR',str(self.root/'shared')):
             first=vip_gen.VIP(in_group=True,isolated_work=True)
             second=vip_gen.VIP(in_group=True,isolated_work=True)
             self.assertNotEqual(first.vip_file,second.vip_file)

@@ -171,15 +171,16 @@ def histogram_plot(binned, edges, pairs, models, field):
     return fig
 
 
-def render_histogram(valid, pairs, models, field, display_chart, download_table):
+def render_histogram(valid, pairs, models, field, display_chart, download_table, include_ch1=True):
     st.write('Mean RMSE overlay bands')
-    st.caption('Ch1 is always included here, even if disabled elsewhere. Enable Ch2 bands in the sidebar to make them available below. '
+    st.caption('Ch1 is included when allowed by the saved group bands. Enable Ch2 bands in the sidebar to make them available below. '
                'Each curve averages finite per-case combined RMSE values in the bin; cases without usable RMSE still count in the histogram.')
     columns = st.columns(6)
-    columns[0].checkbox('Ch1 (always shown)', value=True, disabled=True)
-    overlay = ['Ch1']
+    if include_ch1:
+        columns[0].checkbox('Ch1 (always shown)', value=True, disabled=True)
+    overlay = ['Ch1'] if include_ch1 else []
     for n, model in enumerate(m for m in models if m != 'Ch1'):
-        if columns[(n+1) % 6].checkbox(model, value=False, key='aod_overlay_'+model):
+        if columns[(n+1) % 6].checkbox(model, value=(not include_ch1 and n == 0), key='aod_overlay_'+model):
             overlay.append(model)
     bins = st.slider('Histogram bins', min_value=5, max_value=100, value=30)
     binned, edges = aod_bins(valid, bins)
@@ -198,7 +199,7 @@ def render_histogram(valid, pairs, models, field, display_chart, download_table)
     download_table('Download cases in selected AOD bin', members, 'aod_bin_cases.csv', 'aod_bin_cases_csv')
 
 
-def render_aod(cases, index, models, loaded, default_root, stream, read_profile, read_observation, display_chart, download_table):
+def render_aod(cases, index, models, loaded, default_root, stream, read_profile, read_observation, display_chart, download_table, include_ch1=True):
     st.subheader('Aerosol optical depth and retrieval error')
     st.caption('All clear-sky cases in the active classification. Each case contributes one AOD value; cases without nearby AOD stay missing.')
     if cases.empty:
@@ -282,7 +283,7 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
     tolerance = st.number_input('Maximum retrieval time offset (seconds)', min_value=0., max_value=449., value=60.)
     paired = st.checkbox('Use the same AOD/RMSE cases for every selected band', value=False)
     edges = np.linspace(bottom, top, max(2, int(np.ceil((top-bottom)*1000/spacing)))+1)
-    analysis_models = list(dict.fromkeys(['Ch1'] + list(models)))
+    analysis_models = list(dict.fromkeys((['Ch1'] if include_ch1 else []) + list(models)))
     matches = data.match_cases(selected, index, analysis_models, tolerance)
     profiles, observations, load_errors = {}, {}, []
     matched = matches.loc[matches.file.ne('')]
@@ -306,7 +307,7 @@ def render_aod(cases, index, models, loaded, default_root, stream, read_profile,
     metrics, scales = combined_errors(selected, analysis_models, profiles, observations, edges, False)
     pairs = metrics.merge(matched_aod, on='case_id', how='left')
     with histogram_area:
-        render_histogram(valid, pairs, models, field, display_chart, download_table)
+        render_histogram(valid, pairs, models, field, display_chart, download_table, include_ch1)
     pairs = pairs.loc[pairs.model.isin(models)].copy()
     if paired and models:
         finite = pairs.loc[pairs.model.isin(models) & np.isfinite(pairs.total_rmse)]

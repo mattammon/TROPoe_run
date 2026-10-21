@@ -354,7 +354,7 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertFalse(any(s.label == 'Plot' for s in app.selectbox))
         for label, value in [('Master manifest CSV (legacy manifests can be imported)', str(self.manifest)),
-                             ('Retrieval directory', str(self.root)),
+                             ('Universal retrieval directory', str(self.root)),
                              ('Classification and manual-review directory', str(self.root/'reviews')),
                              ('Satellite PNG directory', str(self.root))]:
             next(t for t in app.text_input if t.label == label).set_value(value)
@@ -373,7 +373,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(set(pending.case_id), {'case'})
         self.assertEqual(len(pending), 18)  # Ch1 + 18 bands, with B6 already complete.
         self.assertNotIn('Ch2_B6', pending.model.tolist())
-        catalog_summary = self.root/'catalog'/'summary.json'
+        catalog_summary = Path(app.session_state['cloud_active']['path']).parent/'catalog'/'summary.json'
         summary = json.loads(catalog_summary.read_text())
         self.assertEqual(summary['manifest'], app.session_state['cloud_active']['path'])
         self.assertEqual(summary['completed_by_band']['Ch2_B6'], 1)
@@ -393,7 +393,7 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(app.exception)
         refreshed_summary = json.loads(catalog_summary.read_text())
         self.assertEqual(refreshed_summary['completed_by_band']['Ch1'], 1)
-        self.assertEqual(refreshed_summary['inventory_reused_files'], 1)
+        self.assertEqual(json.loads((self.root/'catalog'/'summary.json').read_text())['inventory_reused_files'], 1)
         self.assertNotIn('Ch1', pd.read_csv(self.root/'todo.csv').model.tolist())
         self.assertEqual(next(s for s in app.selectbox if s.label == 'Plot').value, 'Case catalog')
         bands = next(s for s in app.multiselect if s.label == 'Bands')
@@ -440,6 +440,7 @@ class DashboardTests(unittest.TestCase):
         app._run()  # Flush stale pre-rerun elements in the Streamlit 1.50 test harness.
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state['cloud_active']['cases'].category.iloc[0], 'not_clear_sky')
+        catalog_summary = Path(app.session_state['cloud_active']['path']).parent/'catalog'/'summary.json'
         self.assertEqual(json.loads(catalog_summary.read_text())['manifest'], app.session_state['cloud_active']['path'])
         self.assertEqual(json.loads(catalog_summary.read_text())['cases'], {})
         self.assertEqual(json.loads(catalog_summary.read_text())['inventory_reused_files'], 2)
@@ -467,7 +468,7 @@ class DashboardTests(unittest.TestCase):
         _,path=save_run(master,frame,ClassificationRules(use_asi=False,radiance_mean_max=6.5),store)
         with patch.multiple(config,CLOUD_CLASSIFICATION_DIR=str(store.root),
                             CLOUD_MASTER_MANIFEST=str(self.root/'missing_default.csv'),
-                            RETRIEVAL_DIR=str(self.root.parent),GROUP_NAME=self.root.name):
+                            RETRIEVAL_DIR=str(self.root.parent),UNIVERSAL_RETRIEVAL_DIR=str(self.root),GROUP_NAME=self.root.name):
             app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'TROPoe_APP.py'),default_timeout=60).run()
             self.assertFalse(app.exception)
             self.assertEqual(next(s for s in app.selectbox if s.label=='Saved classification catalog').value,str(path))
@@ -481,7 +482,8 @@ class DashboardTests(unittest.TestCase):
             app._run()
             self.assertFalse(app.exception,msg=str(app.exception))
             self.assertEqual(next(s for s in app.selectbox if s.label=='Plot').value,'Case catalog')
-            self.assertEqual(json.loads((self.root/'catalog'/'summary.json').read_text())['manifest'],str(path))
+            self.assertIsNone(json.loads((self.root/'catalog'/'summary.json').read_text())['manifest'])
+            self.assertEqual(json.loads((path.parent/'catalog'/'summary.json').read_text())['manifest'],str(path))
             self.assertEqual(app.session_state['cloud_active']['rules']['radiance_mean_max'],6.5)
             self.assertEqual(len(list((store.root/'runs').glob('*/classification.csv'))),1)
             next(b for b in app.button if b.label=='Choose another saved classification').click().run()

@@ -20,8 +20,17 @@ def run_legacy(skip_models=(), only_models=None):
     bands = [b for b in candidates if f'Ch2_B{b}' not in skip_models]
     verbose='1'
 
-    catalog = pd.read_csv(f'{RETRIEVAL_DIR}/{GROUP_NAME}/catalog/files.csv')
-    catalog_files = {os.path.basename(path) for path in catalog.loc[catalog['n_usable'] > 0, 'file']}
+    from retrieval_todo import LiveInventory
+    from pathlib import Path
+    targets = [rounded_retrieval_time(d) for d in dates]
+    live = LiveInventory(Path(UNIVERSAL_RETRIEVAL_DIR), targets,
+                         ['Ch1']+['Ch2_B'+str(b) for b in bands], 60.)
+    def completed(d, channel, band=None):
+        index = live.refresh()
+        target = pd.to_datetime(rounded_retrieval_time(d), utc=True)
+        model = 'Ch1' if channel == 1 else 'Ch2_B'+str(band)
+        return index.loc[index.model.eq(model) & index.status.eq('usable') &
+                         ((index.time-target).dt.total_seconds().abs() <= 60.)]
 
     ##########################################
 
@@ -30,7 +39,7 @@ def run_legacy(skip_models=(), only_models=None):
     if APPLY_RETRIEVAL_LWP_FILTER:
         for d in dates:
             if do_ch1 == True:
-                if not completed_retrieval(d, 1, catalog_files):
+                if completed(d, 1).empty:
                     run_tropoe(d, VIP_obj, channel=1, verbose=verbose)
 
             # ==========================================
@@ -38,7 +47,7 @@ def run_legacy(skip_models=(), only_models=None):
             # ==========================================
             # 1. Find the Channel-1 file for the current date
             stamp = rounded_retrieval_time(d).strftime('%Y%m%d.%H%M%S')
-            ch1_files = sorted(glob.glob(f'{RETRIEVAL_DIR}/{GROUP_NAME}/tropoeOutput_Ch1.{stamp}.nc'))
+            ch1_files = completed(d, 1).file.tolist()
 
             if not ch1_files:
                 print(f"Skipping {d}: No Channel-1 retrieval file found.")
@@ -65,7 +74,7 @@ def run_legacy(skip_models=(), only_models=None):
 
             # If the script makes it here, the Ch1 retrieval passed the LWP check!
             for b in bands:
-                if not completed_retrieval(d, 2, catalog_files, b):
+                if completed(d, 2, b).empty:
                     run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose)
 
             print(f'\nAll Retrievals for {d} Done!\n')
@@ -73,10 +82,10 @@ def run_legacy(skip_models=(), only_models=None):
     else:
         for d in dates:
             if do_ch1 == True:
-                if not completed_retrieval(d, 1, catalog_files):
+                if completed(d, 1).empty:
                     run_tropoe(d,VIP_obj,channel=1,verbose=verbose)
             for b in bands:
-                if not completed_retrieval(d, 2, catalog_files, b):
+                if completed(d, 2, b).empty:
                     run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose)
             print(f'\nAll Retrievals for {d} Done!\n')
 
@@ -95,6 +104,7 @@ def main():
     selection.add_argument('--skip-bands', nargs='*', metavar='BAND', default=None,
                         help='Skip Ch1 and/or Ch2 bands (e.g. --skip-bands Ch1 3 6 or --skip-bands 3,6). '
                              'Overrides GROUP_TROPOE_SKIP_BANDS in config.py.')
+    parser.add_argument('--todo', default=RETRIEVAL_TODO_MANIFEST, help='Saved group retrieval_todo.csv; defaults to the active app queue')
     args = parser.parse_args()
     try:
         only_models = normalize_skip_bands(args.bands) if args.bands is not None else None
@@ -109,24 +119,24 @@ def main():
         print('Running only: '+', '.join(sorted(only_models))+' (GROUP_TROPOE_SKIP_BANDS ignored)')
     if skip_models and only_models is None:
         print('Skipping retrieval bands: '+', '.join(sorted(skip_models)))
-    if RETRIEVAL_TODO_MANIFEST:
+    if args.todo:
         from retrieval_todo import execute_todo
         # A stale or empty queue must never fall back to the full legacy cohort.
         vip = None
         def run_one(date, channel, band):
             nonlocal vip
             if vip is None:
-                vip = VIP(in_group=True, isolated_work=True) if only_models is not None else VIP(in_group=True)
+                vip = VIP(in_group=True, isolated_work=True)
             run_tropoe(date, vip, channel=channel, band=band, verbose='1')
         options = {}
         if only_models is not None:
             from uuid import uuid4
-            plan = Path(RETRIEVAL_TODO_MANIFEST)
+            plan = Path(args.todo)
             label = '_'.join(m for m in expected_models(range(1, 19)) if m in only_models)
             report = plan.with_name(plan.stem+'_run_'+label+'_'+uuid4().hex[:12]+'.csv')
             options = dict(only_bands=only_models, report_path=report)
             print('Worker execution report: '+str(report))
-        results = execute_todo(RETRIEVAL_TODO_MANIFEST, Path(RETRIEVAL_DIR)/GROUP_NAME, run_one, skip_models, **options)
+        results = execute_todo(args.todo, Path(UNIVERSAL_RETRIEVAL_DIR), run_one, skip_models, **options)
         remaining = sum(row['status'] in ('failed', 'still_missing_or_incomplete') for row in results)
         skipped = sum(row['status'] == 'skipped_band' for row in results)
         print(f'To-do execution finished: {len(results)-skipped} pairs checked; {skipped} skipped by band; {remaining} remain incomplete among attempted pairs.')

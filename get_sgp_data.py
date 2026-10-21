@@ -335,7 +335,7 @@ def download_todo_inputs(path=None, *, skip_bands=None, directories=None, client
     if not path:
         raise ValueError('Set RETRIEVAL_TODO_MANIFEST or pass a to-do CSV path')
     skipped = getattr(config, 'GROUP_TROPOE_SKIP_BANDS', []) if skip_bands is None else skip_bands
-    jobs = pending_todo(path, Path(config.RETRIEVAL_DIR)/config.GROUP_NAME, skipped)
+    jobs = pending_todo(path, Path(config.UNIVERSAL_RETRIEVAL_DIR), skipped)
     report_path = Path(path).with_name(Path(path).stem+'_downloads.csv')
     columns = ['stream', 'day', 'status', 'existing', 'downloaded', 'unavailable', 'error']
     rows = []

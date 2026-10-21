@@ -17,8 +17,8 @@ function mount() {
   });
   vm.runInContext(code, context);
   return {handlers, messages, layouts, reset:() => reset(),
-    render:async (range, group='a') => {
-      listeners.render({data:{type:'streamlit:render', args:{viewport_key:'review|master', figure:JSON.stringify({
+    render:async (range, group='a', collection=false) => {
+      listeners.render({data:{type:'streamlit:render', args:{viewport_key:'review|master', collection_mode:collection, figure:JSON.stringify({
         data:[{name:group}], layout:{xaxis:{range}, yaxis:{range}, height:500}})}}});
       await vm.runInContext('sequence', context);
     }, wait:() => vm.runInContext('sequence', context)};
@@ -36,6 +36,9 @@ function mount() {
   assert.deepEqual(app.layouts.at(-1).xaxis.range, [10,20]);
   app.handlers.plotly_click({points:[{customdata:['date', 'case-123']}]});
   assert.equal(app.messages.at(-1).value.case_id, 'case-123');
+  await app.render([0,200], 'selection', true);
+  app.handlers.plotly_selected({points:[{customdata:['date','a']},{customdata:['date','b']},{customdata:['date','a']}]});
+  assert.deepEqual(Array.from(app.messages.at(-1).value.case_ids), ['a','b']);
   app.reset(); await app.wait();
   assert.deepEqual(Array.from(app.layouts.at(-1)['xaxis.range']), [0,200]);
   await app.render([0,200]);

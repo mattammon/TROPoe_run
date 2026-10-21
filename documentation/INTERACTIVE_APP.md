@@ -868,3 +868,73 @@ remains draggable. Images fill the dock width; tolerance and refresh controls
 are under Image settings. Narrow/mobile layouts retain normal document flow.
 Selecting a case in Vertical profiles updates the dock on the same rerun;
 the shared case persists when the dock is hidden and reopened.
+
+
+### Manual case collections and saved group bands
+
+On the classification/scatter screen, enable **Build a manual case collection**.
+Click a point or use Plotly lasso/box selection to add cases. Selections accumulate
+across plot filters; hidden selected cases remain in the collection. The list
+below the scatter removes individual cases, and Clear selected cases clears it.
+Cases without finite scatter coordinates can be added with **Add inspected case
+to collection**. Enter a collection name, choose **Bands included in this group**,
+and click **Save collection and open dashboard**. From the dashboard radiance
+page, **Build a manual collection from master cases** returns to this editor.
+
+Membership is independent of cloud classification: cloudy and uncertain cases
+can be members without being relabeled clear sky. Every dashboard page receives
+only that collection's cases. Saved collections appear in the existing saved
+catalog dropdown. They are stored in
+`CLOUD_CLASSIFICATION_DIR/collections/<name>/`, with numeric suffixes for repeat
+names, no timestamps. `collection.csv` contains case IDs only; `settings.json`
+references the master and its fingerprint. Existing threshold classifications
+remain in `runs/` and continue selecting clear-sky cases. Manual cloud-review
+updates do not alter a manual collection's membership.
+
+Both types of group save `group_bands.json`. Select any combination of Ch1 and
+Ch2 bands, including Ch2-only groups. **Saved group bands → Save group bands**
+updates the persistent selection, the to-do queue, and available dashboard bands.
+The ordinary Bands toggles temporarily hide bands within this saved set. Ch1
+cannot be loaded by the AOD or reference-difference views when excluded from the
+group. Workers reject stale queue rows for bands removed from a saved group.
+
+### Universal retrieval archive and per-group catalogs
+
+`UNIVERSAL_RETRIEVAL_DIR` defaults to `RETRIEVAL_DIR` (for example
+`/data/tropoe/sgp`). All groups search it recursively, including existing group
+subdirectories. New VIP outputs go to `SHARED_RETRIEVAL_OUTPUT_DIR`, defaulting
+to `<UNIVERSAL_RETRIEVAL_DIR>/shared`. Existing files are not moved or copied;
+already-existing duplicate files are retained but do not trigger new retrievals.
+The legacy profile aggregator also searches this archive recursively.
+
+The universal `catalog/summary.json`, `files.csv` and `profiles.csv` describe the
+whole archive. Each saved group's own `catalog/summary.json`, `cases.csv` and
+`pending.csv` describe its membership and band selection using that inventory.
+Switching groups no longer overwrites the meaning of the universal summary.
+The group catalog reuses the universal inventory without rescanning NetCDFs.
+After upgrading, use **Refresh retrieval catalog and to-do** once to inventory
+all historical group directories. Subsequent openings can use the saved inventory.
+
+Each group saves `retrieval_todo.csv` beside its membership/classification file.
+The app also writes the active queue at `RETRIEVAL_TODO_MANIFEST`, now defaulting
+to `CLOUD_CLASSIFICATION_DIR/active_retrieval_todo.csv`.
+Run the active queue normally, or an explicitly saved group's queue:
+
+```bash
+python GROUP_TROPoe.py --todo /data/cloud_classification/sgp/collections/my-cases/retrieval_todo.csv --bands Ch1 6
+```
+
+`--bands` still overrides configured skip bands, but only selects rows already
+present in the group's queue; it cannot add bands excluded from that group.
+Input downloading uses the same universal completion inventory. Queued workers
+lock each band/target retrieval time, recheck live completion after acquiring the
+lock, and skip completed outputs anywhere under the universal root. Thus two
+containers sharing the archive do not run the same queued pair concurrently.
+All workers must mount the same archive and use the same universal/output paths;
+the filesystem must support advisory `flock` locks. Worker scratch directories
+are isolated. Plans are retained; execution reports are written separately.
+
+Reuse identifies a retrieval by band and target time, assuming the same retrieval
+configuration/prior conventions. Intentionally different retrieval experiments
+should use a separate universal archive. Membership snapshots require an unchanged
+master; reload and save a new collection if its master changes.

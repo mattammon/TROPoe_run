@@ -1,7 +1,7 @@
 /* Keep ranges outside Streamlit's figure identity. Persist only within this tab. */
 const chart = document.getElementById('chart');
 let viewportKey = '', viewport = {}, figure = null, drawing = false, bound = false;
-let sequence = Promise.resolve();
+let sequence = Promise.resolve(), collectionMode = false;
 function send(type, payload = {}) {
   window.parent.postMessage({isStreamlitMessage: true, type, ...payload}, '*');
 }
@@ -47,6 +47,11 @@ async function draw() {
         const caseId = point.customdata[point.customdata.length - 1];
         send('streamlit:setComponentValue', {value:{case_id:caseId, token:Date.now() + ':' + Math.random()}, dataType:'json'});
       });
+      chart.on('plotly_selected', event => {
+        if (!collectionMode || !event || !event.points) return;
+        const ids = [...new Set(event.points.filter(p => p.customdata).map(p => p.customdata[p.customdata.length-1]))];
+        send('streamlit:setComponentValue', {value:{case_ids:ids, token:Date.now()+':'+Math.random()}, dataType:'json'});
+      });
       bound = true;
     }
     send('streamlit:setFrameHeight', {height:layout.height + 45});
@@ -61,6 +66,7 @@ window.addEventListener('message', event => {
       viewportKey = nextKey;
       try { viewport = JSON.parse(sessionStorage.getItem(viewportKey) || '{}'); } catch (_) { viewport = {}; }
     }
+    collectionMode = Boolean(args.collection_mode);
     figure = JSON.parse(args.figure);
     await draw();
   });

@@ -19,7 +19,7 @@ def _component():
     return components.declare_component('tropoe_scatter', path=str(root))
 
 
-def persistent_scatter(figure, key, scope=''):
+def persistent_scatter(figure, key, scope='', collection_mode=False):
     """Return clicked case IDs; zoom stays local and does not trigger a rerun."""
     return _component()(figure=pio.to_json(figure), viewport_key=key+'|'+str(scope),
-                        key=key, default=None)
+                        key=key, collection_mode=collection_mode, default=None)

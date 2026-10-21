@@ -48,7 +48,7 @@ def download_table(label, df, filename, key):
 
 try:
     import config
-    default_root = str(Path(config.RETRIEVAL_DIR)/config.GROUP_NAME)
+    default_root = str(Path(config.UNIVERSAL_RETRIEVAL_DIR))
     default_manifest = getattr(config, 'CLOUD_MASTER_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST or ''
     default_sonde = config.SONDE_DIR
     default_images = config.SAT_IMAGERY_DIR
@@ -63,16 +63,30 @@ use_saved = st.sidebar.checkbox('Use saved retrieval catalog (skip scan)', value
     help='Load this retrieval directory’s saved catalog without checking retrieval files. Refresh explicitly after new retrievals finish.')
 source, active = classification_gate(default_manifest, default_root, default_sonde, default_images, default_output)
 all_cases = active['cases']
-cases = all_cases.loc[all_cases.category == 'clear_sky'].copy()
+from case_collections import selected_cases, read_bands, save_bands
+cases = selected_cases(all_cases)
 rules = ClassificationRules(**active['rules'])
 todo_path = getattr(config, 'RETRIEVAL_TODO_MANIFEST', None)
 todo_bands = getattr(config, 'RETRIEVAL_TODO_BANDS', list(range(1, 19)))
 todo_tolerance = getattr(config, 'RETRIEVAL_TODO_TOLERANCE_SECONDS', 60.)
+group_models = read_bands(active['path'], expected_models(todo_bands))
+with st.sidebar.expander('Saved group bands'):
+    with st.form('group_bands:'+active['path']):
+        group_choice = st.multiselect('Bands to retrieve and analyze', expected_models(range(1,19)), default=group_models)
+        if st.form_submit_button('Save group bands'):
+            try:
+                save_bands(active['path'], group_choice)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+todo_bands = [int(m.split('_B')[1]) for m in group_models if m != 'Ch1']
+include_ch1 = 'Ch1' in group_models
 refresh_requested = st.sidebar.button('Refresh retrieval catalog and to-do')
 if refresh_requested:
     st.session_state.pop('loaded_source', None)
     st.session_state.pop('retrieval_todo_key', None)
-scope = ('shared_catalog_v2', active['path'], source['root'], tuple(todo_bands), todo_tolerance, use_saved)
+scope = ('shared_catalog_v3', active['path'], source['root'], tuple(group_models), todo_tolerance, use_saved)
 if st.session_state.get('loaded_source', {}).get('scope') != scope:
     saved_inventory = use_saved and not refresh_requested
     catalog_dir = Path(source['root'])/'catalog'
@@ -92,9 +106,13 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
             index_errors = pd.DataFrame()
             catalog_dir = None
         else:
-            catalog_dir, summary, scanned_files = create_catalog(
-                source['root'], active['path'], todo_bands, category='clear_sky',
-                tolerance_seconds=todo_tolerance, progress=report_catalog, reuse_inventory=saved_inventory)
+            universal_dir, _, scanned_files = create_catalog(
+                source['root'], bands=range(1,19), progress=report_catalog, reuse_inventory=saved_inventory)
+            group_catalog, summary, _ = create_catalog(
+                source['root'], active['path'], todo_bands, include_ch1=include_ch1,
+                tolerance_seconds=todo_tolerance, output_dir=Path(active['path']).parent/'catalog',
+                progress=report_catalog, reuse_inventory=True, inventory_dir=universal_dir)
+            catalog_dir = universal_dir
             report_catalog('Reading updated retrieval profiles…')
             index, index_errors = data.read_index(source['root'], catalog=catalog_dir/'profiles.csv')
             file_errors = pd.DataFrame([f for f in scanned_files if f.get('error')])
@@ -112,11 +130,12 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
                                          inventory_time=summary.get('inventory_updated_utc', 'unknown'))
 loaded = st.session_state.loaded_source
 index, index_errors = loaded['index'], loaded['errors']
-catalog_models = expected_models(todo_bands)
+catalog_models = group_models
 todo_key = (scope, str(todo_path), tuple(todo_bands), todo_tolerance)
 if st.session_state.get('retrieval_todo_key') != todo_key:
     try:
-        todo = pending_retrievals(cases, index, todo_bands, active['path'], source['root'], todo_tolerance)
+        todo = pending_retrievals(cases, index, todo_bands, active['path'], source['root'], todo_tolerance, models=group_models)
+        save_todo(Path(active['path']).parent/'retrieval_todo.csv', todo)
         if todo_path:
             save_todo(todo_path, todo)
         st.session_state.retrieval_todo = todo
@@ -125,17 +144,18 @@ if st.session_state.get('retrieval_todo_key') != todo_key:
         st.error('Could not write the retrieval to-do manifest: '+str(exc))
         st.stop()
 todo = st.session_state.retrieval_todo
-st.caption(f"{len(cases):,} clear-sky cases out of {len(all_cases):,} classified cases. Retrieval comparisons load only clear-sky cases.")
+st.caption(f"{len(cases):,} selected cases out of {len(all_cases):,} group cases. All comparisons use this group’s membership.")
 st.caption(f"Master: {source['master']} · Classification: {active['path']}")
 if loaded.get('saved_inventory'):
     st.caption('Using inventory saved '+loaded['inventory_time']+'. Retrieval files were not rescanned. '
-               'summary.json, case counts and the to-do list now describe the active classification. '
+               'Group case counts and the to-do list describe the active collection. '
                'Refresh the catalog to include new or removed retrievals.')
 if loaded['catalog']:
-    st.caption('Retrieval catalog: '+str(Path(loaded['catalog']).parent/'summary.json'))
+    st.caption('Universal retrieval catalog: '+str(Path(loaded['catalog']).parent/'summary.json'))
+    st.caption('Group summary: '+str(Path(active['path']).parent/'catalog'/'summary.json'))
 with st.sidebar:
     st.download_button('Download active classification', Path(active['path']).read_bytes(), 'classification.csv', 'text/csv')
-    st.caption(f'Retrieval to-do: {todo.case_id.nunique():,} cases · {len(todo):,} missing case–band pairs (Ch1 + {len(todo_bands)} Ch2 bands).')
+    st.caption(f'Retrieval to-do: {todo.case_id.nunique():,} cases · {len(todo):,} missing case–band pairs ({len(group_models)} selected bands).')
     st.caption('Saved to: '+str(todo_path) if todo_path else 'Automatic to-do saving is disabled in config.py.')
     st.download_button('Download retrieval to-do', todo.to_csv(index=False), 'retrieval_todo.csv', 'text/csv')
 
@@ -143,8 +163,10 @@ case_labels = dict(zip(all_cases.case_id, all_cases.sounding_time.map(data.case_
 with st.sidebar:
     st.header('Bands')
     # One immediate selector controls the grid, comparisons, and exported statistics.
-    models = st.multiselect('Bands', catalog_models, default=catalog_models,
-                            key='selection_'+active['path']+'bands')
+    band_key = 'selection_'+active['path']+'bands'
+    if band_key in st.session_state:
+        st.session_state[band_key] = [m for m in st.session_state[band_key] if m in catalog_models]
+    models = st.multiselect('Bands', catalog_models, default=catalog_models, key=band_key)
 from dashboard_satellite_panel import style_satellite_panel
 style_satellite_panel()
 show_satellite = st.checkbox('Show satellite imagery panel', value=False, key='show_dashboard_satellite')
@@ -162,19 +184,31 @@ with dashboard_main:
     if view == 'Aerosol / AOD':
         from dashboard_aod import render_aod
         render_aod(cases, index, models, loaded, config.AOD_DIR, config.AOD_DATASTREAM,
-                   read_profile, read_observation, display_chart, download_table)
+                   read_profile, read_observation, display_chart, download_table, include_ch1=include_ch1)
         st.stop()
     if view == 'Case catalog':
         render_catalog(cases, index, models, case_labels, todo_tolerance, index_errors,
                        catalog_models, 'selection_'+active['path']+'bands')
         st.stop()
     if view == '985 radiance scatter':
+        if st.button('Build a manual collection from master cases'):
+            st.session_state.collection_mode = True
+            st.session_state.new_group_models = group_models
+            st.session_state.cloud_draft_rules = active['rules']
+            st.session_state.pop('cloud_active', None)
+            st.rerun()
         from dataclasses import asdict
         store = ReviewStore(source['output'])
         def refresh_review_snapshot():
             if fingerprint(source['master']) != source['master_hash']:
                 raise ValueError('Master changed; reload the master before applying')
+            if active.get('kind') == 'manual_collection':
+                from case_collections import restore_collection
+                _, refreshed, _ = restore_collection(active['path'])
+                st.session_state.cloud_active = refreshed
+                return
             classified, path = save_run(source['master'], source['cases'], rules, store)
+            save_bands(path, group_models)
             st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
         review_plot(all_cases, rules, source['image_root'], store, key='dashboard_review', on_review=refresh_review_snapshot, source=source)
         download_table('Download classified radiance cases', all_cases, 'radiance_cases.csv', 'radiance_csv')
@@ -250,10 +284,12 @@ with dashboard_main:
     if view == 'Information content':
         info_mode = st.radio('Information view', ['Cumulative profiles', 'Density profiles', 'Layer distributions'], horizontal=True)
         if info_mode != 'Layer distributions':
-            info_difference = st.checkbox('Shade differences from Ch1', value=False, key='info_difference')
+            if not include_ch1:
+                st.session_state.info_difference = False
+            info_difference = st.checkbox('Shade differences from Ch1', value=False, key='info_difference', disabled=not include_ch1)
             if info_difference:
                 st.caption('Ch1 retains its actual values. Other bands show median same-case, same-source differences: red above Ch1, blue below. Ch1 is loaded as a reference even if deselected.')
-    load_models = list(dict.fromkeys(models + ['Ch1'])) if view == 'Vertical errors' or info_difference else models
+    load_models = list(dict.fromkeys(models + ['Ch1'])) if include_ch1 and (view == 'Vertical errors' or info_difference) else models
     problems = []
     matches = data.match_cases(selected, index, load_models, tolerance)
     shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
@@ -295,7 +331,7 @@ with dashboard_main:
         st.stop()
 
     if view == 'Vertical errors':
-        render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems)
+        render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems, include_ch1=include_ch1)
         st.stop()
 
     if view == 'Taylor diagram':

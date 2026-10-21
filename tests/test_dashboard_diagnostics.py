@@ -116,7 +116,8 @@ import dashboard_data as data
 from dashboard_classification import ClassificationRules
 cases, models, profiles, observations = data.demo_data()
 cases = cases.iloc[:2].copy()
-cases['category'] = 'clear_sky'
+cases['category'] = ['clear_sky', 'not_clear_sky']
+cases['collection_selected'] = True
 case = cases.case_id.iloc[0]
 models = ['Ch1','Ch2_B1']
 for m in models:
@@ -128,7 +129,7 @@ master = str(Path(root)/'master.csv')
 source = dict(root=root, master=master, sonde_root='', image_root=root, output=root, cases=cases)
 active = dict(path=master, cases=cases, rules=asdict(ClassificationRules()))
 index = pd.DataFrame([dict(file=m, profile_index=0, time=cases.retrieval_time.iloc[0], status='usable', model=m) for m in models])
-scope = ('shared_catalog_v2',master,root,(1,),60.,True)
+scope = ('shared_catalog_v3',master,root,('Ch1','Ch2_B1'),60.,True)
 st.session_state.loaded_source = dict(index=index,errors=pd.DataFrame(),manifest=master,root=root,catalog='',sonde_root='',scope=scope,saved_inventory=True,inventory_time='test')
 if 'dashboard_view' not in st.session_state:
     st.session_state.dashboard_view='Information content'

@@ -18,7 +18,7 @@ FIG_DIR: Where any produced figures should be saved.
 SCRIPT_DIR: Directory where the scripts that make up this repository are stored.
 """""
 
-GROUP_NAME = 'clear_sky_new'
+GROUP_NAME = 'clear_sky_days'
 # Path printed by get_sgp_data.py. None preserves legacy group-folder selection.
 CLOUD_SCREEN_MANIFEST = '/data/cloud_screening/sgp/20220101_20251231/manifest_reclassified_7_0p3.csv'
 CLOUD_SCREEN_CATEGORY = 'clear_sky'
@@ -48,6 +48,9 @@ AOD_DIR = f'{DATA_DIR}/aod/{SITE}'
 # CIMEL sunphotometer: quality-assured aerosol optical depth, multiple wavelengths.
 AOD_DATASTREAM = 'sgpcsphotaodfiltqav3C1.a1'
 RETRIEVAL_DIR = f'{DATA_DIR}/tropoe/{SITE}'
+# One inventory across all groups, including existing group subdirectories.
+UNIVERSAL_RETRIEVAL_DIR = RETRIEVAL_DIR
+SHARED_RETRIEVAL_OUTPUT_DIR = f'{UNIVERSAL_RETRIEVAL_DIR}/shared'
 MASTER_DATA_FOLDER = 'ALL'
 SAT_IMAGERY_DIR = f'{DATA_DIR}/satellite/{SITE}'
 # Dashboard imports legacy CLOUD_SCREEN_MANIFEST if this is None.
@@ -58,14 +61,14 @@ CLOUD_CLASSIFICATION_DIR = f'{DATA_DIR}/cloud_classification/{SITE}'
 CLOUD_CLASSIFICATION_MANIFEST = None
 # Latest clear-sky case/band queue generated when entering the dashboard.
 # GROUP_TROPoe uses this automatically; set None only for legacy execution.
-RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/{GROUP_NAME}/retrieval_todo.csv'
+RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/active_retrieval_todo.csv'
 RETRIEVAL_TODO_BANDS = list(range(1, 19))  # Expected Ch2 bands; Ch1 is also required.
 RETRIEVAL_TODO_TOLERANCE_SECONDS = 60.
 # Cover the retrieval averaging/surface-data window, including UTC midnight.
 RETRIEVAL_INPUT_PADDING_MINUTES = 15.
 # Leave empty to run every band. Entries can be Ch1, Ch2_B6, or 6 (Ch2 band 6).
 # GROUP_TROPoe.py --skip-bands overrides this setting for a single run.
-GROUP_TROPOE_SKIP_BANDS = [2,3,4,5,6,7,8,10,12,13,14,15,16,17,18]
+GROUP_TROPOE_SKIP_BANDS = []
 # Cloud selections do not also apply the legacy retrieval-LWP gate.
 APPLY_RETRIEVAL_LWP_FILTER = (not (CLOUD_SCREEN_MANIFEST or CLOUD_MASTER_MANIFEST or CLOUD_CLASSIFICATION_MANIFEST)
                               and 'clear' in GROUP_NAME)
@@ -91,7 +94,6 @@ group_titles = {
     'clear_sky_days':'Clear Sky',
     'clear_sky_withSfc':'Clear Sky',
     'clear_sky_noSfc':'Clear Sky',
-    'clear_sky_new':'Clear Sky',
 }
 
 bad_dts = {

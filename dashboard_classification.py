@@ -194,6 +194,9 @@ def save_run(master_path, frame, rules, store):
 def read_selection_manifest(manifest, classification=None):
     """Read legacy combined manifests or join a saved compact snapshot to its master."""
     manifest = Path(manifest).expanduser().resolve()
+    if manifest.name == 'collection.csv':
+        from case_collections import read_collection
+        return read_collection(manifest)
     frame = pd.read_csv(manifest, dtype={'case_id': str})
     if classification:
         selection_path = Path(classification).expanduser().resolve()
@@ -240,6 +243,10 @@ def saved_catalogs(root):
                                  label=f'{name} · {counts.get("clear_sky", 0):,} clear / {sum(counts.values()):,} cases'))
         except (OSError, ValueError, TypeError, KeyError) as exc:
             errors.append(dict(path=str(path), error=str(exc)))
+    from case_collections import saved_collections
+    collections, collection_errors = saved_collections(root)
+    catalogs.extend(collections)
+    errors.extend(collection_errors)
     catalogs.sort(key=lambda item: (item['created'], item['path']), reverse=True)
     return catalogs, errors
 
@@ -247,6 +254,9 @@ def saved_catalogs(root):
 def restore_saved_catalog(path):
     """Restore saved labels/rules, updating only when newer manual decisions require it."""
     path = Path(path).expanduser().resolve()
+    if path.name == 'collection.csv':
+        from case_collections import restore_collection
+        return restore_collection(path)
     settings = json.loads((path.parent/'settings.json').read_text())
     rules = ClassificationRules(**settings['rules'])
     joined = read_selection_manifest(path)  # Verifies master hash and exact case membership.
@@ -270,7 +280,11 @@ def restore_saved_catalog(path):
     previous = {case: entry['category'] if isinstance(entry, dict) else entry for case, entry in overrides.items() if case in case_ids}
     updated = revision > settings.get('manual_revision', 0) and current != previous
     if updated:
+        from case_collections import read_bands, save_bands
+        bands = read_bands(path)
         classified, path = save_run(master, base, rules, store)
+        if bands:
+            save_bands(path, bands)
     return dict(master=str(master), master_hash=settings['master_sha256'], cases=base,
                 output=str(store.root)), dict(cases=classified, path=str(path), rules=asdict(rules)), updated
 

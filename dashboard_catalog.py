@@ -9,7 +9,8 @@ from catalog_retrievals import time_values, time_bounds
 
 def qc_matrix(cases, index, models, tolerance, errors=None):
     """One QC per case/band: usable first, then nearest time/file/record."""
-    clear = cases.loc[cases.category == 'clear_sky']
+    from case_collections import selected_cases
+    clear = selected_cases(cases)
     result = pd.DataFrame(np.nan, index=pd.Index(clear.case_id, name='case_id'), columns=models)
     records = index.copy()
     if errors is not None and {'time', 'profile_index', 'channel', 'band'}.issubset(errors):
@@ -73,11 +74,11 @@ def completion_summary(matrix, flags=None):
 
 def render_catalog(cases, index, models, labels, tolerance, index_errors, all_models=None, selection_key=None):
     st.subheader('Clear-sky retrieval completion')
-    st.caption(f'Each row is a clear-sky sounding; each column is a selected band. '
+    st.caption(f'Each row is a selected sounding; each column is a selected band. '
                f'Records are matched within ±{tolerance:g} seconds of the target retrieval time. '
                'Green: complete, QC 0. Yellow: complete, QC 3 (spectral RMS too large). '
                'Red: QC 2 (not converged). Gray: missing/incomplete. Blue: complete with unknown/other QC. Scroll to see all cases.')
-    st.caption('summary.json reports all configured bands for the active classification. '
+    st.caption('The group catalog/summary.json reports all saved bands for the active group. '
                'Band toggles below change the displayed all-selected/none-selected counts; they do not change the retrieval execution plan.')
     if selection_key:
         st.write('Bands included in completion statistics and dashboard comparisons')
@@ -110,7 +111,7 @@ def render_catalog(cases, index, models, labels, tolerance, index_errors, all_mo
         st.info('Select at least one band in the sidebar to see retrieval completion.')
         return
     if matrix.empty:
-        st.info('There are no clear-sky cases in this classification.')
+        st.info('There are no selected cases in this group.')
         return
     grid = qc_grid(matrix, flags)
     grid.insert(0, 'Case (UTC)', [labels.get(case, str(case)) for case in matrix.index])

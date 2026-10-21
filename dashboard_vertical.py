@@ -94,10 +94,10 @@ def case_error_panels(analysis, model, visible_models, case, ordered_cases):
     return fig, int(sum('Ch1' in visible_models and (c, 'Ch1') in curves for c in ids)), len(ids)
 
 
-def render_vertical(cases, models, profiles, observations, edges, display_chart, download_table, load_problems):
+def render_vertical(cases, models, profiles, observations, edges, display_chart, download_table, load_problems, include_ch1=True):
     import streamlit as st
     table_size = {'width': 'stretch'} if tuple(int(x) for x in st.__version__.split('.')[:2]) >= (1, 50) else {'use_container_width': True}
-    difference = st.radio('Vertical RMSE shading', ['RMSE', 'RMSE difference from Ch1'], horizontal=True) != 'RMSE'
+    difference = st.radio('Vertical RMSE shading', (['RMSE', 'RMSE difference from Ch1'] if include_ch1 else ['RMSE']), horizontal=True) != 'RMSE'
     comparison_models = list(dict.fromkeys(models + ['Ch1'])) if difference else models
     analyses, common, table, scales = compare_variables(cases, comparison_models, profiles, observations, edges)
     table = table.reindex(models)

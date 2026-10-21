@@ -133,12 +133,12 @@ class Aggregate_Retrievals:
     def _nearest_retrieval(self, dt, channel, band=None):
         """Select an output in the case's quarter-hour bin, including .cdf files."""
         if not hasattr(self, '_output_index'):
-            root = Path(RETRIEVAL_DIR) / GROUP_NAME
+            root = Path(UNIVERSAL_RETRIEVAL_DIR)
             self._output_root = root
             self._output_index = {}
             self._unrecognized_ch1 = []
             if root.is_dir():
-                for path in root.iterdir():
+                for path in root.rglob('*'):
                     match = _OUTPUT_NAME.fullmatch(path.name)
                     if not path.is_file():
                         continue
@@ -231,3 +231,4 @@ class Aggregate_Retrievals:
 if __name__ == "__main__":
     EVAL = Aggregate_Retrievals(max_height,Ch2_bands_compile)
     #profile_data_dict = EVAL.profile_data
+

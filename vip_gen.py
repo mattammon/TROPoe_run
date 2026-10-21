@@ -9,7 +9,7 @@ class VIP:
     def __init__(self,sfc_block=True,irs_type=1,recenter=1,
                  mwr_type=0,cbh_type=1,add_tropoe=0,
                  model_block=False,default_pres=980.0,default_cbh=2.0,
-                 in_group=False,output_akernal=1,clobber=0,isolated_work=False):
+                 in_group=False,output_akernal=1,clobber=0,isolated_work=False,output_dir=None):
 
         self.vip_id = secrets.token_hex(16)
         self.lbl_temp_dir = f'{DATA_DIR}/tmp2'
@@ -35,6 +35,8 @@ class VIP:
         else:
             self.ret_subdir = 'misc'
 
+        self.output_dir = str(output_dir or SHARED_RETRIEVAL_OUTPUT_DIR)
+        os.makedirs(self.output_dir, exist_ok=True)
         self.vip_file = f'{VIP_DIR}/curr_VIP_{self.vip_id}.txt'
 
         self.site_lon, self.site_lat = site_coordinates[SITE]
@@ -113,7 +115,7 @@ class VIP:
                 f.write('ext_sfc_relative_height = 0\n')
                 f.write('\n')
             f.write(f'output_rootname = tropoeOutput_Ch{irs_channel}{vip_kwargs["band_label"]}      # String with the rootname of the output file\n')
-            f.write(f'output_path = {RETRIEVAL_DIR}/{self.ret_subdir}          # Path where the output file will be placed\n')
+            f.write(f'output_path = {self.output_dir}          # Path where the output file will be placed\n')
             f.write(f'output_clobber = {self.clobber}\n')
             f.write(f'output_akernal = {self.output_akernal} # Save averaging kernel for information-content analysis\n')
             f.write('\n')

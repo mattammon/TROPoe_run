@@ -149,7 +149,8 @@ def expected_cases(manifest, profiles, bands, include_ch1, category, tolerance):
     needed = {'case_id', 'sounding_time', 'retrieval_time', 'category'}
     if not needed.issubset(frame):
         raise ValueError('Manifest requires '+', '.join(sorted(needed)))
-    cases = frame.loc[frame.category == category].to_dict('records')
+    cases = (frame.loc[frame.collection_selected.eq(True)] if 'collection_selected' in frame
+             else frame.loc[frame.category == category]).to_dict('records')
     configurations = ([(1, '')] if include_ch1 else []) + [(2, str(b)) for b in sorted(set(bands))]
     index = {}
     for p in profiles:
@@ -254,7 +255,7 @@ def scan_inventory(root, out, progress=None):
 
 
 def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1=True,
-                   category='clear_sky', tolerance_seconds=60., output_dir=None, progress=None, reuse_inventory=False):
+                   category='clear_sky', tolerance_seconds=60., output_dir=None, progress=None, reuse_inventory=False, inventory_dir=None):
     """Scan once and write the same full inventory used by the catalog CLI."""
     retrieval_dir = Path(retrieval_dir)
     if not retrieval_dir.is_dir():
@@ -268,14 +269,17 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
     out = Path(output_dir) if output_dir else retrieval_dir/'catalog'
     shared_directory(out, writable=True)
     inventory_time = datetime.now(timezone.utc).isoformat()
+    inventory = Path(inventory_dir) if inventory_dir is not None else out
+    if inventory_dir is not None and not reuse_inventory:
+        raise ValueError('An external shared inventory requires reuse_inventory=True')
     if reuse_inventory:
         if progress:
             progress('Reading saved inventory; no retrieval scan…')
-        previous = json.loads((out/'summary.json').read_text())
+        previous = json.loads((inventory/'summary.json').read_text())
         if previous.get('retrieval_dir') != str(retrieval_dir.resolve()):
             raise ValueError('Saved catalog belongs to a different retrieval directory')
-        file_table = pd.read_csv(out/'files.csv', keep_default_na=False)
-        profile_table = pd.read_csv(out/'profiles.csv', keep_default_na=False,
+        file_table = pd.read_csv(inventory/'files.csv', keep_default_na=False)
+        profile_table = pd.read_csv(inventory/'profiles.csv', keep_default_na=False,
                                     dtype={'band': str})
         if not set(FILE_FIELDS).issubset(file_table) or not (set(PROFILE_FIELDS)-{'qc_flag'}).issubset(profile_table):
             raise ValueError('Saved inventory is incomplete; refresh the retrieval catalog')
@@ -327,11 +331,11 @@ def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1
 def main():
     import config
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--retrieval-dir', type=Path, default=Path(config.RETRIEVAL_DIR)/config.GROUP_NAME)
+    parser.add_argument('--retrieval-dir', type=Path, default=Path(config.UNIVERSAL_RETRIEVAL_DIR))
     parser.add_argument('--manifest', type=Path, default=getattr(config, 'CLOUD_CLASSIFICATION_MANIFEST', None) or config.CLOUD_SCREEN_MANIFEST)
     parser.add_argument('--reuse-inventory', action='store_true', help='Update case matches and summary from saved inventory without scanning retrieval files')
     parser.add_argument('--inventory-only', action='store_true', help='Do not compare against a manifest')
-    parser.add_argument('--bands', nargs='+', type=int, default=[1,2,5,6,9,11,13,14,17],
+    parser.add_argument('--bands', nargs='+', type=int, default=None,
                         help='Expected Ch2 bands; default: all')
     parser.add_argument('--no-ch1', action='store_true', help='Exclude Ch1 from expected retrievals')
     parser.add_argument('--category', default=config.CLOUD_SCREEN_CATEGORY)
@@ -341,8 +345,15 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     manifest = Path(args.manifest) if args.manifest and not args.inventory_only else None
     try:
-        create_catalog(args.retrieval_dir, manifest, args.bands, not args.no_ch1,
-                       args.category, args.tolerance_seconds, args.output_dir, reuse_inventory=args.reuse_inventory)
+        from case_collections import read_bands
+        group_models = read_bands(manifest) if manifest else None
+        bands = args.bands if args.bands is not None else ([int(m.split('_B')[1]) for m in group_models if m != 'Ch1'] if group_models else list(range(1,19)))
+        include_ch1 = not args.no_ch1 and (not group_models or 'Ch1' in group_models)
+        universal, _, _ = create_catalog(args.retrieval_dir, bands=range(1,19), reuse_inventory=args.reuse_inventory)
+        if manifest:
+            create_catalog(args.retrieval_dir, manifest, bands, include_ch1, args.category,
+                args.tolerance_seconds, args.output_dir or manifest.parent/'catalog',
+                reuse_inventory=True, inventory_dir=universal)
     except ValueError as exc:
         parser.error(str(exc))
 

@@ -170,7 +170,7 @@ def plot_filter_controls(preview, source, key):
         return filtered
 
 
-def review_plot(preview, rules, image_root, store, key='classification', on_review=None, source=None):
+def review_plot(preview, rules, image_root, store, key='classification', on_review=None, source=None, collection_key=None):
     preview = plot_filter_controls(preview, source, key)
     if preview.empty:
         st.info('No cases match these filters. Broaden the selections to show cases.')
@@ -189,12 +189,16 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                 trace_ids = plotted.loc[plotted[grouping] == trace.name, 'case_id'].tolist()
                 if len(trace_ids) == len(trace.x):
                     trace.customdata = [list(row)+[case_id] for row, case_id in zip(trace.customdata, trace_ids)]
-            figure.update_layout(clickmode='event')
+            figure.update_layout(clickmode='event', dragmode='lasso' if collection_key else 'zoom')
             event = persistent_scatter(figure, key=key+'_scatter',
-                                       scope=source['master'] if source else '')
+                                       scope=source['master'] if source else '', collection_mode=bool(collection_key))
             if event:
                 picked = event.get('case_id')
                 token = event.get('token')
+                if collection_key and st.session_state.get(key+'_last_collection_event') != token:
+                    additions = set(event.get('case_ids', []) + ([picked] if picked else [])) & set(preview.case_id)
+                    st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | additions)
+                    st.session_state[key+'_last_collection_event'] = token
                 if st.session_state.get(key+'_last_event') != token and picked in set(preview.case_id):
                     st.session_state[key+'_case'] = picked
                     st.session_state[key+'_image_request'] = picked
@@ -205,6 +209,8 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
         st.caption('The shaded rectangle represents the radiance criterion only. With an “either” rule, ASI may also establish clear sky outside that rectangle. Manual decisions always take precedence.')
     with right:
         inspect_case(preview, image_root, store, key, on_review)
+        if collection_key and st.button('Add inspected case to collection', key=key+'_add_case'):
+            st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | {st.session_state[key+'_case']})
 
 
 def classification_gate(default_manifest, default_root, default_sonde, default_images, default_output):
@@ -215,14 +221,14 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
                                help='Saved catalogs in this directory appear on the opening page. Use a persistent directory so catalogs and manual overrides carry forward.')
         with st.form('source_form'):
             manifest = st.text_input('Master manifest CSV (legacy manifests can be imported)', default_manifest)
-            root = st.text_input('Retrieval directory', default_root)
+            root = st.text_input('Universal retrieval directory', default_root, help='Searches this directory recursively, including older group folders. Use the same UNIVERSAL_RETRIEVAL_DIR in every worker container.')
             catalog = ''  # Completion is checked against live files for clear cases.
             sonde = st.text_input('Sounding search directory (optional)', default_sonde)
             image_root = st.text_input('Satellite PNG directory', default_images,
                                        help='Search includes subdirectories. Click Load / refresh master data to apply a changed path; it must be visible inside the app/container.')
             load = st.form_submit_button('Load / refresh master data', type='primary')
     if not st.session_state.get('cloud_active') or load:
-        st.subheader('Open a saved classification')
+        st.subheader('Open a saved classification or case collection')
         try:
             catalogs, errors = saved_catalogs(output)
         except OSError as exc:
@@ -235,7 +241,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             st.caption('Master: '+selection['master'])
             st.caption('Saved: '+selection['created']+' · Window: '+selection['rules']['window']+
                        ' · Instrument rule: '+selection['rules']['combine'])
-            st.caption('Opens the saved thresholds and case classifications. Newer persistent manual decisions are applied in an updated snapshot when needed.')
+            st.caption('Manual collections retain their chosen membership regardless of cloud classification. Saved classifications select clear-sky cases.')
             if st.button('Open selected catalog in dashboard', type='primary'):
                 try:
                     restored, active, updated = restore_saved_catalog(chosen)
@@ -285,7 +291,14 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         st.caption('Master: '+loaded['master'])
         active = st.session_state.get('cloud_active')
         if active and st.button('Review images / change classification thresholds'):
+            from case_collections import read_bands
+            from retrieval_todo import expected_models
+            import config
+            st.session_state.new_group_models = read_bands(active['path'], expected_models(config.RETRIEVAL_TODO_BANDS))
             st.session_state.cloud_draft_rules = active['rules']
+            st.session_state.collection_mode = active.get('kind') == 'manual_collection'
+            if st.session_state.collection_mode:
+                st.session_state['collection_draft:'+loaded['master']] = active['cases'].case_id.tolist()
             st.session_state.pop('cloud_active', None)
             st.rerun()
         if active and st.button('Choose another saved classification'):
@@ -297,6 +310,16 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             st.info(notice)
         st.caption('Classification snapshot: '+active['path'])
         return loaded, active
+    from case_collections import save_collection, restore_collection, save_bands
+    from retrieval_todo import expected_models
+    import config
+    collection_mode = st.checkbox('Build a manual case collection', key='collection_mode')
+    collection_key = 'collection_draft:'+loaded['master']
+    group_models = st.multiselect('Bands included in this group', expected_models(range(1,19)),
+        default=expected_models(config.RETRIEVAL_TODO_BANDS), key='new_group_models')
+    if collection_mode:
+        st.info('Click points or use lasso/box selection to ADD cases. Selections accumulate across filters. Remove cases below. Membership is independent of cloud classification.')
+        collection_name = st.text_input('Collection name', key='collection_name')
     st.subheader('Classify all available cases')
     st.caption('Choose limits, inspect satellite images, and then apply. Changing a threshold updates the preview; Apply saves a new classification snapshot and opens the dashboard.')
     draft = ClassificationRules(**st.session_state.get('cloud_draft_rules', {}))
@@ -328,7 +351,33 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     counts = preview.category.value_counts()
     for column, category in zip(st.columns(3), ('clear_sky', 'not_clear_sky', 'uncertain')):
         column.metric(category.replace('_', ' ').title(), int(counts.get(category, 0)))
-    review_plot(preview, rules, loaded['image_root'], store, source=loaded)
+    review_plot(preview, rules, loaded['image_root'], store, source=loaded,
+                collection_key=collection_key if collection_mode else None)
+    if collection_mode:
+        chosen = st.session_state.get(collection_key, [])
+        labels = dict(zip(preview.case_id, preview.sounding_time.map(data.case_label)))
+        retained = st.multiselect('Selected collection cases (remove to exclude)', chosen, default=chosen,
+                                 format_func=labels.get, key='collection_edit:'+str(hash(tuple(chosen))))
+        if retained != chosen:
+            st.session_state[collection_key] = retained
+            st.rerun()
+        st.caption(f'{len(chosen):,} selected cases, including cases hidden by current plot filters.')
+        if st.button('Clear selected cases'):
+            st.session_state[collection_key] = []
+            st.rerun()
+        if st.button('Save collection and open dashboard', type='primary'):
+            try:
+                if fingerprint(loaded['master']) != loaded['master_hash']:
+                    raise ValueError('Master changed; reload before saving')
+                path = save_collection(loaded['master'], loaded['cases'], chosen, collection_name, rules, loaded['output'], group_models)
+                _, active, _ = restore_collection(path)
+                st.session_state.cloud_active = active
+                st.session_state.dashboard_view = 'Case catalog'
+            except Exception as exc:
+                st.error('Collection was not saved: '+str(exc))
+            else:
+                st.rerun()
+        st.stop()
     st.caption(f'{int(preview.classification_source.eq("manual").sum())} persistent manual overrides applied. Review revision {revision}.')
     with st.expander('Manual review history'):
         history = store.history()
@@ -338,7 +387,10 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         try:
             if fingerprint(loaded['master']) != loaded['master_hash']:
                 raise ValueError('Master changed on disk; reload master data before applying')
+            if not group_models:
+                raise ValueError('Choose at least one band')
             classified, path = save_run(loaded['master'], loaded['cases'], rules, store)
+            save_bands(path, group_models)
             st.session_state.cloud_active = dict(cases=classified, path=str(path), rules=asdict(rules))
             st.session_state.dashboard_view = 'Case catalog'
         except Exception as exc:
