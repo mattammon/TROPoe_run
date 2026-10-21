@@ -23,8 +23,8 @@ STRETCH = {'width': 'stretch'} if tuple(int(x) for x in st.__version__.split('.'
 # File signatures invalidate the cache when a file changes. A new source load
 # invalidates the directory scan; missing clear-sky pairs are saved as a to-do CSV.
 @st.cache_data(show_spinner=False, max_entries=20000)
-def read_profile(signature, record, time, source, no_model, loader_schema=3):
-    return data.load_retrieval(signature, record, time, source, no_model)
+def read_profile(signature, record, time, source, no_model, loader_schema=4, load_ak=False):
+    return data.load_retrieval(signature, record, time, source, no_model, load_ak=load_ak)
 
 
 @st.cache_data(show_spinner=False, max_entries=5000)
@@ -157,7 +157,7 @@ if show_satellite:
 else:
     dashboard_main = st.container()
 with dashboard_main:
-    view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'RMSE comparisons', 'Vertical errors', 'Taylor diagram',
+    view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'RMSE comparisons', 'AK-smoothed RMSE', 'Vertical errors', 'Taylor diagram',
                                 'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Aerosol / AOD', 'Cloud diagnostics'], key='dashboard_view')
     if view == 'Aerosol / AOD':
         from dashboard_aod import render_aod
@@ -237,7 +237,7 @@ with dashboard_main:
     # Analysis controls do not cause disk rereads: native profiles are cached.
     rmse_style = st.radio('RMSE view', ['Distributions', 'Timeline', 'Case heatmap'], horizontal=True) if view == 'RMSE comparisons' else None
     a, b, c, d = st.columns([2, 1, 1, 1])
-    variable = 'T' if view in ('Vertical profiles', 'Vertical errors', 'Taylor diagram', 'DFS vs RMSE', 'Information content') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
+    variable = 'T' if view in ('Vertical profiles', 'Vertical errors', 'Taylor diagram', 'DFS vs RMSE', 'Information content', 'AK-smoothed RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
     bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.0, step=0.1)
     top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
     spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
@@ -268,7 +268,8 @@ with dashboard_main:
         for n, row in enumerate(matched.itertuples(), 1):
             try:
                 profiles[(row.case_id, row.model)] = read_profile(data.signature(row.file), row.profile_index,
-                                                                 row.matched_time, information_source, no_model)
+                                                                 row.matched_time, information_source, no_model,
+                                                                 load_ak=(view == 'AK-smoothed RMSE'))
             except Exception as exc:
                 problems.append(dict(case_id=row.case_id, model=row.model, stage='retrieval load', reason=str(exc)))
                 LOG.warning('%s / %s: %s', row.case_id, row.model, exc)
@@ -286,6 +287,12 @@ with dashboard_main:
         if n % 25 == 0 or n == len(selected):
             sounding_progress.progress(n/len(selected), text=f'Loading radiosonde {n:,} / {len(selected):,}')
     sounding_progress.empty()
+
+    if view == 'AK-smoothed RMSE':
+        from dashboard_ak_rmse import render_ak_rmse
+        render_ak_rmse(selected, models, profiles, observations, edges, paired,
+                       display_chart, download_table, problems)
+        st.stop()
 
     if view == 'Vertical errors':
         render_vertical(selected, models, profiles, observations, edges, display_chart, download_table, problems)

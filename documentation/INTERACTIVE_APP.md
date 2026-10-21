@@ -809,3 +809,46 @@ cases, aggregate median profiles, and Ch1's actual column in difference mode.
 Values beyond the limits saturate in color; hover and CSV values stay intact.
 Paired differences retain their symmetric blue–white–red scale. Density and
 uncertainty scales are unchanged.
+
+
+### AK-smoothed radiosonde RMSE
+
+Select **AK-smoothed RMSE** from the Plot menu. The two panels compare raw
+and AK-smoothed radiosonde RMSE for temperature and water vapor. Tables give
+mean/median RMSE and counts per band; downloadable case metrics include both
+RMSEs, the reference, layer, prior-extension count/policy, and kernel source.
+Raw and smoothed numbers on this page use the same eligible case-band pairs.
+The paired-across-bands setting applies after smoothing eligibility checks.
+Existing RMSE pages continue to use raw radiosonde profiles.
+
+The implementation uses `Xa + Akernal @ (x_sonde - Xa)` on the full native
+retrieval grid, before interpolating to the selected layer's bin centers.
+Both T and q profiles are supplied jointly, preserving cross-variable terms.
+It validates `arb1`/`arb2` ordering (T then q), the full matrix dimensions,
+and the native TROPoe degree-C/g-per-kg linear-state convention. Additional
+cloud/gas state components stay at Xa, so their departures and contributions
+are zero; this is a conditional T/q comparison, not an independently observed
+full atmospheric state. The full-observation `Akernal` is used, independently
+of the DFS source and no-model display controls. A diagonal kernel or cDFS
+cannot substitute for the full matrix. Missing/invalid Xa or Akernal excludes
+the smoothed comparison without affecting raw RMSE elsewhere.
+
+By default a sonde must cover the full retrieval depth. **Use prior outside
+sounding height coverage** explicitly extends T/q with Xa outside the sonde's
+height range; it does not extrapolate observed values or fill interior missing
+values. Extension levels are counted in CSVs and summary tables. Raw sonde
+coverage is still required throughout the selected verification layer. This
+policy matters because upper-level departures can affect lower-level results.
+
+Smoothed references differ by band/kernel/prior. Lower smoothed RMSE alone
+must not be interpreted as better atmospheric accuracy or higher resolution;
+a weakly informative retrieval can agree closely with a prior-dominated
+reference. Evaluate it alongside raw RMSE and DFS. The operation is a linear
+approximation using the final retrieval kernel.
+
+Schema reference: upstream TROPoe `Output_Functions.py`,
+https://github.com/OAR-atmospheric-observations/TROPoe/blob/master/Output_Functions.py
+Core reusable functions are in `averaging_kernel_rmse.py`; the shared
+`dashboard_data.build_analysis` accepts `reference='ak_smoothed'` and
+`allow_prior_extension=False`. `load_retrieval(..., load_ak=True)` opts into
+reading the matrix; other pages avoid caching these larger arrays.

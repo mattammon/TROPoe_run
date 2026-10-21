@@ -172,7 +172,7 @@ def _convert(da, kind):
     return a
 
 
-def load_retrieval(file_signature, record, expected_time, source='auto', no_model=False):
+def load_retrieval(file_signature, record, expected_time, source='auto', no_model=False, load_ak=False):
     path = file_signature[0]
     with xr.open_dataset(path) as ds:
         times = pd.to_datetime(dataset_times(ds), utc=True)
@@ -206,6 +206,12 @@ def load_retrieval(file_signature, record, expected_time, source='auto', no_mode
                 result[key] = np.where(np.isfinite(values) & (values >= 0), values, np.nan)
             except (KeyError, ValueError) as exc:
                 result['errors'][key] = str(exc)
+        if load_ak:
+            from averaging_kernel_rmse import read_smoothing_state
+            try:
+                result['smoothing'] = read_smoothing_state(sample, z)
+            except (KeyError, ValueError) as exc:
+                result['errors']['smoothing'] = str(exc)
         result['information'] = read_information(sample, source=source, no_model=no_model)
         for key in ('qc_flag', 'lwp', 'rmsa', 'rmsr', 'gamma'):
             if key in sample and sample[key].size == 1:
@@ -274,8 +280,10 @@ def interpolate(profile, variable, grid):
     return np.interp(grid, profile['z'], values, left=np.nan, right=np.nan)
 
 
-def build_analysis(cases, models, profiles, observations, variable, edges, paired=True):
+def build_analysis(cases, models, profiles, observations, variable, edges, paired=True, reference='raw', allow_prior_extension=False):
     """Complete common-grid RMSE; information is independent of sounding availability."""
+    if reference not in ('raw', 'ak_smoothed'):
+        raise ValueError('Unknown comparison reference: '+reference)
     centers = (edges[:-1]+edges[1:])/2
     rows, curves, infos, problems = [], {}, {}, []
     meta = cases.set_index('case_id')
@@ -305,16 +313,24 @@ def build_analysis(cases, models, profiles, observations, variable, edges, paire
                 if case not in observations:
                     raise ValueError('No loaded radiosonde; see sounding load errors')
                 ret = interpolate(profile, variable, centers)
-                obs = interpolate(observations[case], variable, centers)
-                if not np.isfinite(ret).all() or not np.isfinite(obs).all():
+                raw_obs = interpolate(observations[case], variable, centers)
+                reference_profile = observations[case]
+                if reference == 'ak_smoothed':
+                    from averaging_kernel_rmse import smooth_sounding
+                    reference_profile = smooth_sounding(profile, observations[case], allow_prior_extension)
+                obs = interpolate(reference_profile, variable, centers)
+                if not np.isfinite(ret).all() or not np.isfinite(obs).all() or not np.isfinite(raw_obs).all():
                     raise ValueError('Missing/nonfinite values inside the selected layer (no extrapolation)')
                 error = ret-obs
                 # Centers are uniformly spaced, so all vertical samples have equal weight.
                 obs_std, ret_std = np.std(obs), np.std(ret)
                 corr = float(np.corrcoef(obs, ret)[0, 1]) if obs_std > 0 and ret_std > 0 else np.nan
-                curves[key] = dict(retrieved=ret, observed=obs, error=error)
+                curves[key] = dict(retrieved=ret, observed=obs, raw_observed=raw_obs, error=error)
                 rows.append(dict(case_id=case, model=model, time=meta.loc[case, 'sounding_time'],
-                                 category=meta.loc[case, 'category'], rmse=float(np.sqrt(np.mean(error**2))),
+                                 category=meta.loc[case, 'category'], reference=reference,
+                                 raw_rmse=float(np.sqrt(np.mean((ret-raw_obs)**2))),
+                                 prior_extension_levels=reference_profile.get('prior_extension_levels', 0),
+                                 rmse=float(np.sqrt(np.mean(error**2))),
                                  bias=float(error.mean()), correlation=corr, observed_std=obs_std,
                                  retrieved_std=ret_std))
             except (KeyError, ValueError) as exc:
@@ -337,7 +353,7 @@ def build_analysis(cases, models, profiles, observations, variable, edges, paire
         metrics['dfs'] = [infos.get((r.case_id, r.model), {}).get('dfs', np.nan) for r in metrics.itertuples()]
         metrics['dfs_source'] = [infos.get((r.case_id, r.model), {}).get('source', '') for r in metrics.itertuples()]
     return dict(metrics=metrics, curves=curves, information=infos, problems=pd.DataFrame(problems),
-                centers=centers, edges=edges, variable=variable,
+                centers=centers, edges=edges, variable=variable, reference=reference,
                 case_labels=dict(zip(cases.case_id, cases.sounding_time.map(case_label))))
 
 

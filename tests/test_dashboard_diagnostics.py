@@ -105,6 +105,7 @@ render_satellite_panel(cases, {'image_root':ROOT})
             master.write_text('test')
             script = r"""
 import runpy
+import numpy as np
 from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
@@ -118,6 +119,8 @@ cases = cases.iloc[:1].copy()
 case = cases.case_id.iloc[0]
 models = ['Ch1','Ch2_B1']
 for m in models:
+    n = len(profiles[(case,m)]['z'])
+    profiles[(case,m)]['smoothing'] = dict(kernel=np.eye(2*n), prior=np.r_[profiles[(case,m)]['T'], profiles[(case,m)]['q']], auxiliary_policy='prior (zero departure)')
     profiles[(case,m)].update(sigma_T=profiles[(case,m)]['T']*0+1., sigma_q=profiles[(case,m)]['q']*0+.1, rmsr=1., rmsa=2.)
 root = ROOT
 master = str(Path(root)/'master.csv')
@@ -131,7 +134,7 @@ if 'dashboard_view' not in st.session_state:
 with patch.multiple(config,RETRIEVAL_TODO_MANIFEST=None,RETRIEVAL_TODO_BANDS=[1],RETRIEVAL_TODO_TOLERANCE_SECONDS=60.), \
      patch('dashboard_setup.classification_gate',return_value=(source,active)), \
      patch.object(data,'signature',side_effect=lambda p:(str(p),1,1)), \
-     patch.object(data,'load_retrieval',side_effect=lambda sig,*args:profiles[(case,sig[0])]), \
+     patch.object(data,'load_retrieval',side_effect=lambda sig,*args,**kwargs:profiles[(case,sig[0])]), \
      patch.object(data,'sounding_path',return_value='sonde'), \
      patch.object(data,'load_sounding',return_value=observations[case]):
     runpy.run_path(APP,run_name='__main__')
@@ -141,6 +144,8 @@ with patch.multiple(config,RETRIEVAL_TODO_MANIFEST=None,RETRIEVAL_TODO_BANDS=[1]
             app.checkbox(key='show_dashboard_satellite').check().run(timeout=30)
             self.assertFalse(app.exception)
             app.checkbox(key='info_difference').check().run(timeout=30)
+            self.assertFalse(app.exception)
+            app.selectbox(key='dashboard_view').set_value('AK-smoothed RMSE').run(timeout=30)
             self.assertFalse(app.exception)
             app.selectbox(key='dashboard_view').set_value('Vertical profiles').run(timeout=30)
             self.assertFalse(app.exception)
