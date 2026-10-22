@@ -1,4 +1,5 @@
 """Classification-first Streamlit workflow and satellite review."""
+from spectralBands import available_ch2_bands
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -326,7 +327,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     import config
     collection_mode = st.checkbox('Build a manual case collection', key='collection_mode')
     collection_key = 'collection_draft:'+loaded['master']
-    group_models = st.multiselect('Bands included in this group', expected_models(range(1,19)),
+    group_models = st.multiselect('Bands included in this group', expected_models(available_ch2_bands()),
         default=expected_models(config.RETRIEVAL_TODO_BANDS), key='new_group_models')
     if collection_mode:
         st.info('Click points to inspect satellite imagery, then press Add to collection. For lasso/box selections, press Add selected cases to collection. Only confirmed additions accumulate across filters. Remove cases below. Membership is independent of cloud classification.')

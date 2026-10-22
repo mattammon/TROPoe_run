@@ -1,8 +1,9 @@
+from spectralBands import available_ch2_bands
 #################################
 """
 Edit these parameters if running as standalone script:
 """
-Ch2_bands_compile = [1]
+Ch2_bands_compile = available_ch2_bands()
 max_height = 3 #km
 
 #################################

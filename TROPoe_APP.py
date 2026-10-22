@@ -1,4 +1,5 @@
 """Launch: python -m streamlit run TROPoe_APP.py"""
+from spectralBands import available_ch2_bands
 from pathlib import Path
 import logging
 
@@ -67,12 +68,12 @@ from case_collections import selected_cases, read_bands, save_bands
 cases = selected_cases(all_cases)
 rules = ClassificationRules(**active['rules'])
 todo_path = getattr(config, 'RETRIEVAL_TODO_MANIFEST', None)
-todo_bands = getattr(config, 'RETRIEVAL_TODO_BANDS', list(range(1, 19)))
+todo_bands = getattr(config, 'RETRIEVAL_TODO_BANDS', available_ch2_bands())
 todo_tolerance = getattr(config, 'RETRIEVAL_TODO_TOLERANCE_SECONDS', 60.)
 group_models = read_bands(active['path'], expected_models(todo_bands))
 with st.sidebar.expander('Saved group bands'):
     with st.form('group_bands:'+active['path']):
-        group_choice = st.multiselect('Bands to retrieve and analyze', expected_models(range(1,19)), default=group_models)
+        group_choice = st.multiselect('Bands to retrieve and analyze', expected_models(available_ch2_bands()), default=group_models)
         if st.form_submit_button('Save group bands'):
             try:
                 save_bands(active['path'], group_choice)
@@ -107,7 +108,7 @@ if st.session_state.get('loaded_source', {}).get('scope') != scope:
             catalog_dir = None
         else:
             universal_dir, _, scanned_files = create_catalog(
-                source['root'], bands=range(1,19), progress=report_catalog, reuse_inventory=saved_inventory)
+                source['root'], bands=available_ch2_bands(), progress=report_catalog, reuse_inventory=saved_inventory)
             group_catalog, summary, _ = create_catalog(
                 source['root'], active['path'], todo_bands, include_ch1=include_ch1,
                 tolerance_seconds=todo_tolerance, output_dir=Path(active['path']).parent/'catalog',

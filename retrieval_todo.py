@@ -1,4 +1,5 @@
 """Clear-sky retrieval plans and execution against live NetCDF completion evidence."""
+from spectralBands import available_ch2_bands
 import logging
 import os
 from pathlib import Path
@@ -165,7 +166,7 @@ def read_todo(path, retrieval_dir):
             if pd.to_datetime(getattr(row, field), utc=True) != pd.to_datetime(case[field], utc=True):
                 raise ValueError('Queued case time differs from its classification master: '+row.case_id)
         model = 'Ch1' if row.channel == '1' and row.band == '' else 'Ch2_B'+row.band if row.channel == '2' else ''
-        if model != row.model or model not in expected_models(range(1, 19)):
+        if model != row.model or model not in expected_models(available_ch2_bands()):
             raise ValueError('Invalid queued channel/band: '+row.model)
         from case_collections import read_bands
         group_models = read_bands(row.classification_manifest)

@@ -1,4 +1,5 @@
 """Saved case membership and band choices; retrieval outputs are shared."""
+from spectralBands import available_ch2_bands
 import json
 import errno
 import os
@@ -20,7 +21,7 @@ def validate_models(models):
     parsed = normalize_skip_bands(models)
     if not parsed:
         raise ValueError('Select at least one retrieval band')
-    return [m for m in expected_models(range(1, 19)) if m in parsed]
+    return [m for m in expected_models(available_ch2_bands()) if m in parsed]
 
 
 def save_bands(manifest, models):

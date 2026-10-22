@@ -1,4 +1,5 @@
 """Inventory TROPoe files and compare usable T/q profiles with expected cases."""
+from spectralBands import available_ch2_bands
 import argparse
 import csv
 from shared_outputs import atomic_text, shared_output, shared_directory
@@ -254,13 +255,13 @@ def scan_inventory(root, out, progress=None):
     return files, profiles, len(unchanged)
 
 
-def create_catalog(retrieval_dir, manifest=None, bands=range(1, 19), include_ch1=True,
+def create_catalog(retrieval_dir, manifest=None, bands=None, include_ch1=True,
                    category='clear_sky', tolerance_seconds=60., output_dir=None, progress=None, reuse_inventory=False, inventory_dir=None):
     """Scan once and write the same full inventory used by the catalog CLI."""
     retrieval_dir = Path(retrieval_dir)
     if not retrieval_dir.is_dir():
         raise ValueError('Retrieval directory does not exist: '+str(retrieval_dir))
-    bands = list(bands)
+    bands = available_ch2_bands() if bands is None else list(bands)
     if not np.isfinite(tolerance_seconds) or tolerance_seconds < 0 or any(b < 1 for b in bands):
         raise ValueError('Tolerance must be finite and nonnegative; bands must be positive')
     manifest = Path(manifest) if manifest else None
@@ -347,9 +348,9 @@ def main():
     try:
         from case_collections import read_bands
         group_models = read_bands(manifest) if manifest else None
-        bands = args.bands if args.bands is not None else ([int(m.split('_B')[1]) for m in group_models if m != 'Ch1'] if group_models else list(range(1,19)))
+        bands = args.bands if args.bands is not None else ([int(m.split('_B')[1]) for m in group_models if m != 'Ch1'] if group_models else available_ch2_bands())
         include_ch1 = not args.no_ch1 and (not group_models or 'Ch1' in group_models)
-        universal, _, _ = create_catalog(args.retrieval_dir, bands=range(1,19), reuse_inventory=args.reuse_inventory)
+        universal, _, _ = create_catalog(args.retrieval_dir, bands=available_ch2_bands(), reuse_inventory=args.reuse_inventory)
         if manifest:
             create_catalog(args.retrieval_dir, manifest, bands, include_ch1, args.category,
                 args.tolerance_seconds, args.output_dir or manifest.parent/'catalog',

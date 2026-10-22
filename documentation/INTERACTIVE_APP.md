@@ -939,3 +939,18 @@ Reuse identifies a retrieval by band and target time, assuming the same retrieva
 configuration/prior conventions. Intentionally different retrieval experiments
 should use a separate universal archive. Membership snapshots require an unchanged
 master; reload and save a new collection if its master changes.
+
+
+### Adding spectral bands
+
+Add a new `bandN` entry to `ch2_bands` in `spectralBands.py` and restart
+the app/workers. Band numbers must be positive integers; gaps are supported.
+Available bands, default retrieval/catalog lists, standalone statistics defaults,
+queue validation, and dashboard colors automatically support the new entry.
+Existing band colors remain unchanged.
+
+Saved groups retain their selected bands. Add the new band using **Bands to
+retrieve and analyze**, save, and refresh the retrieval catalog/to-do list.
+Existing queues must be regenerated to include newly requested bands.
+Explicit command-line band selections and skips still apply.
+Legacy execution without a to-do manifest now defaults to all configured bands.

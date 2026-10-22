@@ -21,3 +21,14 @@ ch2_bands = {
     'band18':'1931-1940,2000-2020,2135-2150,2265-2290,2360-2380,2700-2720',
     'band19':'1931-1940,1980-2005,2050-2075,2252-2283,2350-2380,2701-2733'
 }
+
+
+def available_ch2_bands():
+    """Return configured band numbers in numeric order (gaps are supported)."""
+    numbers = []
+    for key in ch2_bands:
+        suffix = key.removeprefix('band')
+        if not suffix.isdecimal() or int(suffix) < 1 or key != f'band{int(suffix)}':
+            raise ValueError(f'Invalid spectral band key: {key!r}; use bandN with N >= 1')
+        numbers.append(int(suffix))
+    return sorted(numbers)

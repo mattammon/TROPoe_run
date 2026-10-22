@@ -1,3 +1,4 @@
+from spectralBands import available_ch2_bands
 
 ###############################################################
 """""
@@ -62,7 +63,7 @@ CLOUD_CLASSIFICATION_MANIFEST = None
 # Latest clear-sky case/band queue generated when entering the dashboard.
 # GROUP_TROPoe uses this automatically; set None only for legacy execution.
 RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/active_retrieval_todo.csv'
-RETRIEVAL_TODO_BANDS = list(range(1, 19))  # Expected Ch2 bands; Ch1 is also required.
+RETRIEVAL_TODO_BANDS = available_ch2_bands()  # Expected Ch2 bands; Ch1 is also required.
 RETRIEVAL_TODO_TOLERANCE_SECONDS = 400.
 # Cover the retrieval averaging/surface-data window, including UTC midnight.
 RETRIEVAL_INPUT_PADDING_MINUTES = 15.

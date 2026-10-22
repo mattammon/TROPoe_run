@@ -1,4 +1,5 @@
 """Interactive Plotly figures for the retrieval explorer."""
+import colorsys
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -7,16 +8,26 @@ from plotly.subplots import make_subplots
 
 from dashboard_data import VARIABLES, model_sort, case_metadata, GROUP_ORDERS
 
-# Fixed identities for Ch1 and all 18 configured Ch2 bands. Never assign colors
-# by the currently visible subset or cycle through a short palette.
+# Preserve existing band colors; generate stable colors for additional bands.
+# Colors never depend on the currently selected subset.
 PALETTE = ['#202020', '#E6194B', '#3CB44B', '#4363D8', '#F58231',
            '#911EB4', '#00BCD4', '#F032E6', '#808000', '#9A6324',
            '#469990', '#800000', '#000075', '#A170C4', '#C8AC00',
            '#A6D854', '#E08095', '#0080FF', '#707070']
 
 
+def band_color(model):
+    number = 0 if model == 'Ch1' else int(model.split('_B')[1])
+    if number < len(PALETTE):
+        return PALETTE[number]
+    # Golden-angle spacing keeps successive new bands visually separated.
+    hue = ((number - len(PALETTE)) * 0.618033988749895 + 0.08) % 1
+    rgb = colorsys.hls_to_rgb(hue, 0.43, 0.70)
+    return '#' + ''.join(f'{round(channel * 255):02x}' for channel in rgb)
+
+
 def colors(models):
-    return {m: PALETTE[0] if m == 'Ch1' else PALETTE[int(m.split('_B')[1])] for m in models}
+    return {model: band_color(model) for model in models}
 
 
 def finish(fig, title, x=None, y=None):

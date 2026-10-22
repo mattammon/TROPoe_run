@@ -1,3 +1,4 @@
+from spectralBands import available_ch2_bands
 import sys, os
 import pandas as pd
 import glob
@@ -16,7 +17,7 @@ def run_legacy(skip_models=(), only_models=None):
     dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
     do_ch1 = 'Ch1' not in skip_models
-    candidates = sorted(int(m.split('_B')[1]) for m in only_models if m != 'Ch1') if only_models is not None else [1,3,4,5,8,9,11,12,13,17]
+    candidates = sorted(int(m.split('_B')[1]) for m in only_models if m != 'Ch1') if only_models is not None else available_ch2_bands()
     bands = [b for b in candidates if f'Ch2_B{b}' not in skip_models]
     verbose='1'
 
@@ -110,7 +111,7 @@ def main():
         only_models = normalize_skip_bands(args.bands) if args.bands is not None else None
         if only_models is not None and not only_models:
             parser.error('--bands requires at least one valid band')
-        skip_models = (set(expected_models(range(1, 19)))-only_models if only_models is not None else
+        skip_models = (set(expected_models(available_ch2_bands()))-only_models if only_models is not None else
                        normalize_skip_bands(GROUP_TROPOE_SKIP_BANDS if args.skip_bands is None else args.skip_bands))
     except ValueError as exc:
         parser.error(str(exc))
@@ -132,7 +133,7 @@ def main():
         if only_models is not None:
             from uuid import uuid4
             plan = Path(args.todo)
-            label = '_'.join(m for m in expected_models(range(1, 19)) if m in only_models)
+            label = '_'.join(m for m in expected_models(available_ch2_bands()) if m in only_models)
             report = plan.with_name(plan.stem+'_run_'+label+'_'+uuid4().hex[:12]+'.csv')
             options = dict(only_bands=only_models, report_path=report)
             print('Worker execution report: '+str(report))
