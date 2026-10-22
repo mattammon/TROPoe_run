@@ -34,7 +34,7 @@ def run_legacy(skip_models=(), only_models=None):
 
     ##########################################
 
-    VIP_obj = VIP(in_group=True, isolated_work=True) if only_models is not None else VIP(in_group=True)
+    VIP_obj = VIP(isolated_work=True) if only_models is not None else VIP()
 
     if APPLY_RETRIEVAL_LWP_FILTER:
         for d in dates:
@@ -126,7 +126,7 @@ def main():
         def run_one(date, channel, band):
             nonlocal vip
             if vip is None:
-                vip = VIP(in_group=True, isolated_work=True)
+                vip = VIP(isolated_work=True)
             run_tropoe(date, vip, channel=channel, band=band, verbose='1')
         options = {}
         if only_models is not None:

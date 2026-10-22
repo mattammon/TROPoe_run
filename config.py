@@ -63,7 +63,7 @@ CLOUD_CLASSIFICATION_MANIFEST = None
 # GROUP_TROPoe uses this automatically; set None only for legacy execution.
 RETRIEVAL_TODO_MANIFEST = f'{CLOUD_CLASSIFICATION_DIR}/active_retrieval_todo.csv'
 RETRIEVAL_TODO_BANDS = list(range(1, 19))  # Expected Ch2 bands; Ch1 is also required.
-RETRIEVAL_TODO_TOLERANCE_SECONDS = 60.
+RETRIEVAL_TODO_TOLERANCE_SECONDS = 300.
 # Cover the retrieval averaging/surface-data window, including UTC midnight.
 RETRIEVAL_INPUT_PADDING_MINUTES = 15.
 # Leave empty to run every band. Entries can be Ch1, Ch2_B6, or 6 (Ch2 band 6).

@@ -40,7 +40,6 @@ if __name__ == "__main__":
     parser.add_argument("--channel", type=int, default=1, help="IRS Channel (1 or 2)")
     parser.add_argument("--band", type=int, default=None, help="Band number (ONLY for channel-2)")
     parser.add_argument("--verbose", type=str, default='1', help="Retrieval Verbosity")
-    parser.add_argument("--group", action="store_true", help="Include Retrieval in GROUP_SUBDIR")
     parser.add_argument("--clobber", action="store_true", help="Clobber existing retieval output")
 
     args = parser.parse_args()
@@ -50,10 +49,7 @@ if __name__ == "__main__":
     else:
         clob = 0
 
-    if args.group:
-        VIP_obj = VIP(in_group=True,clobber=clob)
-    else:
-        VIP_obj = VIP(clobber=clob)
+    VIP_obj = VIP(clobber=clob)
 
     date = args.date
     data_obj = SGP_DATA(date[:8],date[:8])

@@ -9,7 +9,7 @@ class VIP:
     def __init__(self,sfc_block=True,irs_type=1,recenter=1,
                  mwr_type=0,cbh_type=1,add_tropoe=0,
                  model_block=False,default_pres=980.0,default_cbh=2.0,
-                 in_group=False,output_akernal=1,clobber=0,isolated_work=False,output_dir=None):
+                 output_akernal=1,clobber=0,isolated_work=False,output_dir=None):
 
         self.vip_id = secrets.token_hex(16)
         self.lbl_temp_dir = f'{DATA_DIR}/tmp2'
@@ -29,11 +29,6 @@ class VIP:
         if output_akernal not in (0, 1, 2):
             raise ValueError('output_akernal must be 0, 1, or 2')
         self.output_akernal = output_akernal
-
-        if in_group is True:
-            self.ret_subdir = GROUP_NAME
-        else:
-            self.ret_subdir = 'misc'
 
         self.output_dir = str(output_dir or SHARED_RETRIEVAL_OUTPUT_DIR)
         os.makedirs(self.output_dir, exist_ok=True)
