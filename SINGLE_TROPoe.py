@@ -5,7 +5,8 @@ from config import *
 from utils import *
 
 
-def run_tropoe(dt_str,VIP_obj,channel=None,band=None,verbose='1'):
+def run_tropoe(dt_str,VIP_obj,channel=None,
+               band=None,verbose='1',debug=False):
 
     VIP_obj.write_vip(irs_channel=channel,band=band)
 
@@ -17,9 +18,14 @@ def run_tropoe(dt_str,VIP_obj,channel=None,band=None,verbose='1'):
     vip_file = VIP_obj.vip_file
     prior_file = 'prior.MIDLAT.nc'
 
-    subprocess.run([sys.executable, 'TROPoe.py', date, vip_file,
+    arguments = [sys.executable, 'TROPoe.py', date, vip_file,
                     f'{DATA_DIR}/{prior_file}', f'--shour={start_hr}',
-                    f'--ehour={end_hr}', f'--verbose={verbose}'], check=True)
+                    f'--ehour={end_hr}', f'--verbose={verbose}']
+
+    if debug:
+        arguments.append('--debug')
+
+    subprocess.run(arguments, check=True)
 
     print('####### DONE #######')
     try:
@@ -41,6 +47,7 @@ if __name__ == "__main__":
     parser.add_argument("--band", type=int, default=None, help="Band number (ONLY for channel-2)")
     parser.add_argument("--verbose", type=str, default='1', help="Retrieval Verbosity")
     parser.add_argument("--clobber", action="store_true", help="Clobber existing retieval output")
+    parser.add_argument("--debug", action="store_true", help="Run on debug to output Jacobian")
 
     args = parser.parse_args()
 
@@ -55,4 +62,10 @@ if __name__ == "__main__":
     data_obj = SGP_DATA(date[:8],date[:8])
     data_obj.single_data_download()
 
-    run_tropoe(date,VIP_obj,channel=args.channel,band=args.band,verbose=args.verbose)
+    if args.debug:
+        run_tropoe(date,VIP_obj,channel=args.channel,band=args.band,
+                    verbose=args.verbose,debug=True)
+    else:
+        run_tropoe(date,VIP_obj,channel=args.channel,band=args.band,verbose=args.verbose)
+
+
