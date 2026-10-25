@@ -954,3 +954,29 @@ retrieve and analyze**, save, and refresh the retrieval catalog/to-do list.
 Existing queues must be regenerated to include newly requested bands.
 Explicit command-line band selections and skips still apply.
 Legacy execution without a to-do manifest now defaults to all configured bands.
+
+### Noise spectra
+
+The Noise spectra page uses only cases in the active collection and bands enabled
+in the sidebar. Cloud classification, season, solar day/night, observed-sounding
+PWV, and wavelength-specific AOD filters combine with AND; multiple categories
+within a filter combine with OR. Day means solar zenith below 90 degrees at the
+sounding time and configured site (night includes twilight). Missing PWV/AOD
+excludes a case only when its corresponding filter is enabled.
+
+Instrument mode reads channel-specific SkyNEN noise from local AERI summary
+files, selecting the nearest sample to the matched retrieval time within the
+user's tolerance. This is native instrument noise, not a reconstruction of
+TROPoe's averaging/inflation. Effective mode reads obs_vector_uncertainty for
+infrared elements from the matched output record. These uncertainties remain
+valid to inspect even where forward_calc is the opaque-element flag -777.
+
+Faint curves show individual cases; the thick blue curve is their arithmetic
+mean at each exact wavenumber. Spectral gaps are not connected or interpolated.
+The export includes per-wavenumber contributor counts. Orange curves use
+recorded VIP floor anchors; absent metadata uses an explicitly labeled upstream
+reference, which does not establish that the floor was applied. Distinct floors
+are drawn separately. The provenance table reports floor enable flags, retrieval
+records, summary files and matching offsets. AOD uses existing local data with
+the same QC/matching functions as the AOD page; PWV uses the observed-sounding
+catalog. Neither filter silently substitutes retrieved water vapor.

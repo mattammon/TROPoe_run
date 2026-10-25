@@ -181,7 +181,11 @@ else:
     dashboard_main = st.container()
 with dashboard_main:
     view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'RMSE comparisons', 'AK-smoothed RMSE', 'Vertical errors', 'Taylor diagram',
-                                'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Aerosol / AOD', 'Cloud diagnostics'], key='dashboard_view')
+                                'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Noise spectra', 'Aerosol / AOD', 'Cloud diagnostics'], key='dashboard_view')
+    if view == 'Noise spectra':
+        from dashboard_noise import render_noise
+        render_noise(cases, index, models, source, config, todo_tolerance, display_chart, download_table)
+        st.stop()
     if view == 'Aerosol / AOD':
         from dashboard_aod import render_aod
         render_aod(cases, index, models, loaded, config.AOD_DIR, config.AOD_DATASTREAM,
@@ -565,5 +569,3 @@ with dashboard_main:
     with st.expander('Band definitions (cm⁻¹)'):
         from spectralBands import ch1_bands, ch2_bands
         st.dataframe(pd.DataFrame([dict(band=m, wavenumbers=ch1_bands if m == 'Ch1' else ch2_bands.get('band'+m.split('_B')[1], 'Unknown')) for m in models]), hide_index=True)
-
-
