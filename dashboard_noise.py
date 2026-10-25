@@ -114,7 +114,7 @@ def separated(x, y):
     return np.insert(x.astype(float), gaps, np.nan), np.insert(y.astype(float), gaps, np.nan)
 
 
-def noise_figure(table, model, source):
+def noise_figure(table, model, source, seasonal=False, diurnal=False):
     fig = go.Figure()
     for _, group in table.groupby('case_id', sort=False):
         group = group.sort_values('wavenumber')
@@ -124,6 +124,18 @@ def noise_figure(table, model, source):
     mean = table.groupby('wavenumber', sort=True).agg(noise=('noise','mean'), count=('noise','count'))
     x, y = separated(mean.index.to_numpy(), mean.noise.to_numpy())
     fig.add_trace(go.Scatter(x=x, y=y, mode='lines', name='Mean noise', line=dict(color='#1655a0', width=3)))
+    # Group means use the same filtered case spectra as the overall mean.
+    for field, enabled, palette, dash in [
+        ('Season', seasonal, dict(zip(data.GROUP_ORDERS['Season'], ['#0072B2', '#009E73', '#D55E00', '#CC79A7'])), 'solid'),
+        ('Day/night', diurnal, {'Day':'#E69F00', 'Night':'#663399', 'Unknown':'#777777'}, 'dash'),
+    ]:
+        if enabled and field in table:
+            for label, group in table.groupby(field, sort=True):
+                values = group.groupby('wavenumber', sort=True).noise.mean()
+                x, y = separated(values.index.to_numpy(), values.to_numpy())
+                fig.add_trace(go.Scatter(x=x, y=y, mode='lines',
+                    name=f'{label} mean ({group.case_id.nunique()} cases)',
+                    line=dict(color=palette.get(label, '#777777'), width=3, dash=dash)))
     # Show each distinct floor, rather than averaging different configurations.
     seen = set()
     for _, group in table.groupby('case_id', sort=False):
@@ -157,10 +169,10 @@ def render_noise(cases, index, models, source, config, tolerance, display_chart,
     selections, ranges = {}, {}
     issues = []
     with st.expander('Filter cases (all active filters must match)', expanded=True):
-        for column in ['Classification', 'Season', 'Day/night']:
+        for column in ['Classification']:
             options = sorted(frame[column].dropna().unique())
             selections[column] = st.multiselect(column, options, default=options, key='noise_'+column)
-        st.caption('Day means solar zenith < 90° at the sounding time and configured site. Night includes twilight.')
+
         if st.checkbox('Filter by observed sounding PWV', key='noise_pwv'):
             from sounding_pwv import catalog_pwv, pwv_cache_path
             key = 'noise_pwv_cache:'+repr((source['master'], source.get('master_hash'), source.get('sonde_root'), tuple(cases.case_id)))
@@ -208,9 +220,24 @@ def render_noise(cases, index, models, source, config, tolerance, display_chart,
         if any(lo > hi for lo,hi in ranges.values()):
             st.warning('Minimum must not exceed maximum.')
             return
+    controls, plot_area = st.columns([1, 4], gap='large')
+    with controls:
+        st.markdown('**Season filters**')
+        options = [season for season in data.GROUP_ORDERS['Season'] if season in set(frame.Season)]
+        selections['Season'] = [season for season in options
+            if st.checkbox(season, value=True, key='noise_season_'+season)]
+        st.markdown('**Day/night filters**')
+        options = [period for period in ('Day', 'Night', 'Unknown') if period in set(frame['Day/night'])]
+        selections['Day/night'] = [period for period in options
+            if st.checkbox(period, value=True, key='noise_period_'+period)]
+        st.caption('Day: solar zenith < 90° at sounding time. Night includes twilight.')
+        st.markdown('**Mean curves**')
+        seasonal = st.checkbox('Seasonal means', value=False, key='noise_seasonal_means')
+        diurnal = st.checkbox('Day/night means', value=False, key='noise_diurnal_means')
+        st.caption('All curves use the active filters. The overall mean remains visible.')
     selected = filter_metadata(frame, selections, ranges)
     if selected.empty:
-        st.info('No cases match all selected filters.')
+        plot_area.info('No cases match all selected filters.')
         return
     matches = data.match_cases(selected, index, [model], tolerance)
     matches = matches.loc[matches.file.ne('')]
@@ -250,17 +277,28 @@ def render_noise(cases, index, models, source, config, tolerance, display_chart,
                'Mean weights each case equally at each available spectral sample; no interpolation across band gaps.')
     if records:
         table = spectrum_table(records)
-        fig, mean = noise_figure(table, model, mode)
+        table = table.merge(selected[['case_id', 'Season', 'Day/night']], on='case_id', how='left', validate='many_to_one')
+        fig, mean = noise_figure(table, model, mode, seasonal, diurnal)
         sources = {p['floor_source'] for p in provenance}
         if len(sources) == 1:
             for trace in fig.data:
                 if trace.name.startswith('Noise floor / reference'):
                     trace.name = trace.name.replace('Noise floor / reference', next(iter(sources))+' floor')
-        display_chart(fig, "noise_spectra")
+        with plot_area:
+            display_chart(fig, "noise_spectra")
         st.caption('Orange curves show recorded minimum-noise spectra, or a labeled upstream reference if metadata is absent. '
                    'A recorded floor may have been disabled: check the provenance table. The reference does not prove a floor was applied.')
         download_table('Download noise spectra', table, 'noise_spectra.csv', 'noise_spectra_csv')
-        download_table('Download mean and sample counts', mean, 'mean_noise.csv', 'noise_mean_csv')
+        mean['group_type'], mean['group'] = 'Overall', 'All filtered cases'
+        mean_frames = [mean]
+        for field, enabled in [('Season', seasonal), ('Day/night', diurnal)]:
+            if enabled:
+                grouped = table.groupby([field, 'wavenumber'], sort=True).agg(noise=('noise','mean'), count=('noise','count')).reset_index()
+                grouped = grouped.rename(columns={field:'group'})
+                grouped['group_type'] = field
+                mean_frames.append(grouped)
+        download_table('Download mean and sample counts', pd.concat(mean_frames, ignore_index=True),
+                       'mean_noise.csv', 'noise_mean_csv')
         with st.expander('Cases, floor settings, and input files'):
             st.dataframe(selected.merge(pd.DataFrame(provenance), on='case_id', how='inner'), hide_index=True)
     if issues:

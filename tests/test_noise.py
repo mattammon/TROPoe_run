@@ -85,3 +85,20 @@ lambda fig,name: st.plotly_chart(fig,key=name),lambda *args: None)
             app.radio(key='noise_source').set_value('Effective retrieval uncertainty').run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.get('plotly_chart')),1, str([(x.type, getattr(x,'value','')) for x in app if x.type in ('caption','dataframe','warning','info')]))
+
+
+    def test_group_means_use_filtered_cases(self):
+        table=pd.DataFrame({
+            'case_id':['a','b','c'], 'Case':['A','B','C'],
+            'wavenumber':[2350.,2350.,2350.], 'noise':[1.,3.,9.], 'floor':[.03]*3,
+            'Season':['Winter (DJF)','Winter (DJF)','Summer (JJA)'],
+            'Day/night':['Day','Night','Day']})
+        fig,_=noise_figure(table,'Ch2_B19','Instrument',True,True)
+        traces={t.name:t for t in fig.data}
+        self.assertAlmostEqual(traces['Winter (DJF) mean (2 cases)'].y[0],2.)
+        self.assertAlmostEqual(traces['Day mean (2 cases)'].y[0],5.)
+        filtered=table.loc[table['Day/night']=='Day']
+        fig,_=noise_figure(filtered,'Ch2_B19','Instrument',True,True)
+        traces={t.name:t for t in fig.data}
+        self.assertEqual(traces['Winter (DJF) mean (1 cases)'].y[0],1.)
+        self.assertFalse(any(t.startswith('Night mean') for t in traces))
