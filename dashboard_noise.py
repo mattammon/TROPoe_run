@@ -119,7 +119,7 @@ def noise_figure(table, model, source):
     for _, group in table.groupby('case_id', sort=False):
         group = group.sort_values('wavenumber')
         x, y = separated(group.wavenumber.to_numpy(), group.noise.to_numpy())
-        fig.add_trace(go.Scattergl(x=x, y=y, mode='lines', line=dict(color='rgba(40,100,180,0.10)', width=1),
+        fig.add_trace(go.Scattergl(x=x, y=y, mode='lines', line=dict(color='rgba(40,100,180,0.25)', width=1),
             name=group.Case.iloc[0], showlegend=False, hovertemplate='%{x:.3f} cm⁻¹<br>%{y:.5f} RU<extra>%{fullData.name}</extra>'))
     mean = table.groupby('wavenumber', sort=True).agg(noise=('noise','mean'), count=('noise','count'))
     x, y = separated(mean.index.to_numpy(), mean.noise.to_numpy())
