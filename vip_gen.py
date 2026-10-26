@@ -81,6 +81,7 @@ class VIP:
             f.write(f'irssum_path = {SUM_DIR}/{MASTER_DATA_FOLDER}     # Path to the IRS summary files\n')
             f.write(f'irseng_path = {ENG_DIR}/{MASTER_DATA_FOLDER}     # Path to the IRS engineering files\n')
             f.write('irs_use_missingDataFlag = 0\n')
+            f.write('irs_noise_inflation = 1.5\n')
             f.write('\n')
             f.write(f'cbh_type = {self.cbh_type}                # Specifies the type of CBH data to read\n')
             f.write(f'cbh_path = {DATA_DIR}/dlfp       # Path to the CBH data\n')
