@@ -61,7 +61,7 @@ def save_collection(master, frame, ids, name, rules, output, models, existing=No
         settings.update(name=name, rules=asdict(rules), case_count=len(membership), updated_utc=now())
         save_bands(target, models)
         atomic_text(target, membership.to_csv(index=False), catalog=True)
-        atomic_text(target.parent/'settings.json', json.dumps(settings, indent=2)+'\\n', catalog=True)
+        atomic_text(target.parent/'settings.json', json.dumps(settings, indent=2)+'\n', catalog=True)
         return target
     root = Path(output)/'collections'
     shared_directory(root, writable=True)
