@@ -374,6 +374,8 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         st.multiselect('Selected collection cases (remove to exclude)', chosen, default=chosen,
                        format_func=labels.get, key=editor_key, on_change=remove_collection_cases)
         st.caption(f'{len(chosen):,} selected cases, including cases hidden by current plot filters.')
+        from dashboard_collection_coverage import render_collection_coverage
+        render_collection_coverage(preview, chosen, loaded)
         if st.button('Clear selected cases'):
             st.session_state[collection_key] = []
             st.rerun()
