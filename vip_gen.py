@@ -37,6 +37,8 @@ class VIP:
         self.site_lon, self.site_lat = site_coordinates[SITE]
         self.site_alt = site_altitude[SITE]
 
+        self.min_noise_wnum = '500,522,546,575,600,631,747,1439,1770,1790,1884,2217,3000'
+        self.min_noise_spec = '65.309,14.056,3.283,1.333,0.813,0.557,0.304,0.581,0.822,0.035,0.025,0.023,0.044'
 
     def vip_config(self,irs_channel=None,band=None):
         try:
@@ -82,6 +84,8 @@ class VIP:
             f.write(f'irseng_path = {ENG_DIR}/{MASTER_DATA_FOLDER}     # Path to the IRS engineering files\n')
             f.write('irs_use_missingDataFlag = 0\n')
             f.write('irs_min_noise_flag = 1\n')
+            f.write(f'irs_min_noise_wnum = {self.min_noise_wnum}     # Wavenumber array [cm-1] for the minimum noise spectrum\n')
+            f.write(f'irs_min_noise_spec = {self.min_noise_spec}     # Noise array [RU] for the minimum noise spectrum\n')
             #f.write('irs_noise_inflation = 1.5\n')
             f.write('\n')
             f.write(f'cbh_type = {self.cbh_type}                # Specifies the type of CBH data to read\n')
