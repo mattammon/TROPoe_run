@@ -22,7 +22,7 @@ def read_satellite_inventory(root):
     return satellite_inventory(root)
 
 
-def inspect_case(frame, image_root, store, key, on_review=None):
+def inspect_case(frame, image_root, store, key, on_review=None, collection_key=None):
     """Select on the scatter or use the list for cases with missing radiance."""
     labels = dict(zip(frame.case_id, frame.sounding_time.map(data.case_label)))
     selected_key = key+'_case'
@@ -92,6 +92,29 @@ def inspect_case(frame, image_root, store, key, on_review=None):
     current, _ = store.snapshot()
     if case in current:
         st.caption('Saved manual review: '+current[case]['category']+' · '+current[case]['created_utc']+' · '+current[case]['note'])
+    if collection_key is not None:
+        st.caption('Confirm keeps this case and saves clear sky. Reject removes it and saves not clear sky. '
+                   'Both decisions persist across collections and threshold changes.')
+        note = st.text_input('Review note (optional)', key=key+'_note_'+case)
+        a, b = st.columns(2)
+        confirm = a.button('Confirm clear sky — keep', key=key+'_confirm_'+case,
+                           type='primary', disabled=not image)
+        reject = b.button('Reject cloudy case — remove', key=key+'_reject_'+case, disabled=not image)
+        if not image:
+            st.info('Load or generate a satellite image before confirming or rejecting.')
+        if confirm or reject:
+            try:
+                store.save(case, 'clear_sky' if confirm else 'not_clear_sky',
+                           note or 'Collection satellite double-check', image, '')
+            except Exception as exc:
+                st.error('Review was not saved: '+str(exc))
+            else:
+                if reject:
+                    st.session_state[collection_key] = [
+                        cid for cid in st.session_state.get(collection_key, []) if cid != case]
+                st.session_state.pop(selected_key, None)
+                st.rerun()
+        return
     with st.form(key+'_manual_form_'+case):
         category = st.selectbox('Manual classification', ['clear_sky', 'not_clear_sky', 'uncertain'],
                                 index=['clear_sky', 'not_clear_sky', 'uncertain'].index(row.category))
@@ -190,6 +213,11 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                 trace_ids = plotted.loc[plotted[grouping] == trace.name, 'case_id'].tolist()
                 if len(trace_ids) == len(trace.x):
                     trace.customdata = [list(row)+[case_id] for row, case_id in zip(trace.customdata, trace_ids)]
+                    if collection_key:
+                        members = set(st.session_state.get(collection_key, []))
+                        trace.marker.symbol = ['diamond' if cid in members else 'circle' for cid in trace_ids]
+            if collection_key:
+                st.caption('◆ Already in collection · ● Not in collection (colors retain the selected grouping).')
             figure.update_layout(clickmode='event', dragmode='lasso' if collection_key else 'zoom')
             event = persistent_scatter(figure, key=key+'_scatter',
                                        scope=source['master'] if source else '', collection_mode=bool(collection_key))
@@ -215,6 +243,7 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
                 if st.button('Add selected cases to collection', key=key+'_add_selected'):
                     st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | set(pending))
                     st.session_state[key+'_pending_collection_cases'] = []
+                    st.rerun()
         st.caption('The shaded rectangle represents the radiance criterion only. With an “either” rule, ASI may also establish clear sky outside that rectangle. Manual decisions always take precedence.')
     with right:
         inspect_case(preview, image_root, store, key, on_review)
@@ -223,6 +252,7 @@ def review_plot(preview, rules, image_root, store, key='classification', on_revi
             if st.button('Add to collection', key=key+'_add_case', disabled=inspected not in set(preview.case_id),
                          help='Add only the currently inspected case. Selecting a case or viewing its image does not add it.'):
                 st.session_state[collection_key] = sorted(set(st.session_state.get(collection_key, [])) | {inspected})
+                st.rerun()
 
 
 def classification_gate(default_manifest, default_root, default_sonde, default_images, default_output):
@@ -391,6 +421,21 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
                 st.error('Collection was not saved: '+str(exc))
             else:
                 st.rerun()
+        st.divider()
+        st.subheader('Double-check collection satellite imagery')
+        decisions, _ = store.snapshot()
+        queue = preview.loc[preview.case_id.isin(chosen) & ~preview.case_id.isin(decisions)].copy()
+        queue = queue.sort_values('sounding_time')
+        st.caption(f'{len(queue):,} unreviewed cases remaining. Previously manually classified cases are skipped, '
+                   'including reviews from other collections. Collection membership is saved when you save the collection.')
+        if queue.empty:
+            st.success('No unreviewed collection cases remain.')
+        else:
+            review_key = 'collection_double_check:'+loaded['master']
+            if st.session_state.get(review_key+'_case') not in set(queue.case_id):
+                st.session_state[review_key+'_case'] = queue.case_id.iloc[0]
+                st.session_state[review_key+'_image_request'] = queue.case_id.iloc[0]
+            inspect_case(queue, loaded['image_root'], store, review_key, collection_key=collection_key)
         st.stop()
     st.caption(f'{int(preview.classification_source.eq("manual").sum())} persistent manual overrides applied. Review revision {revision}.')
     with st.expander('Manual review history'):
