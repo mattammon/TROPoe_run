@@ -22,7 +22,7 @@ def read_satellite_inventory(root):
     return satellite_inventory(root)
 
 
-def inspect_case(frame, image_root, store, key, on_review=None, collection_key=None):
+def inspect_case(frame, image_root, store, key, on_review=None, collection_key=None, source=None):
     """Select on the scatter or use the list for cases with missing radiance."""
     labels = dict(zip(frame.case_id, frame.sounding_time.map(data.case_label)))
     selected_key = key+'_case'
@@ -43,6 +43,7 @@ def inspect_case(frame, image_root, store, key, on_review=None, collection_key=N
     st.caption('Searching recursively: '+image_root)
     st.caption('Sounding UTC: '+str(row.sounding_time)+' · Retrieval UTC: '+str(row.get('retrieval_time', 'missing')))
     image = ''
+    image_panel, sounding_panel = st.columns([1, 1]) if collection_key is not None else (st, None)
     try:
         inventory = read_satellite_inventory(image_root) if Path(image_root).exists() else []
         result = match_satellite_images(inventory, row.sounding_time, row.get('retrieval_time'), tolerance)
@@ -82,13 +83,17 @@ def inspect_case(frame, image_root, store, key, on_review=None, collection_key=N
             st.caption(f'Filename time: {matched["time"]:%d %b %Y · %H:%M UTC}; offset {matched["offset_minutes"]:+g} min from {result["reference_time"]:%H:%M UTC}. The actual GOES scan time is in the image title.')
             if result['basis'].startswith('nearest'):
                 st.warning('Nearby-time match: verify the image time before recording a manual classification.')
-            st.image(image, caption=Path(image).name, **plotly_size_kwargs(st.image))
+            image_panel.image(image, caption=Path(image).name, **plotly_size_kwargs(st.image))
         elif not inventory:
             st.info('No PNGs beginning YYYYMMDDhhmm were found. Check the directory and its visibility inside the app/container, then refresh satellite files.')
         else:
             st.info(f'No exact sounding/retrieval image or nearby image within {tolerance:g} minutes was found. You can still record a review.')
     except (OSError, ValueError) as exc:
         st.error('Satellite image lookup/display failed: '+str(exc))
+    if sounding_panel is not None and source is not None:
+        with sounding_panel:
+            from dashboard_review_sounding import render_review_sounding
+            render_review_sounding(row, source, key)
     current, _ = store.snapshot()
     if case in current:
         st.caption('Saved manual review: '+current[case]['category']+' · '+current[case]['created_utc']+' · '+current[case]['note'])
@@ -435,7 +440,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             if st.session_state.get(review_key+'_case') not in set(queue.case_id):
                 st.session_state[review_key+'_case'] = queue.case_id.iloc[0]
                 st.session_state[review_key+'_image_request'] = queue.case_id.iloc[0]
-            inspect_case(queue, loaded['image_root'], store, review_key, collection_key=collection_key)
+            inspect_case(queue, loaded['image_root'], store, review_key, collection_key=collection_key, source=loaded)
         st.stop()
     st.caption(f'{int(preview.classification_source.eq("manual").sum())} persistent manual overrides applied. Review revision {revision}.')
     with st.expander('Manual review history'):
