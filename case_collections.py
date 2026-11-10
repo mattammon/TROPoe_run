@@ -37,7 +37,7 @@ def read_bands(manifest, default=None):
     return validate_models(default) if default is not None else None
 
 
-def save_collection(master, frame, ids, name, rules, output, models):
+def save_collection(master, frame, ids, name, rules, output, models, existing=None):
     from dataclasses import asdict
     from dashboard_classification import fingerprint, now
     ids = set(map(str, ids))
@@ -48,6 +48,21 @@ def save_collection(master, frame, ids, name, rules, output, models):
     if not slug:
         raise ValueError('Enter a collection name containing letters or numbers')
     models = validate_models(models)
+    if existing is not None:
+        target = Path(existing).expanduser().resolve()
+        if target.name != 'collection.csv' or not target.is_file():
+            raise ValueError('Existing collection manifest not found')
+        settings = json.loads((target.parent/'settings.json').read_text())
+        if (settings.get('kind') != 'manual_collection'
+                or Path(settings['master_manifest']).resolve() != Path(master).resolve()
+                or settings['master_sha256'] != fingerprint(master)):
+            raise ValueError('Existing collection belongs to a different or changed master')
+        membership = frame.loc[frame.case_id.astype(str).isin(ids), ['case_id']]
+        settings.update(name=name, rules=asdict(rules), case_count=len(membership), updated_utc=now())
+        save_bands(target, models)
+        atomic_text(target, membership.to_csv(index=False), catalog=True)
+        atomic_text(target.parent/'settings.json', json.dumps(settings, indent=2)+'\\n', catalog=True)
+        return target
     root = Path(output)/'collections'
     shared_directory(root, writable=True)
     pending = Path(tempfile.mkdtemp(prefix='.pending_', dir=root))

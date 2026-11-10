@@ -43,7 +43,7 @@ def inspect_case(frame, image_root, store, key, on_review=None, collection_key=N
     st.caption('Searching recursively: '+image_root)
     st.caption('Sounding UTC: '+str(row.sounding_time)+' · Retrieval UTC: '+str(row.get('retrieval_time', 'missing')))
     image = ''
-    image_panel, sounding_panel = st.columns([1, 1]) if collection_key is not None else (st, None)
+    image_panel, sounding_panel = st.columns([3, 2]) if collection_key is not None else (st, None)
     try:
         inventory = read_satellite_inventory(image_root) if Path(image_root).exists() else []
         result = match_satellite_images(inventory, row.sounding_time, row.get('retrieval_time'), tolerance)
@@ -325,6 +325,7 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
                 sonde_root=str(Path(sonde).expanduser()) if sonde else '', image_root=str(Path(image_root).expanduser()),
                 output=str(store.root))
             st.session_state.pop('cloud_active', None)
+            st.session_state.pop('collection_edit_target', None)
             st.session_state.pop('loaded_source', None)
         except Exception as exc:
             st.error('Could not load master: '+str(exc))
@@ -344,7 +345,10 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             st.session_state.new_group_models = read_bands(active['path'], expected_models(config.RETRIEVAL_TODO_BANDS))
             st.session_state.cloud_draft_rules = active['rules']
             st.session_state.collection_mode = active.get('kind') == 'manual_collection'
+            st.session_state.pop('collection_edit_target', None)
             if st.session_state.collection_mode:
+                st.session_state.collection_edit_target = active['path']
+                st.session_state.collection_name = active.get('name', '')
                 st.session_state['collection_draft:'+loaded['master']] = active['cases'].case_id.tolist()
             st.session_state.pop('cloud_active', None)
             st.rerun()
@@ -367,6 +371,11 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
     if collection_mode:
         st.info('Click points to inspect satellite imagery, then press Add to collection. For lasso/box selections, press Add selected cases to collection. Only confirmed additions accumulate across filters. Remove cases below. Membership is independent of cloud classification.')
         collection_name = st.text_input('Collection name', key='collection_name')
+        edit_target = st.session_state.get('collection_edit_target')
+        save_copy = st.checkbox('Save as a new collection instead', value=False, key='collection_save_copy') if edit_target else False
+        if edit_target and not save_copy:
+            st.caption('Updating existing collection: '+str(edit_target))
+
     st.subheader('Classify all available cases')
     st.caption('Choose limits, inspect satellite images, and then apply. Changing a threshold updates the preview; Apply saves a new classification snapshot and opens the dashboard.')
     draft = ClassificationRules(**st.session_state.get('cloud_draft_rules', {}))
@@ -414,13 +423,16 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         if st.button('Clear selected cases'):
             st.session_state[collection_key] = []
             st.rerun()
-        if st.button('Save collection and open dashboard', type='primary'):
+        if st.button('Update collection and open dashboard' if edit_target and not save_copy else 'Save collection and open dashboard', type='primary'):
             try:
                 if fingerprint(loaded['master']) != loaded['master_hash']:
                     raise ValueError('Master changed; reload before saving')
-                path = save_collection(loaded['master'], loaded['cases'], chosen, collection_name, rules, loaded['output'], group_models)
+                path = save_collection(loaded['master'], loaded['cases'], chosen, collection_name, rules, loaded['output'], group_models,
+                                       existing=edit_target if edit_target and not save_copy else None)
                 _, active, _ = restore_collection(path)
                 st.session_state.cloud_active = active
+                st.session_state.pop('loaded_source', None)
+                st.session_state.pop('retrieval_todo_key', None)
                 st.session_state.dashboard_view = 'Case catalog'
             except Exception as exc:
                 st.error('Collection was not saved: '+str(exc))

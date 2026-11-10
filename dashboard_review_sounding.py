@@ -52,7 +52,7 @@ def skew_t_figure(p, t, td):
             name=label, connectgaps=False, line=dict(color=color, width=2),
             hovertemplate=label+': %{customdata:.1f} °C<br>%{y:.1f} hPa<extra></extra>'))
     fig.update_layout(template='plotly_white', title='Observed sounding · Skew-T log-P',
-        height=600, margin=dict(l=55, r=15, t=55, b=60),
+        height=480, margin=dict(l=55, r=15, t=55, b=60),
         xaxis=dict(title='Temperature (°C at 1000 hPa)', range=[-40, 50], dtick=10, showgrid=False),
         yaxis=dict(title='Pressure (hPa)', type='log', range=[np.log10(1050), 2],
                    tickmode='array', tickvals=[1000, 925, 850, 700, 500, 400, 300, 250, 200, 150, 100]),
