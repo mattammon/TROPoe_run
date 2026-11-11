@@ -2,11 +2,12 @@
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 import dashboard_data as data
 
 
-def render_performance(cases, models, profiles, observations, edges, source, chart, download):
+def render_performance(cases, models, profiles, observations, edges, source, chart, download, correlation_models=None):
     model = st.selectbox('Band to examine', models, key='performance_band')
     centers = (edges[:-1]+edges[1:])/2
     meta = data.case_metadata(cases)
@@ -31,8 +32,10 @@ def render_performance(cases, models, profiles, observations, edges, source, cha
                'Correlation measures vertical co-variation, not bias or amplitude accuracy; constant profiles have undefined correlation.')
     ids = cases.sort_values('sounding_time').case_id.tolist()
     labels = cases.set_index('case_id').sounding_time.map(data.case_label)
+    analyses = {}
     for v in ('T', 'q'):
         analysis = data.build_analysis(cases, [model], profiles, observations, v, edges, paired=False)
+        analyses[v] = analysis
         matrix = np.full((len(centers), len(ids)), np.nan)
         for j, cid in enumerate(ids):
             # Show available heights even when whole-layer metrics cannot be computed.
@@ -41,13 +44,21 @@ def render_performance(cases, models, profiles, observations, edges, source, cha
                 matrix[:,j] = data.interpolate(ret,v,centers)-data.interpolate(obs,v,centers)
         bound = float(np.nanmax(np.abs(matrix))) if np.isfinite(matrix).any() else 1.
         bound = bound or 1.
-        fig = go.Figure(go.Heatmap(x=[labels[c] for c in ids], y=centers, z=matrix,
-            colorscale='RdBu_r', zmin=-bound, zmax=bound, zmid=0,
-            colorbar=dict(title=data.VARIABLES[v][1]), hoverongaps=False,
-            hovertemplate='%{x}<br>%{y:.2f} km AGL<br>Error: %{z:.3f}<extra></extra>'))
-        fig.update_layout(title=model+' · '+data.VARIABLES[v][0]+' · retrieved − observed',
-            xaxis_title='Case (chronological; zoom to inspect)', yaxis_title='Height (km AGL)', height=450)
+        counts = np.isfinite(matrix).sum(axis=1)
+        mean = np.divide(np.nansum(matrix,axis=1), counts,
+                         out=np.full(len(centers),np.nan),where=counts>0)
+        fig = make_subplots(rows=1,cols=2,column_widths=[.92,.08],shared_yaxes=True,
+                            horizontal_spacing=.025,subplot_titles=('Cases','Mean error'))
+        for col, xx, zz in [(1,[labels[c] for c in ids],matrix),(2,['Mean'],mean[:,None])]:
+            fig.add_trace(go.Heatmap(x=xx,y=centers,z=zz,colorscale='RdBu_r',
+                zmin=-bound,zmax=bound,showscale=col==1,hoverongaps=False,
+                colorbar=dict(title=data.VARIABLES[v][1]),
+                hovertemplate='%{x}<br>%{y:.2f} km AGL<br>Error: %{z:.3f}<extra></extra>'),1,col)
+        fig.update_layout(title=model+' · '+data.VARIABLES[v][0]+' · retrieved − observed',height=450)
+        fig.update_yaxes(title_text='Height (km AGL)',row=1,col=1)
         chart(fig,'performance_errors_'+v)
+    for v in ('T', 'q'):
+        analysis = analyses[v]
         metrics = analysis['metrics']
         if metrics.empty:
             st.info('No complete-layer metrics for '+data.VARIABLES[v][0])
@@ -64,6 +75,33 @@ def render_performance(cases, models, profiles, observations, edges, source, cha
         if not analysis['problems'].empty:
             with st.expander('Cases excluded from whole-layer '+v+' statistics'):
                 st.dataframe(analysis['problems'], hide_index=True)
+    st.subheader('Profile correlation across collection bands')
+    correlation_models = correlation_models or models
+    for column, v in zip(st.columns(2), ('T','q')):
+        metrics = data.build_analysis(cases,correlation_models,profiles,observations,v,edges,paired=False)['metrics']
+        corr = np.full((len(correlation_models),len(ids)),np.nan)
+        if not metrics.empty:
+            lookup = metrics.set_index(['model','case_id']).correlation
+            for i,band in enumerate(correlation_models):
+                for j,cid in enumerate(ids):
+                    corr[i,j] = lookup.get((band,cid),np.nan)
+        std = np.array([np.std(row[np.isfinite(row)],ddof=1) if np.isfinite(row).sum()>=2 else np.nan for row in corr])
+        fig = make_subplots(rows=1,cols=2,column_widths=[.88,.12],shared_yaxes=True,
+                            horizontal_spacing=.04,subplot_titles=('Cases','SD'))
+        fig.add_trace(go.Heatmap(x=[labels[c] for c in ids],y=correlation_models,z=corr,
+            colorscale='Greens',zmin=-1,zmax=1,hoverongaps=False,
+            colorbar=dict(title='r',x=.3,y=-.35,len=.5,orientation='h'),
+            hovertemplate='%{y}<br>%{x}<br>r = %{z:.3f}<extra></extra>'),1,1)
+        fig.add_trace(go.Heatmap(x=['SD'],y=correlation_models,z=std[:,None],
+            colorscale='Purples',zmin=0,zmax=1.42,hoverongaps=False,
+            colorbar=dict(title='SD',x=.85,y=-.35,len=.3,orientation='h'),
+            hovertemplate='%{y}<br>Correlation SD = %{z:.3f}<extra></extra>'),1,2)
+        fig.update_layout(title=data.VARIABLES[v][0],height=max(450,25*len(correlation_models)+200))
+        with column:
+            chart(fig,'performance_correlations_'+v)
+    st.caption('Green: Pearson r (−1 to +1). Purple: sample standard deviation of r across cases '
+               '(requires two valid correlations). All collection bands are included. '
+               'Mean-error columns average available cases separately at each height.')
     st.caption('Blank cells indicate unavailable data. Summary statistics require complete selected-layer coverage; '
                'each eligible case has equal weight. PWV is the observed sounding column, not the selected plotting layer.')
 
@@ -72,7 +110,7 @@ def render_profile_skew(case, models, profiles, row, source, chart):
     from dashboard_review_sounding import read_review_sounding, skew_t_figure
     from dashboard_data import sounding_path, signature
     from pathlib import Path
-    choices = st.multiselect('Retrievals on Skew-T', models, default=models[:1], key='profile_skew_bands')
+    choices = st.multiselect('Retrievals on Skew-T', models, default=['Ch1'] if 'Ch1' in models else [], key='profile_skew_bands_v2')
     try:
         path = sounding_path(row.sounding_file, Path(source['master']).parent, source.get('sonde_root',''))
         p, t, td = read_review_sounding(signature(path))
@@ -95,9 +133,11 @@ def render_profile_skew(case, models, profiles, row, source, chart):
                 pp = pressure[valid]
                 fig.add_trace(go.Scatter(x=values+35*np.log(1000/pp),y=pp,customdata=values,
                     mode='lines',name=model+' '+label,connectgaps=False,
-                    line=dict(color=color,dash='dash',width=1.5),
+                    opacity=.5 if model == 'Ch1' else 1.,
+                    line=dict(color=color,dash='solid' if model == 'Ch1' else 'dash',width=2),
                     hovertemplate=model+' '+label+': %{customdata:.1f} °C<br>%{y:.1f} hPa<extra></extra>'))
         chart(fig,'vertical_observed_skew')
-        st.caption('Solid: observed. Dashed: retrieval. Full pressure column; hover shows actual temperature.')
+        st.caption('Thick solid: observed. Faint solid: Ch1. Dashed: additional bands. Full pressure column; hover shows actual temperature.')
     except Exception as exc:
         st.warning('Skew-T unavailable: '+str(exc))
+

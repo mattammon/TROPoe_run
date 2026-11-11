@@ -49,7 +49,7 @@ def skew_t_figure(p, t, td):
             showlegend=False, hoverinfo='skip'))
     for values, label, color in [(t, 'Temperature', '#d62728'), (td, 'Dewpoint', '#00884a')]:
         fig.add_trace(go.Scatter(x=skew(values, p), y=p, customdata=values, mode='lines',
-            name=label, connectgaps=False, line=dict(color=color, width=2),
+            name=label, connectgaps=False, line=dict(color=color, width=3.5),
             hovertemplate=label+': %{customdata:.1f} °C<br>%{y:.1f} hPa<extra></extra>'))
     fig.update_layout(template='plotly_white', title='Observed sounding · Skew-T log-P',
         height=480, margin=dict(l=55, r=15, t=55, b=60),
@@ -74,3 +74,4 @@ def render_review_sounding(row, source, key):
             st.code(str(path), language='text')
     except Exception as exc:
         st.warning('Observed sounding unavailable: '+str(exc))
+

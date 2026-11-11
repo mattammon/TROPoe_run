@@ -278,8 +278,8 @@ with dashboard_main:
     a, b, c, d = st.columns([2, 1, 1, 1])
     variable = 'T' if view in ('Band performance', 'Vertical profiles', 'Vertical errors', 'Taylor diagram', 'DFS vs RMSE', 'Information content', 'AK-smoothed RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
     bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.0, step=0.1)
-    top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
-    spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
+    top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=2.0, step=0.1)
+    spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=1)
     if bottom >= top:
         st.warning('Layer top must exceed layer bottom.')
         st.stop()
@@ -294,7 +294,9 @@ with dashboard_main:
             info_difference = st.checkbox('Shade differences from Ch1', value=False, key='info_difference', disabled=not include_ch1)
             if info_difference:
                 st.caption('Ch1 retains its actual values. Other bands show median same-case, same-source differences: red above Ch1, blue below. Ch1 is loaded as a reference even if deselected.')
-    load_models = list(dict.fromkeys(models + ['Ch1'])) if include_ch1 and (view == 'Vertical errors' or info_difference) else models
+    load_models = list(dict.fromkeys(models + ['Ch1'])) if include_ch1 and (view in ('Vertical errors', 'Vertical profiles') or info_difference) else models
+    if view == 'Band performance':
+        load_models = group_models
     problems = []
     matches = data.match_cases(selected, index, load_models, tolerance)
     shared = matches.loc[matches.file.ne('')].duplicated(['model', 'file', 'profile_index'], keep=False)
@@ -331,7 +333,7 @@ with dashboard_main:
 
     if view == 'Band performance':
         from dashboard_band_performance import render_performance
-        render_performance(selected, models, profiles, observations, edges, source, display_chart, download_table)
+        render_performance(selected, models, profiles, observations, edges, source, display_chart, download_table, correlation_models=group_models)
         st.stop()
 
     if view == 'AK-smoothed RMSE':
@@ -410,7 +412,7 @@ with dashboard_main:
             display_chart(plots.skewed_profile_pair(case, models, profiles, observations, (bottom, top)), 'profiles_both')
         with skew_panel:
             from dashboard_band_performance import render_profile_skew
-            render_profile_skew(case, models, profiles, row, source, display_chart)
+            render_profile_skew(case, load_models, profiles, row, source, display_chart)
         from dashboard_diagnostics import case_diagnostic, rmsr_summary
         mode = st.radio('Case profile shading', ['Cumulative DFS', 'DFS density', '1-sigma uncertainty'], horizontal=True)
         diagnostics = []
@@ -579,3 +581,4 @@ with dashboard_main:
     with st.expander('Band definitions (cm⁻¹)'):
         from spectralBands import ch1_bands, ch2_bands
         st.dataframe(pd.DataFrame([dict(band=m, wavenumbers=ch1_bands if m == 'Ch1' else ch2_bands.get('band'+m.split('_B')[1], 'Unknown')) for m in models]), hide_index=True)
+
