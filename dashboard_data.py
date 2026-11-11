@@ -207,6 +207,16 @@ def load_retrieval(file_signature, record, expected_time, source='auto', no_mode
                 result[key] = np.where(np.isfinite(values) & (values >= 0), values, np.nan)
             except (KeyError, ValueError) as exc:
                 result['errors'][key] = str(exc)
+        for field in ('pressure', 'pres'):
+            if field in sample:
+                try:
+                    pressure = _convert(sample[field], 'P')
+                    if pressure.shape != z.shape:
+                        raise ValueError('Pressure must match retrieval heights')
+                    result['P'] = pressure
+                except ValueError as exc:
+                    result['errors']['P'] = str(exc)
+                break
         if load_ak:
             from averaging_kernel_rmse import read_smoothing_state
             try:

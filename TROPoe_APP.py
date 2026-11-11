@@ -24,7 +24,7 @@ STRETCH = {'width': 'stretch'} if tuple(int(x) for x in st.__version__.split('.'
 # File signatures invalidate the cache when a file changes. A new source load
 # invalidates the directory scan; missing clear-sky pairs are saved as a to-do CSV.
 @st.cache_data(show_spinner=False, max_entries=20000)
-def read_profile(signature, record, time, source, no_model, loader_schema=4, load_ak=False):
+def read_profile(signature, record, time, source, no_model, loader_schema=5, load_ak=False):
     return data.load_retrieval(signature, record, time, source, no_model, load_ak=load_ak)
 
 
@@ -180,7 +180,7 @@ if show_satellite:
 else:
     dashboard_main = st.container()
 with dashboard_main:
-    view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'RMSE comparisons', 'AK-smoothed RMSE', 'Vertical errors', 'Taylor diagram',
+    view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'Band performance', 'RMSE comparisons', 'AK-smoothed RMSE', 'Vertical errors', 'Taylor diagram',
                                 'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Noise spectra', 'Aerosol / AOD', 'Cloud diagnostics'], key='dashboard_view')
     if view == 'Noise spectra':
         from dashboard_noise import render_noise
@@ -276,7 +276,7 @@ with dashboard_main:
     # Analysis controls do not cause disk rereads: native profiles are cached.
     rmse_style = st.radio('RMSE view', ['Distributions', 'Timeline', 'Case heatmap'], horizontal=True) if view == 'RMSE comparisons' else None
     a, b, c, d = st.columns([2, 1, 1, 1])
-    variable = 'T' if view in ('Vertical profiles', 'Vertical errors', 'Taylor diagram', 'DFS vs RMSE', 'Information content', 'AK-smoothed RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
+    variable = 'T' if view in ('Band performance', 'Vertical profiles', 'Vertical errors', 'Taylor diagram', 'DFS vs RMSE', 'Information content', 'AK-smoothed RMSE') or rmse_style == 'Distributions' else a.selectbox('Variable', ['T', 'q'], format_func=lambda v: data.VARIABLES[v][0])
     bottom = b.number_input('Layer bottom (km AGL)', min_value=0., max_value=19.9, value=0.0, step=0.1)
     top = c.number_input('Layer top (km AGL)', min_value=0.1, max_value=20., value=1.5, step=0.1)
     spacing = d.selectbox('Vertical bin size (m)', [25, 50, 100, 200, 250, 500], index=2)
@@ -328,6 +328,11 @@ with dashboard_main:
         if n % 25 == 0 or n == len(selected):
             sounding_progress.progress(n/len(selected), text=f'Loading radiosonde {n:,} / {len(selected):,}')
     sounding_progress.empty()
+
+    if view == 'Band performance':
+        from dashboard_band_performance import render_performance
+        render_performance(selected, models, profiles, observations, edges, source, display_chart, download_table)
+        st.stop()
 
     if view == 'AK-smoothed RMSE':
         from dashboard_ak_rmse import render_ak_rmse
@@ -400,7 +405,12 @@ with dashboard_main:
                             key='dashboard_profile_case', on_change=select_profile_case)
         row = selected.set_index('case_id').loc[case]
         st.caption(f"{case_labels[case]} · {row.category} · ASI: {row.asi_state} · radiance: {row.radiance_state}")
-        display_chart(plots.skewed_profile_pair(case, models, profiles, observations, (bottom, top)), 'profiles_both')
+        profile_panel, skew_panel = st.columns([2, 1])
+        with profile_panel:
+            display_chart(plots.skewed_profile_pair(case, models, profiles, observations, (bottom, top)), 'profiles_both')
+        with skew_panel:
+            from dashboard_band_performance import render_profile_skew
+            render_profile_skew(case, models, profiles, row, source, display_chart)
         from dashboard_diagnostics import case_diagnostic, rmsr_summary
         mode = st.radio('Case profile shading', ['Cumulative DFS', 'DFS density', '1-sigma uncertainty'], horizontal=True)
         diagnostics = []
