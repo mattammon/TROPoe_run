@@ -12,6 +12,14 @@ def read_review_sounding(file_signature):
     with xr.open_dataset(file_signature[0]) as ds:
         p, t = _convert(ds.pres, 'P'), _convert(ds.tdry, 'T')
         z = np.asarray(ds.alt.values, float).ravel()
+        altitude_units = str(ds.alt.attrs.get('units', 'm')).strip().lower()
+        if altitude_units in ('m', 'meter', 'meters'):
+            z = z/1000.
+        elif altitude_units not in ('km', 'kilometer', 'kilometers'):
+            raise ValueError('Unsupported altitude units: '+altitude_units)
+        if not len(z) or not np.isfinite(z[0]):
+            raise ValueError('Missing launch altitude for AGL reference')
+        z = z-z[0]
         rh = np.asarray(ds.rh.values, float).ravel()
         unit = str(ds.rh.attrs.get('units', '%')).strip().lower()
         if unit in ('1', 'fraction'):
@@ -35,10 +43,10 @@ def read_review_sounding(file_signature):
     p, t, td = p[valid], t[valid], td[valid]
     if np.isfinite(t).sum() < 2:
         raise ValueError('Fewer than two valid ascent temperatures')
-    return p, t, td
+    return p, t, td, z[keep][valid]
 
 
-def skew_t_figure(p, t, td):
+def skew_t_figure(p, t, td, height=None):
     # Linear skew in log-pressure coordinates: a constant T slopes up/right.
     skew = lambda temp, pressure: temp + 35.*np.log(1000./pressure)
     fig = go.Figure()
@@ -52,19 +60,35 @@ def skew_t_figure(p, t, td):
             name=label, connectgaps=False, line=dict(color=color, width=3.5),
             hovertemplate=label+': %{customdata:.1f} °C<br>%{y:.1f} hPa<extra></extra>'))
     fig.update_layout(template='plotly_white', title='Observed sounding · Skew-T log-P',
-        height=480, margin=dict(l=55, r=15, t=55, b=60),
+        height=480, margin=dict(l=55, r=70, t=55, b=60),
         xaxis=dict(title='Temperature (°C at 1000 hPa)', range=[-40, 50], dtick=10, showgrid=False),
         yaxis=dict(title='Pressure (hPa)', type='log', range=[np.log10(1050), 2],
                    tickmode='array', tickvals=[1000, 925, 850, 700, 500, 400, 300, 250, 200, 150, 100]),
         legend=dict(orientation='h', y=1.08), uirevision='review-skew-t')
+    if height is not None:
+        height = np.asarray(height, float)
+        valid = np.isfinite(height) & np.isfinite(p) & (p > 0)
+        if valid.sum() >= 2:
+            z, pressure = height[valid], np.asarray(p)[valid]
+            order = np.argsort(z)
+            z, pressure = z[order], pressure[order]
+            levels = np.array([0., .5, 1., 2., 3., 4., 5., 6., 8., 10., 12., 14., 16.])
+            levels = levels[(levels >= z.min()) & (levels <= z.max())]
+            ticks = np.exp(np.interp(levels,z,np.log(pressure)))
+            visible = (ticks >= 100) & (ticks <= 1050)
+            fig.update_layout(yaxis2=dict(title='Height (km AGL)',type='log',
+                overlaying='y',side='right',matches='y',range=[np.log10(1050),2],
+                tickmode='array',tickvals=ticks[visible],ticktext=[f'{v:g}' for v in levels[visible]],
+                showgrid=False))
+            fig.add_trace(go.Scatter(x=[None],y=[None],yaxis='y2',showlegend=False,hoverinfo='skip'))
     return fig
 
 
 def render_review_sounding(row, source, key):
     try:
         path = sounding_path(row.sounding_file, Path(source['master']).parent, source.get('sonde_root', ''))
-        p, t, td = read_review_sounding(signature(path))
-        st.plotly_chart(skew_t_figure(p, t, td), use_container_width=True,
+        p, t, td, z = read_review_sounding(signature(path))
+        st.plotly_chart(skew_t_figure(p, t, td, z), use_container_width=True,
                         key=key+'_skew_t', config={'displaylogo': False})
         st.caption('Observed ascent only; dewpoint derived from measured temperature and RH. '
                    'Follow the sloping gray isotherms to read temperature. No retrieval smoothing applied.')
@@ -74,4 +98,5 @@ def render_review_sounding(row, source, key):
             st.code(str(path), language='text')
     except Exception as exc:
         st.warning('Observed sounding unavailable: '+str(exc))
+
 
