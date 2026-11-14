@@ -120,3 +120,7 @@ bad_dts = {
 }
 
 
+
+# Debug attempts live outside the retrieval catalog tree; retain on persistent storage.
+RETRIEVAL_DEBUG_DIR = f'{DATA_DIR}/tropoe_debug/{SITE}'
+

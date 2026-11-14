@@ -6,7 +6,12 @@ from utils import *
 
 
 def run_tropoe(dt_str,VIP_obj,channel=None,
-               band=None,verbose='1',debug=False):
+               band=None,verbose='1',debug=False,debug_dir=None):
+
+    if debug:
+        from retrieval_debug import run_debug
+        return run_debug(dt_str, rounded_retrieval_time(dt_str), VIP_obj, channel, band, verbose,
+                         debug_dir or RETRIEVAL_DEBUG_DIR, f'{DATA_DIR}/prior.MIDLAT.nc')
 
     VIP_obj.write_vip(irs_channel=channel,band=band)
 
@@ -22,8 +27,6 @@ def run_tropoe(dt_str,VIP_obj,channel=None,
                     f'{DATA_DIR}/{prior_file}', f'--shour={start_hr}',
                     f'--ehour={end_hr}', f'--verbose={verbose}']
 
-    if debug:
-        arguments.append('--debug')
 
     subprocess.run(arguments, check=True)
 
@@ -49,6 +52,7 @@ if __name__ == "__main__":
     parser.add_argument("--clobber", action="store_true", help="Clobber existing retieval output")
     parser.add_argument("--debug", action="store_true", help="Run on debug to output Jacobian")
 
+    parser.add_argument('--debug-dir', default=None, help='Root for isolated debug attempts')
     args = parser.parse_args()
 
     if args.clobber:
@@ -64,8 +68,9 @@ if __name__ == "__main__":
 
     if args.debug:
         run_tropoe(date,VIP_obj,channel=args.channel,band=args.band,
-                    verbose=args.verbose,debug=True)
+                    verbose=args.verbose,debug=True,debug_dir=args.debug_dir)
     else:
         run_tropoe(date,VIP_obj,channel=args.channel,band=args.band,verbose=args.verbose)
+
 
 

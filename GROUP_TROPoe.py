@@ -12,7 +12,7 @@ from SINGLE_TROPoe import run_tropoe
 
 ##########################################
 
-def run_legacy(skip_models=(), only_models=None):
+def run_legacy(skip_models=(), only_models=None, debug=False, debug_dir=None):
     obs_snd_files = selected_sounding_files(SONDE_DIR, GROUP_NAME, CLOUD_SCREEN_MANIFEST, CLOUD_SCREEN_CATEGORY)
     dates = [f'{file[-19:-11]}{file[-10:-6]}' for file in obs_snd_files]
 
@@ -41,7 +41,7 @@ def run_legacy(skip_models=(), only_models=None):
         for d in dates:
             if do_ch1 == True:
                 if completed(d, 1).empty:
-                    run_tropoe(d, VIP_obj, channel=1, verbose=verbose)
+                    run_tropoe(d, VIP_obj, channel=1, verbose=verbose, debug=debug, debug_dir=debug_dir)
 
             # ==========================================
             # LWP FILTER LOGIC
@@ -76,7 +76,7 @@ def run_legacy(skip_models=(), only_models=None):
             # If the script makes it here, the Ch1 retrieval passed the LWP check!
             for b in bands:
                 if completed(d, 2, b).empty:
-                    run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose)
+                    run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose, debug=debug, debug_dir=debug_dir)
 
             print(f'\nAll Retrievals for {d} Done!\n')
 
@@ -84,10 +84,10 @@ def run_legacy(skip_models=(), only_models=None):
         for d in dates:
             if do_ch1 == True:
                 if completed(d, 1).empty:
-                    run_tropoe(d,VIP_obj,channel=1,verbose=verbose)
+                    run_tropoe(d,VIP_obj,channel=1,verbose=verbose, debug=debug, debug_dir=debug_dir)
             for b in bands:
                 if completed(d, 2, b).empty:
-                    run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose)
+                    run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose, debug=debug, debug_dir=debug_dir)
             print(f'\nAll Retrievals for {d} Done!\n')
 
 
@@ -106,6 +106,8 @@ def main():
                         help='Skip Ch1 and/or Ch2 bands (e.g. --skip-bands Ch1 3 6 or --skip-bands 3,6). '
                              'Overrides GROUP_TROPOE_SKIP_BANDS in config.py.')
     parser.add_argument('--todo', default=RETRIEVAL_TODO_MANIFEST, help='Saved group retrieval_todo.csv; defaults to the active app queue')
+    parser.add_argument('--debug', action='store_true', help='Save per-iteration matrices in unique case/band/attempt folders')
+    parser.add_argument('--debug-dir', default=RETRIEVAL_DEBUG_DIR, help='Persistent debug archive root')
     args = parser.parse_args()
     try:
         only_models = normalize_skip_bands(args.bands) if args.bands is not None else None
@@ -128,7 +130,7 @@ def main():
             nonlocal vip
             if vip is None:
                 vip = VIP(isolated_work=True)
-            run_tropoe(date, vip, channel=channel, band=band, verbose='1')
+            run_tropoe(date, vip, channel=channel, band=band, verbose='1', debug=args.debug, debug_dir=args.debug_dir)
         options = {}
         if only_models is not None:
             from uuid import uuid4
@@ -144,8 +146,9 @@ def main():
         if remaining:
             raise SystemExit(1)
     else:
-        run_legacy(skip_models, only_models)
+        run_legacy(skip_models, only_models, args.debug, args.debug_dir)
 
 
 if __name__ == '__main__':
     main()
+
