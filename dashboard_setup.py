@@ -15,6 +15,7 @@ from dashboard_classification import (ClassificationRules, ReviewStore, classify
 from dashboard_satellite import generate_satellite_image
 from dashboard_vertical import plotly_size_kwargs
 from dashboard_scatter import persistent_scatter
+from catalog_maintenance import delete_saved_catalog, plan_arm_cleanup, refresh_arm_catalog
 
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -289,6 +290,17 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
             st.caption('Saved: '+selection['created']+' · Window: '+selection['rules']['window']+
                        ' · Instrument rule: '+selection['rules']['combine'])
             st.caption('Manual collections retain their chosen membership regardless of cloud classification. Saved classifications select clear-sky cases.')
+            with st.expander('Delete selected catalog'):
+                st.warning('Deletes this saved catalog and its group summary and to-do files. Shared retrievals and manual review history are retained.')
+                confirm = st.checkbox('Delete '+selection['name'], key='confirm_catalog_delete')
+                if st.button('Delete selected catalog', disabled=not confirm):
+                    try:
+                        delete_saved_catalog(output, chosen)
+                    except Exception as exc:
+                        st.error('Catalog deletion failed: '+str(exc))
+                    else:
+                        st.success('Deleted '+selection['name'])
+                        st.rerun()
             if st.button('Open selected catalog in dashboard', type='primary'):
                 try:
                     restored, active, updated = restore_saved_catalog(chosen)
@@ -337,6 +349,20 @@ def classification_gate(default_manifest, default_root, default_sonde, default_i
         st.stop()
     with st.sidebar:
         st.caption('Master: '+loaded['master'])
+        with st.expander('Refresh ARM data catalog'):
+            st.caption('Remove raw AERI channel, summary, engineering, and surface files on days outside every saved manual case collection (including adjacent padded days). Soundings, ASI, AOD, satellite images, and retrievals are retained.')
+            try:
+                cleanup, collection_count, kept_days = plan_arm_cleanup(loaded['output'])
+                st.write(f'{collection_count} saved collections · {len(kept_days)} retained days · {len(cleanup)} raw files eligible for deletion')
+                if collection_count == 0:
+                    st.warning('There are no saved manual collections; this would remove all recognized retrieval input files.')
+                approve_cleanup = st.checkbox('Delete the listed unreferenced raw files', key='approve_arm_cleanup')
+                if st.button('Refresh ARM data catalog', disabled=not cleanup or not approve_cleanup):
+                    counts, _, _ = refresh_arm_catalog(loaded['output'])
+                    st.success(f'Removed {counts.get("files", 0)} raw files ({counts.get("bytes", 0)/1024**2:.1f} MiB).')
+                    st.rerun()
+            except Exception as exc:
+                st.error('Cleanup preview failed; no files removed: '+str(exc))
         active = st.session_state.get('cloud_active')
         if active and st.button('Review images / change classification thresholds'):
             from case_collections import read_bands

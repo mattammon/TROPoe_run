@@ -36,12 +36,17 @@ def run_legacy(skip_models=(), only_models=None, debug=False, debug_dir=None):
     ##########################################
 
     VIP_obj = VIP(isolated_work=True) if only_models is not None else VIP()
+    from get_sgp_data import RetrievalInputPreparer
+    inputs = RetrievalInputPreparer()
+    def execute(d, channel, band=None):
+        inputs.ensure(d, channel)
+        run_tropoe(d, VIP_obj, channel=channel, band=band, verbose=verbose, debug=debug, debug_dir=debug_dir)
 
     if APPLY_RETRIEVAL_LWP_FILTER:
         for d in dates:
             if do_ch1 == True:
                 if completed(d, 1).empty:
-                    run_tropoe(d, VIP_obj, channel=1, verbose=verbose, debug=debug, debug_dir=debug_dir)
+                    execute(d, 1)
 
             # ==========================================
             # LWP FILTER LOGIC
@@ -76,7 +81,7 @@ def run_legacy(skip_models=(), only_models=None, debug=False, debug_dir=None):
             # If the script makes it here, the Ch1 retrieval passed the LWP check!
             for b in bands:
                 if completed(d, 2, b).empty:
-                    run_tropoe(d, VIP_obj, channel=2, band=b, verbose=verbose, debug=debug, debug_dir=debug_dir)
+                    execute(d, 2, b)
 
             print(f'\nAll Retrievals for {d} Done!\n')
 
@@ -84,10 +89,10 @@ def run_legacy(skip_models=(), only_models=None, debug=False, debug_dir=None):
         for d in dates:
             if do_ch1 == True:
                 if completed(d, 1).empty:
-                    run_tropoe(d,VIP_obj,channel=1,verbose=verbose, debug=debug, debug_dir=debug_dir)
+                    execute(d, 1)
             for b in bands:
                 if completed(d, 2, b).empty:
-                    run_tropoe(d,VIP_obj,channel=2,band=b,verbose=verbose, debug=debug, debug_dir=debug_dir)
+                    execute(d, 2, b)
             print(f'\nAll Retrievals for {d} Done!\n')
 
 
@@ -126,8 +131,11 @@ def main():
         from retrieval_todo import execute_todo
         # A stale or empty queue must never fall back to the full legacy cohort.
         vip = None
+        from get_sgp_data import RetrievalInputPreparer
+        inputs = RetrievalInputPreparer()
         def run_one(date, channel, band):
             nonlocal vip
+            inputs.ensure(date, channel)
             if vip is None:
                 vip = VIP(isolated_work=True)
             run_tropoe(date, vip, channel=channel, band=band, verbose='1', debug=args.debug, debug_dir=args.debug_dir)

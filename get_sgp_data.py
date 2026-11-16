@@ -379,6 +379,42 @@ def download_todo_inputs(path=None, *, skip_bands=None, directories=None, client
     return pd.DataFrame(rows, columns=columns)
 
 
+class RetrievalInputPreparer:
+    """Validate/download each required stream-day immediately before a retrieval.
+
+    Reuse successful checks across bands in this process. The ARM catalog is
+    queried for each uncached stream-day, so a partially present day is filled.
+    """
+    def __init__(self, *, directories=None, client=None):
+        self.downloader = SGP_DATA('20000101', '20000101', directories=directories, client=client)
+        self.checked = set()
+
+    def ensure(self, date, channel):
+        from utils import rounded_retrieval_time
+        target = pd.Timestamp(rounded_retrieval_time(date))
+        padding = float(getattr(config, 'RETRIEVAL_INPUT_PADDING_MINUTES', 15.))
+        if not math.isfinite(padding) or padding < 0:
+            raise ValueError('RETRIEVAL_INPUT_PADDING_MINUTES must be finite and nonnegative')
+        days = pd.date_range((target-pd.Timedelta(minutes=padding)).normalize(),
+                             (target+pd.Timedelta(minutes=padding)).normalize())
+        for day in days:
+            stamp = day.strftime('%Y-%m-%d')
+            for stream in self.downloader.retrieval_streams(channels=(channel,)):
+                key = (stamp, stream)
+                if key in self.checked:
+                    continue
+                try:
+                    records = self.downloader.dataset_download(
+                        stream, self.downloader.directories[stream], stamp, stamp)
+                    if not records or any(r['status'] == 'unavailable' for r in records):
+                        raise RuntimeError(f'ARM inputs unavailable: {stream} {stamp}')
+                except (CatalogError, OSError, ValueError, RuntimeError) as exc:
+                    if stream != 'aod':
+                        raise RuntimeError(f'Cannot prepare retrieval inputs for {stream} {stamp}: {exc}') from exc
+                    logger.warning('Optional AOD unavailable for %s: %s', stamp, exc)
+                self.checked.add(key)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('start', nargs='?', help='First UTC date, inclusive (YYYY-MM-DD or YYYYMMDD)')
