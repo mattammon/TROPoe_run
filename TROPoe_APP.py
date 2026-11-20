@@ -180,11 +180,15 @@ if show_satellite:
 else:
     dashboard_main = st.container()
 with dashboard_main:
-    view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'Band performance', 'Vertical structure lab', 'RMSE comparisons', 'AK-smoothed RMSE', 'Vertical errors', 'Taylor diagram',
+    view = st.selectbox('Plot', ['Case catalog', 'Vertical profiles', 'Band performance', 'Vertical structure lab', 'Spectral contribution lab', 'RMSE comparisons', 'AK-smoothed RMSE', 'Vertical errors', 'Taylor diagram',
                                 'Information content', 'DFS vs RMSE', '985 radiance scatter', 'Noise spectra', 'Aerosol / AOD', 'Cloud diagnostics'], key='dashboard_view')
     if view == 'Vertical structure lab':
         from dashboard_structure import render_structure
         render_structure(cases, index, models, source, todo_tolerance, display_chart)
+        st.stop()
+    if view == 'Spectral contribution lab':
+        from dashboard_spectral_lab import render_spectral_lab
+        render_spectral_lab(cases, index, models, source, config, todo_tolerance, display_chart)
         st.stop()
     if view == 'Noise spectra':
         from dashboard_noise import render_noise

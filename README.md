@@ -37,8 +37,14 @@ python -m pip install -r requirements-dashboard.txt
 python -m streamlit run TROPoe_APP.py --server.address 127.0.0.1
 ```
 
-The app includes a labeled synthetic demo and loads your existing screening
-manifest, retrievals, and radiosondes. Views include profiles, RMSE comparisons,
+The app opens with saved classifications or manual case collections and loads
+your existing manifests, retrievals, and radiosondes. Views include profiles, RMSE comparisons,
 Taylor diagrams, DFS profiles, and DFS versus RMSE, with CSV/interactive HTML
 exports. See [the app guide](documentation/INTERACTIVE_APP.md) for setup, HPC SSH
 tunneling, matching rules, and scientific conventions.
+
+The **Spectral contribution lab** reads archived TROPoe debug matrices to inspect
+spectral attribution, observation/prior constraints, local band-withholding and
+prior experiments, and seasonal/diurnal/PWV comparisons. See
+[the spectral lab guide](documentation/spectral_contribution_lab.md) for input
+requirements, equations, and interpretation.
