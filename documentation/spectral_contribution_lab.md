@@ -39,6 +39,14 @@ flags retain their own labels. Matrices must be finite and their algebra must
 close. Active -777, -999 or -9999 observation/forward sentinel candidates block
 quantitative attribution; raw Y/FXn remain inspectable.
 
+Covariance/precision symmetry is checked on diagonal-scaled differences
+`abs(M[i,j] − M[j,i]) / sqrt(abs(M[i,i] * M[j,j]))`, with a numerical floor
+for zero diagonals. Differences up to `1e-5` on this dimensionless scale are
+accepted and averaged as `(M + M.T)/2` for symmetric analyses. This tolerates
+roundoff in near-zero cross terms without allowing a large auxiliary variance
+to hide substantial asymmetry in the T/q blocks. Shape, nonfinite, substantial
+asymmetry, and positive-semidefiniteness failures remain separate checks.
+
 Upstream conventions were checked against TROPoe `09ab443`:
 
 - Kij: observation × state; Gain: state × observation.

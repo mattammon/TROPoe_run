@@ -129,8 +129,25 @@ def relative_error(actual, expected):
 
 
 def symmetric(a, name):
-    if a.ndim != 2 or a.shape[0] != a.shape[1] or not np.allclose(a, a.T, rtol=1e-6, atol=1e-10):
-        raise ValueError(name+' is not a finite symmetric square matrix')
+    a = np.asarray(a, dtype=float)
+    if a.ndim != 2 or a.shape[0] != a.shape[1]:
+        raise ValueError(f'{name} must be square; shape={a.shape}')
+    if not np.isfinite(a).all():
+        raise ValueError(f'{name} contains {np.sum(~np.isfinite(a))} nonfinite entries')
+    # Covariances mix units and have cross terms near zero. Elementwise relative
+    # tolerance wrongly rejects roundoff in those terms; a global matrix norm
+    # would instead hide errors in small-unit blocks (e.g. beside cloud states).
+    # Normalize by sqrt(|diagonal_i diagonal_j|), i.e. correlation scale.
+    diagonal = np.abs(np.diag(a))
+    floor = max(float(diagonal.max())*np.finfo(float).eps, np.finfo(float).tiny)
+    scale = np.sqrt(np.outer(np.maximum(diagonal, floor), np.maximum(diagonal, floor)))
+    discrepancy = np.abs(a-a.T)/scale
+    maximum = float(discrepancy.max())
+    if maximum > 1e-5:
+        i,j = np.unravel_index(np.argmax(discrepancy), a.shape)
+        raise ValueError(f'{name} has substantial asymmetry: max diagonal-scaled difference '
+                         f'{maximum:.3g} exceeds 1e-5 at [{i},{j}] '
+                         f'({a[i,j]:.8g} versus {a[j,i]:.8g})')
     return (a+a.T)/2
 
 

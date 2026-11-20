@@ -70,6 +70,18 @@ def write_fixture(root):
 
 
 class SpectralDebugTests(unittest.TestCase):
+    def test_symmetry_uses_covariance_scale_not_near_zero_cross_terms(self):
+        a=np.array([[4.,1e-10,0.],[2e-8,9.,0.],[0.,0.,40000.]])
+        np.testing.assert_array_equal(debug.symmetric(a,'Sa'),(a+a.T)/2)
+        # A large auxiliary-state variance must not hide a bad T/q cross term.
+        a[0,1]=.01
+        with self.assertRaisesRegex(ValueError,'substantial asymmetry'):
+            debug.symmetric(a,'Sa')
+        with self.assertRaisesRegex(ValueError,'nonfinite'):
+            debug.symmetric(np.array([[np.nan]]),'Sa')
+        with self.assertRaisesRegex(ValueError,'shape='):
+            debug.symmetric(np.zeros((2,3)),'Sa')
+
     def test_exact_attribution_damping_modes_and_step(self):
         raw,meta,_=fixture()
         a=debug.analyze(raw,meta)
