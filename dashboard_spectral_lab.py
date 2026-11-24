@@ -24,7 +24,7 @@ def load_metadata(sig, record):
 
 
 @st.cache_data(show_spinner=False, max_entries=6)
-def load_analysis(files, sig, record):
+def load_analysis(files, sig, record, analysis_version=debug.ANALYSIS_VERSION):
     return debug.analyze(debug.read_iteration(files), load_metadata(sig, record))
 
 
@@ -141,7 +141,7 @@ def single_attempt(frame, inventory, index, model, tolerance):
         if not matches:
             st.warning('No saved debug Xn/kernel matches the final output. This attempt remains useful for iteration analysis but is excluded from the final-solution cohort analysis.')
         try:
-            result = load_analysis(files,sig,record)
+            result = load_analysis(files,sig,record,debug.ANALYSIS_VERSION)
         except Exception as exc:
             st.error('Quantitative attribution disabled: '+str(exc))
             raw = debug.read_iteration(files)
@@ -308,7 +308,7 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
     if jobs.empty:
         return
     sig = debug.cohort_signatures(jobs.attempt)
-    key = (tuple(jobs.case_id),tuple(jobs.model),sig,bottom,top,bin_width)
+    key = (debug.ANALYSIS_VERSION,tuple(jobs.case_id),tuple(jobs.model),sig,bottom,top,bin_width)
     if st.button('Compute / refresh cohort diagnostics',key='spectral_build_cohort'):
         progress = st.progress(0.,text='Reading debug attempts…')
         def report(i,n):
@@ -321,6 +321,10 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
         st.info('Press Compute / refresh cohort diagnostics for the current selection. Matrix files are read only on request; changed files or settings invalidate previous results.')
         return
     metrics,spectra,issues = saved[1]
+    if not metrics.empty:
+        accepted = metrics.drop_duplicates(['case_id','model'])
+        sentinel_cases = int(accepted.zero_influence_sentinel_rows.gt(0).sum())
+        st.success(f'{len(accepted)} case–band attempts included, including {sentinel_cases} with safely zero-influence sentinel rows. {len(issues)} attempts excluded.')
     if not issues.empty:
         with st.expander(f'Excluded attempts ({len(issues)})',expanded=True):
             st.dataframe(issues,hide_index=True);table_download(issues,'spectral_cohort_exclusions')
@@ -333,6 +337,7 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
     st.caption('Prior sensitivity is sqrt(diag[(I−A) Sa (I−A)ᵀ] / diag[Sa]), averaged over selected native levels. It is a response ratio, not a prior percentage. Layer DFS is a sum over the selected native levels, so inspect the level-count columns when grids differ.')
     if st.checkbox('Only near-unit damping (γ ≈ 1)',key='spectral_gamma_one'):
         metrics = metrics.loc[np.isclose(metrics.gamma,1.,rtol=.01)]
+        st.caption('This filter excludes γ ≠ 1 even if sentinel handling is valid.')
     if st.checkbox('Only qc_flag = 0',key='spectral_cohort_qc'):
         if 'qc_flag' in metrics:
             metrics = metrics.loc[metrics.qc_flag.eq(0)]

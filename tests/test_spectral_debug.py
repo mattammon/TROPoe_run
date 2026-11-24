@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -89,6 +90,19 @@ class SpectralDebugTests(unittest.TestCase):
         table=debug.observation_table(a,w)
         self.assertTrue(table.sentinel_excluded.iloc[0])
         self.assertEqual(table.likelihood_pull.iloc[0],0.)
+        # Exercise the actual across-case entry point, including final matching,
+        # NetCDF reload, both variables, grouping, and the accepted-row count.
+        meta['Akernal']=raw['Akern'].copy()
+        with tempfile.TemporaryDirectory() as root:
+            with patch(__name__+'.fixture',return_value=(raw,meta,None)):
+                attempt,work,file=write_fixture(root)
+            jobs=[dict(case_id='opaque',model='Ch2_B25',attempt=str(attempt),
+                       work=str(work),retrieval_time='2025-01-01T12:00Z')]
+            metrics,spectra,issues=debug.summarize_cohort(jobs,0.,2.,10.)
+            self.assertTrue(issues.empty,issues.to_string())
+            self.assertEqual(set(metrics.variable),{'T','q'})
+            self.assertTrue(metrics.zero_influence_sentinel_rows.eq(1).all())
+            self.assertFalse(spectra.empty)
 
     def test_symmetry_uses_covariance_scale_not_near_zero_cross_terms(self):
         a=np.array([[4.,1e-10,0.],[2e-8,9.,0.],[0.,0.,40000.]])

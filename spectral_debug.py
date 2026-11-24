@@ -14,6 +14,8 @@ import xarray as xr
 from scipy.linalg import eigh, pinvh
 
 CONSTANTS = ('Y', 'Xa', 'Sa', 'SaInv', 'SmInv')
+# Include in dashboard cache keys whenever diagnostic interpretation changes.
+ANALYSIS_VERSION = 'opaque-zero-sensitivity-v2'
 REQUIRED = CONSTANTS + ('Xn', 'Xnp1', 'Kij', 'Gain', 'B', 'Sop', 'Akern')
 FLAGS = {1: 'Infrared', 2: 'Microwave', 3: 'External T profile',
          4: 'External q profile', 5: 'Surface T', 6: 'Surface q',
@@ -281,6 +283,7 @@ def summarize_cohort(jobs, bottom, top, bin_width, progress=None):
             a = analyze(read_iteration(iteration_signature(row['work'], step)), meta)
             common = {key: row[key] for key in ('case_id','model','attempt')}
             common['iteration'] = step
+            common['zero_influence_sentinel_rows'] = a['sentinel_inactive']
             metrics.extend(dict(common, **m) for m in case_metrics(a,bottom,top))
             for variable in ('T','q'):
                 w = feature_weights(meta['z'], len(a['proposed']),variable,bottom,top)

@@ -71,6 +71,13 @@ The single-attempt view can examine intermediate iterations. Cohort results
 use only final-matched iterations from the latest finished attempt per
 case/band. Exclusions are listed; another attempt is never silently substituted.
 
+Across-case cache keys include the diagnostic implementation version as well
+as input-file signatures. After a diagnostic fix, recompute with **Compute /
+refresh cohort diagnostics** rather than retaining old exclusion results.
+The included-attempt banner reports how many accepted attempts contain safely
+zero-influence sentinel rows. The optional gamma≈1 filter still excludes
+otherwise valid attempts with larger damping (for example gamma=3).
+
 ## Spectral attribution: what produced a feature?
 
 Select T or q and an analysis layer (default 0–2 km). The feature is the
