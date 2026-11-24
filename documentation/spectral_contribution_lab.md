@@ -39,6 +39,14 @@ flags retain their own labels. Matrices must be finite and their algebra must
 close. Active -777, -999 or -9999 observation/forward sentinel candidates block
 quantitative attribution; raw Y/FXn remain inspectable.
 
+Exception: opaque/sentinel rows are allowed when their Jacobian row and Gain
+column are exactly zero and their observation precision has no off-diagonal
+coupling. A positive diagonal precision alone does not imply influence on the
+state. Such rows retain zero update contributions; their raw values are
+exported with `sentinel_excluded=True` and excluded from normalized-residual
+plots, directional support, and diagnostic residual costs. Nonzero Gain/K or
+precision coupling still blocks attribution. This does not modify a retrieval.
+
 Covariance/precision symmetry is checked on diagonal-scaled differences
 `abs(M[i,j] − M[j,i]) / sqrt(abs(M[i,i] * M[j,j]))`, with a numerical floor
 for zero diagonals. Differences up to `1e-5` on this dimensionless scale are

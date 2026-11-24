@@ -70,6 +70,26 @@ def write_fixture(root):
 
 
 class SpectralDebugTests(unittest.TestCase):
+    def test_zero_gain_opaque_sentinel_is_safe_despite_positive_precision(self):
+        raw,meta,_=fixture()
+        raw['SmInv']=np.diag(np.diag(raw['SmInv']))
+        raw['Kij'][0]=0.
+        raw['FXn'][0]=-777.
+        k,p=raw['Kij'],raw['SmInv']
+        b=3*raw['SaInv']+k.T@p@k
+        g=np.linalg.solve(b,k.T@p)
+        raw.update(B=b,Gain=g,Akern=(g@k).T)
+        raw['Xnp1']=raw['Xa']+g@(raw['Y']-raw['FXn']+k@(raw['Xn']-raw['Xa']))
+        a=debug.analyze(raw,meta)
+        self.assertEqual(a['sentinel_inactive'],1)
+        self.assertEqual(a['diagnostic_residual'][0],0.)
+        np.testing.assert_array_equal(a['contributions'][:,0],0.)
+        np.testing.assert_allclose(debug.local_experiment(a)['state'],raw['Xnp1'])
+        w=debug.feature_weights(meta['z'],8,'T',0.,2.)
+        table=debug.observation_table(a,w)
+        self.assertTrue(table.sentinel_excluded.iloc[0])
+        self.assertEqual(table.likelihood_pull.iloc[0],0.)
+
     def test_symmetry_uses_covariance_scale_not_near_zero_cross_terms(self):
         a=np.array([[4.,1e-10,0.],[2e-8,9.,0.],[0.,0.,40000.]])
         np.testing.assert_array_equal(debug.symmetric(a,'Sa'),(a+a.T)/2)

@@ -199,9 +199,18 @@ def analyze(raw, meta):
     if max(checks.values()) > 1e-4:
         raise ValueError('Debug algebra does not close (wrong orientation, mixed samples, or unsupported solver): '+str(checks))
     suspicious = np.isin(r['Y'], [-777.,-999.,-9999.]) | np.isin(r['FXn'], [-777.,-999.,-9999.])
-    active = np.any(np.abs(g)>0, axis=0) | np.any(np.abs(precision)>0, axis=0)
-    if np.any(suspicious & active):
-        raise ValueError(f'{np.sum(suspicious & active)} active observations contain sentinel candidates (-777/-999/-9999). Attribution would describe a corrupted calculation; inspect these raw rows first.')
+    active = np.any(g != 0, axis=0) | np.any(k != 0, axis=1)
+    off_diagonal = precision.copy()
+    np.fill_diagonal(off_diagonal, 0.)
+    # TROPoe can retain positive diagonal precision for an opaque element while
+    # explicitly zeroing its K row and G column. Such a row has no state effect.
+    # Require exact zeros and no precision coupling: never silently mask a row
+    # whose sentinel could propagate to other observations or local experiments.
+    unsafe = suspicious & (active | np.any(off_diagonal != 0, axis=0))
+    if np.any(unsafe):
+        raise ValueError(f'{np.sum(unsafe)} active observations contain sentinel candidates (-777/-999/-9999). Nonzero Gain, Jacobian, or cross-observation precision prevents safe attribution; inspect these raw rows first.')
+    diagnostic_residual = residual.copy()
+    diagnostic_residual[suspicious] = 0.
     eig, modes = eigh(symmetric(sroot@h@sroot, 'Whitened information'))
     if eig.min() < -max(np.max(np.abs(eig)),1)*1e-7:
         raise ValueError('Negative observation information: check SmInv')
@@ -214,13 +223,14 @@ def analyze(raw, meta):
     prior_sensitivity = np.sqrt(np.maximum(prior_variance,0))/np.where(sigma>0,sigma,np.nan)
     return dict(raw=r, meta=meta, K=k, G=g, A=a, prior_response=prior_response,
                 gamma=gamma, gamma_source=gamma_source, checks=checks,
-                residual=residual, innovation=d, proposed=proposed,
+                residual=residual, diagnostic_residual=diagnostic_residual,
+                sentinel=suspicious, innovation=d, proposed=proposed,
                 contributions=g*d[None,:], obs_step=g@residual,
                 prior_step=-prior_response@(r['Xn']-r['Xa']),
                 dfs_by_obs=np.sum(g*k.T,axis=0), sigma=sigma,
                 prior_sensitivity=prior_sensitivity, sa_root=sroot, prior_rank=rank,
                 eigenvalues=eig, modes=modes, information_fraction=fractions,
-                inactive=int((~active).sum()), sentinel_inactive=int((suspicious & ~active).sum()),
+                inactive=int((~active).sum()), sentinel_inactive=int(suspicious.sum()),
                 prior_id=hashlib.sha256(sa.tobytes()+r['Xa'].tobytes()).hexdigest()[:12])
 
 
@@ -318,12 +328,12 @@ def observation_table(a, weights, width=10., amplitude=1.):
     perturbation = amplitude*weights/max(np.max(np.abs(weights)),1e-30)
     spectral_change = a['K']@perturbation
     # Full precision multiplication retains cross-observation covariance.
-    score = spectral_change*(raw['SmInv']@a['residual'])
+    score = spectral_change*(raw['SmInv']@a['diagnostic_residual'])
     group = [f'{np.floor(w/width)*width:g}–{(np.floor(w/width)+1)*width:g} cm⁻¹'
              if f == 1 and np.isfinite(w) else FLAGS.get(f, 'Observation flag '+str(f)) for f,w in zip(flags,wn)]
     return pd.DataFrame(dict(obs_index=np.arange(len(wn)), flag=flags, coordinate=wn,
         group=group, observed=raw['Y'], calculated=raw['FXn'], uncertainty=meta['obs_vector_uncertainty'],
-        residual=a['residual'], innovation=a['innovation'], feature_contribution=signed,
+        residual=a['residual'], sentinel_excluded=a['sentinel'], innovation=a['innovation'], feature_contribution=signed,
         absolute_contribution=np.abs(signed), absolute_share=np.abs(signed)/abs_total if abs_total else np.nan,
         feature_step=feature_gain*a['residual'], likelihood_pull=score, dfs=a['dfs_by_obs'],
         bin_start=np.where(flags==1,np.floor(wn/width)*width,np.nan)))

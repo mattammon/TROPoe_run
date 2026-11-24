@@ -195,7 +195,7 @@ def render_attribution(a, w, table, chart, bottom, top, variable, sounding):
                         subplot_titles=('Signed contribution to selected feature','Observed − calculated / saved 1σ uncertainty'))
     fig.add_trace(go.Scattergl(x=ir.coordinate,y=ir.feature_contribution,mode='markers',name='Feature contribution',
         customdata=ir[['obs_index','residual','innovation']],hovertemplate='%{x:.3f} cm⁻¹<br>Contribution %{y:.5g}<br>Obs row %{customdata[0]}<br>Residual %{customdata[1]:.5g}<br>Innovation %{customdata[2]:.5g}<extra></extra>'),row=1,col=1)
-    fig.add_trace(go.Scattergl(x=ir.coordinate,y=ir.residual/ir.uncertainty.where(ir.uncertainty>0),mode='markers',name='Residual / σ'),row=2,col=1)
+    fig.add_trace(go.Scattergl(x=ir.coordinate,y=ir.residual.where(~ir.sentinel_excluded)/ir.uncertainty.where(ir.uncertainty>0),mode='markers',name='Residual / σ'),row=2,col=1)
     fig.update_layout(template='plotly_white',height=650,showlegend=False)
     fig.update_yaxes(title_text=unit,row=1,col=1);fig.update_yaxes(title_text='Residual / σ',row=2,col=1)
     fig.update_xaxes(title_text='Wavenumber (cm⁻¹)',row=2,col=1)
@@ -424,6 +424,8 @@ def render_spectral_lab(cases,index,models,source,config,tolerance,chart):
     st.dataframe(pd.DataFrame([dict(meta['qc'],iteration=step,debug_gamma=a['gamma'],
         total_dfs=float(np.trace(a['A'])),inactive_observations=a['inactive'],prior_id=a['prior_id'],solver=meta['version'])]),hide_index=True)
     st.caption(a['gamma_source']+'. Saved QC/gamma describe the final output; debug gamma describes the selected iteration.')
+    if a['sentinel_inactive']:
+        st.info(f'{a["sentinel_inactive"]} sentinel rows have exactly zero Jacobian and Gain and no off-diagonal precision coupling. They contribute zero to the update and are excluded from residual plots and diagnostic costs; raw values remain in exports.')
     if '09ab443' not in meta['version']:
         st.warning('Different/unknown solver revision. Algebra is checked against the upstream equations; verify any local source modifications.')
     variable = st.radio('Feature variable',['T','q'],horizontal=True,key='spectral_feature_variable')
@@ -457,7 +459,7 @@ def render_spectral_lab(cases,index,models,source,config,tolerance,chart):
                         rr=diag['raw']; sigma=np.where(diag['sigma']>0,diag['sigma'],np.nan)
                         rows.append(dict(iteration=it,gamma=diag['gamma'],dfs=float(np.trace(diag['A'])),
                             step_prior_sigma=float(np.sqrt(np.nanmean(((diag['proposed']-rr['Xn'])/sigma)**2))),
-                            observation_cost=float(diag['residual']@rr['SmInv']@diag['residual']),
+                            observation_cost=float(diag['diagnostic_residual']@rr['SmInv']@diag['diagnostic_residual']),
                             unweighted_prior_cost=float((rr['Xn']-rr['Xa'])@rr['SaInv']@(rr['Xn']-rr['Xa'])),
                             matches_final=debug.final_match(rr,meta)))
                     except Exception as exc:failures.append(dict(iteration=it,error=str(exc)))
