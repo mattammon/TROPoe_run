@@ -56,7 +56,7 @@ def heatmap(values, x, y, title, unit, diverging=True):
 
 
 def spectral_map(values, labels, y, bin_starts, model, width, title, unit,
-                 chart, key, diverging=True, counts=None, ylabel='Height (km AGL)'):
+                 chart, key, diverging=True, counts=None, ylabel='Height (km AGL)', correlation=False):
     x, matrix, limits = debug.channel_grid(values,labels,bin_starts,model,width)
     plot, controls = st.columns([5,1])
     with controls:
@@ -69,10 +69,14 @@ def spectral_map(values, labels, y, bin_starts, model, width, title, unit,
         yaxis=dict(title=ylabel),
         yaxis2=dict(title='Reference τ (log)',type='log',overlaying='y',side='right',showgrid=False))
     fig.data[0].update(hoverongaps=False,colorbar=dict(title=unit,x=1.15))
+    if correlation:
+        fig.data[0].update(zmin=-1.,zmax=1.,zmid=0.,colorscale='PiYG')
     if counts is not None:
         _,count_matrix,_ = debug.channel_grid(counts,labels,bin_starts,model,width)
         fig.data[0].customdata=count_matrix
         fig.data[0].hovertemplate='%{y}<br>%{x:.1f} cm⁻¹<br>Mean %{z:.5g}<br>Cases %{customdata}<extra></extra>'
+    if correlation:
+        fig.data[0].hovertemplate='Height %{y:.3f} km<br>%{x:.1f} cm⁻¹<br>Pearson r %{z:.3f}<br>Paired cases %{customdata}<extra></extra>'
     if h2o or co2:
         try:
             ref = pd.read_csv(Path(__file__).parent/'reference_data'/'oxford_zenith_optical_depth.csv')
@@ -427,6 +431,42 @@ def render_cohort_accuracy(metrics,spectra,model,variable,grouping,chart):
                'Allocated MSE improvement concerns the proposal, not the saved final state. All errors use unsmoothed sondes.')
 
 
+def render_profile_correlations(pairs,valid,model,variable,width,chart):
+    st.subheader('Spectral contribution versus final absolute-error improvement by height')
+    st.latex(r'\Delta |e|(z)=|x_a(z)-s(z)|-|x_{\mathrm{final}}(z)-s(z)|')
+    st.caption('Positive Δ|e| means the saved final retrieval is closer to the radiosonde than the prior. '
+               'Each cell correlates one spectral-bin contribution at that height with Δ|e| across paired cases '
+               'in the selected band. Collection, season, day/night, classification, PWV, gamma and QC selections apply.')
+    if pairs.empty:
+        st.info('No valid sounding/contribution pairs are available for the height correlation.');return
+    selected = pairs.merge(valid,on=['case_id','model','variable'],how='inner',validate='many_to_one')
+    selected = selected.loc[selected.model.eq(model)&selected.variable.eq(variable)]
+    if selected.empty:
+        st.info('No paired profiles for this band and variable.');return
+    cols=st.columns(2)
+    minimum=int(cols[0].number_input('Minimum paired cases per cell',min_value=3,value=3,step=1,key='spectral_corr_min'))
+    magnitude=cols[1].checkbox('Use contribution magnitude instead of signed contribution',key='spectral_corr_magnitude')
+    result=debug.profile_correlations(selected,minimum,magnitude)
+    pivot=result.pivot(index='height_km',columns='spectral_group',values='pearson_r')
+    counts=result.pivot(index='height_km',columns='spectral_group',values='cases').reindex(index=pivot.index,columns=pivot.columns)
+    starts=result.groupby('spectral_group').bin_start.first().to_dict()
+    spectral_map(pivot.to_numpy(),pivot.columns,pivot.index,starts,model,width,
+        f'{model} {variable} · '+('magnitude' if magnitude else 'signed contribution')+' vs final absolute-error improvement',
+        'Pearson r',chart,'spectral_height_correlation',counts=counts.to_numpy(),correlation=True)
+    st.caption('Signed mode: positive r means more positive (warming/moistening) contributions accompany greater error improvement; '
+               'negative r can indicate beneficial cooling/drying. Magnitude mode asks whether stronger contributions accompany improvement. '
+               'Correlation is not a causal attribution. Contributions are Gain × innovation evaluated at the final-matched iteration '
+               'and describe its proposed update, not an exact decomposition of the saved final state. '
+               'Profiles and signed bin contributions are linearly interpolated to the chosen common AGL grid before errors are computed; '
+               'no extrapolation or spectral gap filling. Radiosondes are unsmoothed. Grey also includes insufficient pairs or constant values.')
+    st.caption(f'{int(result.pearson_r.notna().sum())} of {len(result)} sampled cells have defined correlations. '
+               'Pair counts for grey cells are available in the table/export below.')
+    with st.expander('Correlation values and paired-case counts'):
+        st.dataframe(result,hide_index=True)
+        table_download(result,'spectral_height_correlations')
+        table_download(selected,'spectral_height_case_pairs')
+
+
 def render_cohort(frame,inventory,models,chart,bottom,top,bin_width,source):
     st.subheader('How do spectral use and prior influence vary across cases?')
     bands = st.multiselect('Cohort bands',models,default=models[:1],key='spectral_cohort_bands')
@@ -437,6 +477,8 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width,source):
     st.caption(f'{len(frame)} filtered cases · {len(jobs)} available finished case–band attempts. Only iterations matching the archived final Xn and kernel enter comparisons. Missing/invalid attempts are reported, never substituted from another case.')
     if jobs.empty:
         return
+    height_spacing = st.number_input('Correlation height spacing (m)',min_value=10.,value=50.,step=10.,key='spectral_corr_spacing')
+    height_grid = np.round(np.arange(bottom,top+1e-9,height_spacing/1000.),8)
     sig = debug.cohort_signatures(jobs.attempt)
     sounding_signatures = []
     for name in jobs.sounding_file:
@@ -445,7 +487,7 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width,source):
             sounding_signatures.append(data.signature(path))
         except Exception:
             sounding_signatures.append((str(name),'missing'))
-    key = (debug.ANALYSIS_VERSION,tuple(jobs.case_id),tuple(jobs.model),sig,bottom,top,bin_width,tuple(sounding_signatures))
+    key = (debug.ANALYSIS_VERSION,tuple(jobs.case_id),tuple(jobs.model),sig,bottom,top,bin_width,tuple(sounding_signatures),height_spacing)
     if st.button('Compute / refresh cohort diagnostics',key='spectral_build_cohort'):
         progress = st.progress(0.,text='Reading debug attempts…')
         def report(i,n):
@@ -453,17 +495,26 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width,source):
         def sounding_loader(row):
             path = data.sounding_path(row['sounding_file'],Path(source['master']).parent,source.get('sonde_root',''))
             return data.load_sounding(data.signature(path))
-        result = debug.summarize_cohort(jobs.to_dict('records'),bottom,top,bin_width,report,sounding_loader)
+        profile_rows=[]
+        result = debug.summarize_cohort(jobs.to_dict('records'),bottom,top,bin_width,report,sounding_loader,
+                                       profile_rows,height_grid)
+        result = (*result,pd.DataFrame(profile_rows))
         st.session_state.spectral_cohort_result = (key,result)
         progress.empty()
     saved = st.session_state.get('spectral_cohort_result')
     if saved is None or saved[0] != key:
         st.info('Press Compute / refresh cohort diagnostics for the current selection. Matrix files are read only on request; changed files or settings invalidate previous results.')
         return
-    metrics,spectra,issues = saved[1]
+    metrics,spectra,issues,profile_pairs = saved[1]
     if not metrics.empty:
         accepted = metrics.drop_duplicates(['case_id','model'])
         sentinel_cases = int(accepted.zero_influence_sentinel_rows.gt(0).sum())
+        with st.expander('Final-state iteration selection · audit'):
+            audit=accepted[['case_id','model','iteration','latest_available_iteration','matching_iterations',
+                            'final_state_relative_error','final_kernel_relative_error']]
+            st.dataframe(audit,hide_index=True);table_download(audit,'spectral_final_iteration_audit')
+            st.caption('Selected by matching Xn and Akern to archived Xop and Akernal, never by latest iteration. '
+                       'Multiple matches use the closest numerical match; exact ties use the earliest iteration.')
         st.success(f'{len(accepted)} case–band attempts included, including {sentinel_cases} with safely zero-influence sentinel rows. {len(issues)} attempts excluded.')
     if not issues.empty:
         with st.expander(f'Excluded attempts ({len(issues)})',expanded=True):
@@ -530,6 +581,7 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width,source):
             f'{choice} {v} · case-weighted mean '+smetric,smetric,chart,'spectral_cohort_spectra',
             smetric!='absolute_share',count.to_numpy(),grouping)
         st.caption('Bins use exact included observations, without interpolation across spectral gaps. Auxiliary groups remain separate. Hover for contributing case counts; absent bins are missing, not zero. Absolute shares are normalized within each case before averaging and measure contributions to the selected layer mean, not information fractions.')
+    render_profile_correlations(profile_pairs,valid,choice,v,bin_width,chart)
     render_cohort_accuracy(metrics,spectra,choice,v,grouping,chart)
     table_download(spectra,'spectral_cohort_spectral_metrics')
 

@@ -15,7 +15,7 @@ from scipy.linalg import eigh, pinvh
 
 CONSTANTS = ('Y', 'Xa', 'Sa', 'SaInv', 'SmInv')
 # Include in dashboard cache keys whenever diagnostic interpretation changes.
-ANALYSIS_VERSION = 'spectral-accuracy-v3'
+ANALYSIS_VERSION = 'final-state-height-correlation-v4'
 REQUIRED = CONSTANTS + ('Xn', 'Xnp1', 'Kij', 'Gain', 'B', 'Sop', 'Akern')
 FLAGS = {1: 'Infrared', 2: 'Microwave', 3: 'External T profile',
          4: 'External q profile', 5: 'Surface T', 6: 'Surface q',
@@ -267,7 +267,7 @@ def cohort_signatures(attempts):
     return tuple(result)
 
 
-def summarize_cohort(jobs, bottom, top, bin_width, progress=None, sounding_loader=None):
+def summarize_cohort(jobs, bottom, top, bin_width, progress=None, sounding_loader=None, profile_rows=None, height_grid=None):
     """One final-matched iteration per case/band; invalid attempts are exclusions."""
     metrics, spectra, issues = [], [], []
     for number, row in enumerate(jobs, 1):
@@ -276,13 +276,11 @@ def summarize_cohort(jobs, bottom, top, bin_width, progress=None, sounding_loade
         try:
             path, record = companion_in_attempt(row['attempt'], row['retrieval_time'])
             meta = read_companion(signature(path), record)
-            steps = matching_final_steps(row['work'], meta)
-            if not steps:
-                raise ValueError('No debug Xn and Akern match the final saved solution')
-            step = max(steps)
+            step, match_info = select_final_step(row['work'],meta)
             a = analyze(read_iteration(iteration_signature(row['work'], step)), meta)
             common = {key: row[key] for key in ('case_id','model','attempt')}
             common['iteration'] = step
+            common.update(match_info)
             common['zero_influence_sentinel_rows'] = a['sentinel_inactive']
             case_rows = case_metrics(a,bottom,top)
             sounding, accuracy_error = None, 'Sounding comparison not requested'
@@ -309,6 +307,9 @@ def summarize_cohort(jobs, bottom, top, bin_width, progress=None, sounding_loade
                         accuracy = accuracy_attribution(a,table,sounding,variable,bottom,top)
                         metric_row.update(accuracy['stats'])
                         grouped['mse_improvement'] = accuracy['groups'].set_index('group').mse_improvement
+                        if profile_rows is not None and height_grid is not None:
+                            profile_rows.extend(dict(common,variable=variable,**p) for p in
+                                profile_accuracy_pairs(a,table,sounding,variable,height_grid))
                     except Exception as exc:
                         metric_row['accuracy_error'] = str(exc)
                 metrics.append(dict(common, **metric_row))
@@ -463,3 +464,67 @@ def channel_grid(values, labels, bin_starts, model, width):
             j = int(round((start-starts[0])/width))
             if 0 <= j < len(starts): output[:,j] = np.asarray(values)[:,i]
     return starts+width/2,output,(low,high)
+
+
+def select_final_step(work, meta):
+    """Closest verified saved-state/kernel match; iteration recency is irrelevant."""
+    candidates = []
+    for step in matching_final_steps(work, meta):
+        raw = read_iteration(tuple((key, signature(Path(work)/f'debug_output.{key}.iter_{step}.cdf'))
+                                   for key in ('Xn','Akern')))
+        state_error = relative_error(raw['Xn'],meta['Xop'])
+        kernel_error = relative_error(raw['Akern'],meta['Akernal'])
+        candidates.append((state_error+kernel_error,step,state_error,kernel_error))
+    if not candidates:
+        raise ValueError('No debug Xn and Akern match the final saved solution; latest iteration is not a fallback')
+    _,step,state_error,kernel_error = min(candidates)
+    return step,dict(final_state_relative_error=state_error,final_kernel_relative_error=kernel_error,
+                     matching_iterations=len(candidates),latest_available_iteration=max(iterations(work)))
+
+
+def profile_accuracy_pairs(a, table, sounding, variable, grid):
+    """One signed spectral-bin contribution/error-improvement pair per case/height.
+
+    Interpolate states and contributions vertically, then compute absolute errors.
+    No extrapolation, no filling NaNs, and no spectral interpolation. Contributions
+    describe the proposal evaluated at final-matched Xn; error uses saved Xop.
+    """
+    z = np.asarray(a['meta']['z'])
+    sz = np.asarray(sounding['z'],float)
+    if len(sz)<2 or not np.all(np.isfinite(sz)) or np.any(np.diff(sz)<=0):
+        raise ValueError('Sounding heights must be finite and strictly increasing')
+    grid = np.asarray(grid,float)
+    n = len(z); offset = 0 if variable=='T' else n
+    ids = np.arange(n)+offset
+    labels,c,_ = grouped_contributions(a,table,ids)
+    def interp(values):return np.interp(grid,z,values,left=np.nan,right=np.nan)
+    prior = interp(a['raw']['Xa'][ids]); final = interp(a['meta']['Xop'][ids])
+    observed = np.interp(grid,sz,sounding[variable],left=np.nan,right=np.nan)
+    improvement = np.abs(prior-observed)-np.abs(final-observed)
+    starts = table.groupby('group').bin_start.first().to_dict()
+    rows=[]
+    for j,label in enumerate(labels):
+        if not np.isfinite(starts.get(label,np.nan)):continue
+        contribution = interp(c[:,j])
+        for h,value,delta in zip(grid,contribution,improvement):
+            if np.isfinite(value) and np.isfinite(delta):
+                rows.append(dict(height_km=float(h),spectral_group=label,bin_start=starts[label],
+                                 contribution=float(value),absolute_error_improvement=float(delta)))
+    return rows
+
+
+def profile_correlations(pairs, minimum_cases=3, magnitude=False):
+    """Pairwise Pearson r, preserving support counts even for undefined r."""
+    rows=[]
+    keys=['model','variable','height_km','spectral_group','bin_start']
+    for key,g in pairs.groupby(keys,dropna=False,sort=True):
+        if g.case_id.duplicated().any():
+            raise ValueError('Duplicate case in a spectral-height correlation cell')
+        x=g.contribution.to_numpy(float); y=g.absolute_error_improvement.to_numpy(float)
+        if magnitude:x=np.abs(x)
+        valid=np.isfinite(x)&np.isfinite(y); x,y=x[valid],y[valid]
+        r=np.nan
+        if len(x)>=minimum_cases and np.ptp(x)>0 and np.ptp(y)>0:
+            r=float(np.clip(np.corrcoef(x,y)[0,1],-1.,1.))
+        rows.append(dict(zip(keys,key),pearson_r=r,cases=len(x)))
+    return pd.DataFrame(rows)

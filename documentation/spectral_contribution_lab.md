@@ -292,3 +292,54 @@ and US Standard Atmosphere absorber profiles, not case-specific optical depths,
 not a retrieval input, and not convolved with the instrument line shape. Use them
 as qualitative spectral context, not as a quantitative weighting prediction.
 See `reference_data/README.md` for data provenance.
+
+## Final-state iteration selection and height–spectrum correlations
+
+Across-case diagnostics select an iteration by comparing its **Xn and Akern**
+with the archived output's **Xop and Akernal**. They never fall back to the last
+written iteration. If several pass the existing numerical matching tolerances,
+the smallest sum of relative state and kernel errors wins; an exact tie chooses
+the earliest iteration. The audit table/export reports the selected iteration,
+latest available iteration, number of matches, and both relative errors. The
+latest *finished attempt* is still chosen per case/band; attempt selection and
+iteration selection are distinct. Missing matches are explicit exclusions.
+
+The new **Spectral contribution versus final absolute-error improvement by
+height** heatmap uses the selected spectral comparison band and T/q variable.
+For each spectral bin g and common height z it computes paired-case Pearson r:
+
+$$r_g(z)=\operatorname{corr}_{\mathrm{cases}}\left[c_g(z),
+ |x_a(z)-s(z)|-|x_{\mathrm{final}}(z)-s(z)|\right].$$
+
+Here c is the sum of signed Gain × innovation contributions in that spectral
+bin, evaluated at the final-state-matched iteration. The error term explicitly
+uses **saved final Xop**, not its proposed Xnp1. The contribution remains an
+explanation of that iteration's proposed update; it is not relabeled as a
+perfect decomposition of Xop. This distinction matters if the solver saved Xn
+without accepting its next proposal.
+
+Positive error improvement means the final retrieval is closer to the sonde
+than the prior. In signed mode, positive r means more positive (warming or
+moistening) contributions accompany greater improvement. A negative r can
+represent beneficial cooling/drying and does **not** by itself indicate a harmful
+spectral interval. The optional magnitude checkbox correlates |c| with the same
+error improvement to ask whether stronger contributions accompany improvement.
+Neither version establishes a causal channel effect.
+
+The default common AGL height spacing is 50 m, adjustable before cohort
+computation. Native signed contribution profiles, prior and final states are
+linearly interpolated to this grid; the unsmoothed sonde is independently
+interpolated to it. Absolute errors are computed **after** interpolation. No
+extrapolation, missing-value filling or spectral-gap interpolation is performed.
+The plot is cropped to the selected analysis layer. This regridding is specific
+to the correlation plot: other native-level diagnostics remain unchanged.
+
+Each case contributes at most one pair per band/variable/height/spectral bin.
+All collection and metadata filters plus gamma/QC selections apply. The color
+scale is always −1 to +1 (PiYG). The minimum paired count defaults to 3 and can be
+increased; constant-valued or insufficient-support cells are undefined/grey.
+Hover shows paired counts for defined cells. The table/export includes counts
+for undefined sampled cells, and an additional export supplies individual case
+pairs. Small samples, vertical interpolation, correlated neighboring cells and
+confounding atmospheric conditions can make patterns unstable; these are
+exploratory correlations without significance claims or multiple-testing tests.

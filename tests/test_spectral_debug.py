@@ -226,7 +226,12 @@ class SpectralDebugTests(unittest.TestCase):
             attempt,work,file=write_fixture(root)
             jobs=[dict(case_id='a',model='Ch2_B25',attempt=str(attempt),work=str(work),retrieval_time='2025-01-01T12:00Z')]
             sonde=dict(z=np.array([0.,1.,2.]),T=np.array([21.,15.,10.]),q=np.array([9.,5.,2.]))
-            m,s,e=debug.summarize_cohort(jobs,0.,2.,10.,sounding_loader=lambda row:sonde)
+            profiles=[]
+            m,s,e=debug.summarize_cohort(jobs,0.,2.,10.,sounding_loader=lambda row:sonde,
+                                       profile_rows=profiles,height_grid=np.array([0.,1.,2.]))
+            self.assertTrue(profiles)
+            self.assertEqual(set(p['variable'] for p in profiles),{'T','q'})
+            self.assertTrue(all(p['iteration']==0 for p in profiles))
             self.assertTrue(e.empty)
             self.assertTrue(m.saved_rmse.notna().all())
             for variable,g in s.groupby('variable'):
@@ -236,6 +241,56 @@ class SpectralDebugTests(unittest.TestCase):
             self.assertTrue(e.empty)
             self.assertEqual(len(m),2)
             self.assertTrue(m.accuracy_error.eq('missing sonde').all())
+
+    def test_final_selection_ignores_recency_and_audits_matches(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as root:
+            attempt,work,file=write_fixture(root)
+            # Repeat the accepted state at a later iteration: an exact tie must
+            # not silently turn into a latest-iteration selection.
+            for path in work.glob('debug_output.*.iter_0.cdf'):
+                shutil.copyfile(path,Path(str(path).replace('iter_0','iter_2')))
+            meta=debug.read_companion(debug.signature(file),0)
+            step,audit=debug.select_final_step(work,meta)
+            self.assertEqual(step,0)
+            self.assertEqual(audit['latest_available_iteration'],2)
+            self.assertEqual(audit['matching_iterations'],2)
+            meta['Xop']=meta['Xop']+1
+            with self.assertRaisesRegex(ValueError,'not a fallback'):
+                debug.select_final_step(work,meta)
+
+    def test_height_pairs_use_saved_final_not_proposed_and_no_extrapolation(self):
+        raw,meta,_=fixture();a=debug.analyze(raw,meta)
+        table=debug.observation_table(a,debug.feature_weights(meta['z'],8,'T',0.,2.))
+        sonde=dict(z=meta['z'],T=meta['Xop'][:3].copy(),q=meta['Xop'][3:6].copy())
+        rows=pd.DataFrame(debug.profile_accuracy_pairs(a,table,sonde,'T',np.array([-.1,0.,.5,1.,2.,2.1])))
+        self.assertEqual(set(rows.height_km),{0.,.5,1.,2.})
+        self.assertTrue(rows.bin_start.notna().all())
+        at_zero=rows.loc[rows.height_km.eq(0.)].iloc[0]
+        self.assertAlmostEqual(at_zero.absolute_error_improvement,abs(raw['Xa'][0]-meta['Xop'][0]))
+        self.assertNotAlmostEqual(at_zero.absolute_error_improvement,
+            abs(raw['Xa'][0]-meta['Xop'][0])-abs(a['proposed'][0]-meta['Xop'][0]))
+        label=at_zero.spectral_group
+        indices=np.flatnonzero(table.group.eq(label))
+        self.assertAlmostEqual(at_zero.contribution,a['contributions'][0,indices].sum())
+
+    def test_height_correlations_sign_support_constants_and_duplicates(self):
+        rows=[]
+        for group,values in [('positive',[1.,2.,3.,4.]),('negative',[-1.,-2.,-3.,-4.]),('constant',[1.]*4)]:
+            for i,x in enumerate(values):
+                rows.append(dict(case_id=str(i),model='Ch2_B25',variable='T',height_km=.5,
+                    spectral_group=group,bin_start=2000.,contribution=x,absolute_error_improvement=float(i)))
+        pairs=pd.DataFrame(rows)
+        r=debug.profile_correlations(pairs).set_index('spectral_group')
+        self.assertAlmostEqual(r.loc['positive','pearson_r'],1.)
+        self.assertAlmostEqual(r.loc['negative','pearson_r'],-1.)
+        self.assertTrue(np.isnan(r.loc['constant','pearson_r']))
+        self.assertTrue(r.cases.eq(4).all())
+        self.assertTrue(debug.profile_correlations(pairs,minimum_cases=5).pearson_r.isna().all())
+        r=debug.profile_correlations(pairs,magnitude=True).set_index('spectral_group')
+        self.assertAlmostEqual(r.loc['negative','pearson_r'],1.)
+        with self.assertRaisesRegex(ValueError,'Duplicate case'):
+            debug.profile_correlations(pd.concat([pairs,pairs.iloc[:1]]))
 
     def test_missing_matrix_and_invalid_layer(self):
         with tempfile.TemporaryDirectory() as root:
@@ -284,6 +339,9 @@ render_spectral_lab(cases,pd.DataFrame(),['Ch2_B25'],source,config,60.,chart)
             app.button(key='spectral_build_cohort').click().run(timeout=30)
             self.assertFalse(app.exception)
             self.assertGreater(len(app.dataframe),0)
+            app.checkbox(key='spectral_corr_magnitude').check().run(timeout=30)
+            app.checkbox(key='spectral_height_correlation_h2o').check().run(timeout=30)
+            self.assertFalse(app.exception)
             app.selectbox(key='spectral_cohort_metric').set_value('saved_rmse').run(timeout=30)
             app.selectbox(key='spectral_cohort_spec_metric').set_value('mse_improvement').run(timeout=30)
             app.checkbox(key='spectral_cohort_spectra_co2').check().run(timeout=30)
