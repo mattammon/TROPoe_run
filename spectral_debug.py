@@ -15,7 +15,7 @@ from scipy.linalg import eigh, pinvh
 
 CONSTANTS = ('Y', 'Xa', 'Sa', 'SaInv', 'SmInv')
 # Include in dashboard cache keys whenever diagnostic interpretation changes.
-ANALYSIS_VERSION = 'opaque-zero-sensitivity-v2'
+ANALYSIS_VERSION = 'spectral-accuracy-v3'
 REQUIRED = CONSTANTS + ('Xn', 'Xnp1', 'Kij', 'Gain', 'B', 'Sop', 'Akern')
 FLAGS = {1: 'Infrared', 2: 'Microwave', 3: 'External T profile',
          4: 'External q profile', 5: 'Surface T', 6: 'Surface q',
@@ -267,7 +267,7 @@ def cohort_signatures(attempts):
     return tuple(result)
 
 
-def summarize_cohort(jobs, bottom, top, bin_width, progress=None):
+def summarize_cohort(jobs, bottom, top, bin_width, progress=None, sounding_loader=None):
     """One final-matched iteration per case/band; invalid attempts are exclusions."""
     metrics, spectra, issues = [], [], []
     for number, row in enumerate(jobs, 1):
@@ -284,7 +284,14 @@ def summarize_cohort(jobs, bottom, top, bin_width, progress=None):
             common = {key: row[key] for key in ('case_id','model','attempt')}
             common['iteration'] = step
             common['zero_influence_sentinel_rows'] = a['sentinel_inactive']
-            metrics.extend(dict(common, **m) for m in case_metrics(a,bottom,top))
+            case_rows = case_metrics(a,bottom,top)
+            sounding, accuracy_error = None, 'Sounding comparison not requested'
+            if sounding_loader is not None:
+                try:
+                    sounding = sounding_loader(row)
+                    accuracy_error = ''
+                except Exception as exc:
+                    accuracy_error = str(exc)
             for variable in ('T','q'):
                 w = feature_weights(meta['z'], len(a['proposed']),variable,bottom,top)
                 table = observation_table(a,w,bin_width)
@@ -295,6 +302,16 @@ def summarize_cohort(jobs, bottom, top, bin_width, progress=None):
                     absolute_contribution=('absolute_contribution','sum'), channels=('obs_index','size'),
                     bin_start=('bin_start','first'))
                 grouped['layer_dfs'] = pd.Series(dict(zip(labels,dfs)))
+                metric_row = next(m for m in case_rows if m['variable']==variable)
+                metric_row['accuracy_error'] = accuracy_error
+                if sounding is not None:
+                    try:
+                        accuracy = accuracy_attribution(a,table,sounding,variable,bottom,top)
+                        metric_row.update(accuracy['stats'])
+                        grouped['mse_improvement'] = accuracy['groups'].set_index('group').mse_improvement
+                    except Exception as exc:
+                        metric_row['accuracy_error'] = str(exc)
+                metrics.append(dict(common, **metric_row))
                 for group, values in grouped.iterrows():
                     spectra.append(dict(common, variable=variable, spectral_group=group, **values.to_dict()))
         except Exception as exc:
@@ -397,3 +414,52 @@ def case_metrics(a, bottom, top):
             gamma=a['gamma'], total_dfs=float(np.trace(a['A'])), prior_id=a['prior_id'],
             **{('final_gamma' if key=='gamma' else key):value for key,value in a['meta']['qc'].items()}))
     return rows
+
+
+def accuracy_attribution(a, table, sounding, variable, bottom, top):
+    """Exact additive allocation of prior-to-proposal squared-error reduction.
+
+    This symmetric allocation shares cross terms among spectral contributions;
+    it is not a channel-removal experiment or attribution of the saved final Xn.
+    """
+    z = np.asarray(a['meta']['z'])
+    sz = np.asarray(sounding['z'], float)
+    if len(sz) < 2 or not np.all(np.isfinite(sz)) or np.any(np.diff(sz) <= 0):
+        raise ValueError('Sounding heights must be finite and strictly increasing')
+    truth = np.interp(z, sz, sounding[variable], left=np.nan, right=np.nan)
+    offset = 0 if variable == 'T' else len(z)
+    levels = np.flatnonzero((z >= bottom) & (z <= top))
+    ids = levels + offset
+    prior, proposed, final = a['raw']['Xa'][ids], a['proposed'][ids], a['meta']['Xop'][ids]
+    valid = np.isfinite(truth[levels]) & np.isfinite(prior) & np.isfinite(proposed) & np.isfinite(final)
+    if not valid.any():
+        raise ValueError('No finite radiosonde/retrieval pairs in this layer')
+    labels, contributions, _ = grouped_contributions(a, table, ids)
+    target = truth[levels]
+    improvement = contributions * (2*target-prior-proposed)[:,None]
+    improvement[~valid] = np.nan
+    def rmse(x):
+        return float(np.sqrt(np.mean((x[valid]-target[valid])**2)))
+    stats = dict(prior_rmse=rmse(prior), proposed_rmse=rmse(proposed), saved_rmse=rmse(final),
+                 accuracy_levels=int(valid.sum()), accuracy_total_levels=len(ids))
+    stats['saved_rmse_improvement'] = stats['prior_rmse']-stats['saved_rmse']
+    stats['proposed_mse_improvement'] = stats['prior_rmse']**2-stats['proposed_rmse']**2
+    group_scores = pd.DataFrame({'group':labels, 'mse_improvement':np.nanmean(improvement,axis=0)})
+    element_scores = a['contributions'][ids[valid]] * (2*target[valid]-prior[valid]-proposed[valid])[:,None]
+    elements = table[['obs_index','flag','coordinate','group','absolute_share','feature_contribution']].copy()
+    elements['mse_improvement'] = element_scores.mean(axis=0)
+    return dict(stats=stats, groups=group_scores, improvement=improvement,
+                labels=labels, z=z[levels], truth=target, valid=valid, elements=elements)
+
+
+def channel_grid(values, labels, bin_starts, model, width):
+    """Reindex binned IR values onto a numeric full-channel axis; gaps stay NaN."""
+    low, high = (500.,1800.) if model == 'Ch1' else (1800.,3000.)
+    starts = np.arange(np.floor(low/width)*width,high,width)
+    output = np.full((len(values),len(starts)),np.nan)
+    for i,label in enumerate(labels):
+        start = bin_starts.get(label,np.nan)
+        if np.isfinite(start):
+            j = int(round((start-starts[0])/width))
+            if 0 <= j < len(starts): output[:,j] = np.asarray(values)[:,i]
+    return starts+width/2,output,(low,high)

@@ -186,6 +186,57 @@ class SpectralDebugTests(unittest.TestCase):
             p=work/'debug_output.Xn.iter_0.cdf';p.touch()
             self.assertNotEqual(before,debug.cohort_signatures([str(attempt)]))
 
+    def test_accuracy_allocation_closes_and_preserves_missing_levels(self):
+        raw,meta,_=fixture();a=debug.analyze(raw,meta)
+        w=debug.feature_weights(meta['z'],8,'T',0.,2.)
+        table=debug.observation_table(a,w)
+        sonde=dict(z=meta['z'],T=a['proposed'][:3].copy(),q=a['proposed'][3:6].copy())
+        result=debug.accuracy_attribution(a,table,sonde,'T',0.,2.)
+        self.assertAlmostEqual(result['stats']['proposed_rmse'],0.)
+        self.assertAlmostEqual(result['groups'].mse_improvement.sum(),result['stats']['proposed_mse_improvement'])
+        np.testing.assert_allclose(result['improvement'].sum(axis=1),(raw['Xa'][:3]-sonde['T'])**2,atol=1e-12)
+        # Prior as truth: total allocation must be negative, even with cancelling terms.
+        sonde['T']=raw['Xa'][:3].copy()
+        result=debug.accuracy_attribution(a,table,sonde,'T',0.,2.)
+        self.assertLess(result['groups'].mse_improvement.sum(),0.)
+        sonde['T'][1]=np.nan
+        result=debug.accuracy_attribution(a,table,sonde,'T',0.,2.)
+        self.assertEqual(result['stats']['accuracy_levels'],2)
+        self.assertTrue(np.isnan(result['improvement'][1]).all())
+        self.assertAlmostEqual(result['groups'].mse_improvement.sum(),result['stats']['proposed_mse_improvement'])
+        # No sounding extrapolation.
+        sonde=dict(z=np.array([.5,1.5]),T=np.array([10.,10.]),q=np.array([5.,5.]))
+        result=debug.accuracy_attribution(a,table,sonde,'T',0.,2.)
+        self.assertEqual(result['stats']['accuracy_levels'],1)
+
+    def test_full_channel_axes_keep_gaps_and_auxiliary_separate(self):
+        values=np.array([[0.,2.,99.],[3.,4.,88.]])
+        labels=['low','high','Surface T']
+        starts={'low':2000.,'high':2200.,'Surface T':np.nan}
+        x,z,limits=debug.channel_grid(values,labels,starts,'Ch2_B25',10.)
+        self.assertEqual(limits,(1800.,3000.))
+        np.testing.assert_array_equal(z[:,20],values[:,0])
+        np.testing.assert_array_equal(z[:,40],values[:,1])
+        self.assertTrue(np.isnan(z[:,21:40]).all())
+        self.assertEqual(np.isfinite(z).sum(),4)
+        self.assertEqual(debug.channel_grid(values,labels,starts,'Ch1',7.)[2],(500.,1800.))
+
+    def test_cohort_accuracy_and_missing_sounding_do_not_drop_debug(self):
+        with tempfile.TemporaryDirectory() as root:
+            attempt,work,file=write_fixture(root)
+            jobs=[dict(case_id='a',model='Ch2_B25',attempt=str(attempt),work=str(work),retrieval_time='2025-01-01T12:00Z')]
+            sonde=dict(z=np.array([0.,1.,2.]),T=np.array([21.,15.,10.]),q=np.array([9.,5.,2.]))
+            m,s,e=debug.summarize_cohort(jobs,0.,2.,10.,sounding_loader=lambda row:sonde)
+            self.assertTrue(e.empty)
+            self.assertTrue(m.saved_rmse.notna().all())
+            for variable,g in s.groupby('variable'):
+                self.assertAlmostEqual(g.mse_improvement.sum(),m.loc[m.variable.eq(variable),'proposed_mse_improvement'].iloc[0])
+            def missing(row):raise FileNotFoundError('missing sonde')
+            m,s,e=debug.summarize_cohort(jobs,0.,2.,10.,sounding_loader=missing)
+            self.assertTrue(e.empty)
+            self.assertEqual(len(m),2)
+            self.assertTrue(m.accuracy_error.eq('missing sonde').all())
+
     def test_missing_matrix_and_invalid_layer(self):
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaisesRegex(ValueError,'Missing debug'):debug.iteration_signature(root,0)
@@ -197,18 +248,25 @@ class SpectralLabUITests(unittest.TestCase):
         from streamlit.testing.v1 import AppTest
         with tempfile.TemporaryDirectory() as root:
             write_fixture(root)
+            ds=xr.Dataset({'alt':('level',[300.,1300.,2300.]),'tdry':('level',[20.,15.,10.]),
+                           'pres':('level',[1000.,900.,800.]),'rh':('level',[50.,50.,50.])})
+            ds.alt.attrs['units']='m';ds.tdry.attrs['units']='degC';ds.pres.attrs['units']='hPa'
+            ds.to_netcdf(Path(root)/'sonde.nc')
             script='''
 import pandas as pd
 import streamlit as st
 from types import SimpleNamespace
 from dashboard_spectral_lab import render_spectral_lab
-cases=pd.DataFrame([dict(case_id='case',sounding_time=pd.Timestamp('2025-01-01T12:00Z'),retrieval_time=pd.Timestamp('2025-01-01T12:00Z'),sounding_file='missing.nc',category='clear_sky',asi_state='clear_sky',radiance_state='clear_sky')])
+cases=pd.DataFrame([dict(case_id='case',sounding_time=pd.Timestamp('2025-01-01T12:00Z'),retrieval_time=pd.Timestamp('2025-01-01T12:00Z'),sounding_file=ROOT+'/sonde.nc',category='clear_sky',asi_state='clear_sky',radiance_state='clear_sky')])
 config=SimpleNamespace(RETRIEVAL_DEBUG_DIR=ROOT,SITE='sgp',site_coordinates={'sgp':[-97.5,36.6]})
 source=dict(master=ROOT+'/master.csv',output=ROOT,master_hash='test')
 def chart(fig,key):st.plotly_chart(fig,key=key)
 render_spectral_lab(cases,pd.DataFrame(),['Ch2_B25'],source,config,60.,chart)
 '''.replace('ROOT',repr(root))
             app=AppTest.from_string(script).run(timeout=30)
+            self.assertFalse(app.exception)
+            app.checkbox(key='spectral_contribution_map_h2o').check().run(timeout=30)
+            app.checkbox(key='spectral_accuracy_map_co2').check().run(timeout=30)
             self.assertFalse(app.exception)
             for view in ('Observations vs prior','Band / prior experiments','Matrices and provenance'):
                 app.radio(key='spectral_diagnostic').set_value(view).run(timeout=30)
@@ -226,6 +284,10 @@ render_spectral_lab(cases,pd.DataFrame(),['Ch2_B25'],source,config,60.,chart)
             app.button(key='spectral_build_cohort').click().run(timeout=30)
             self.assertFalse(app.exception)
             self.assertGreater(len(app.dataframe),0)
+            app.selectbox(key='spectral_cohort_metric').set_value('saved_rmse').run(timeout=30)
+            app.selectbox(key='spectral_cohort_spec_metric').set_value('mse_improvement').run(timeout=30)
+            app.checkbox(key='spectral_cohort_spectra_co2').check().run(timeout=30)
+            self.assertFalse(app.exception)
             app.selectbox(key='spectral_cohort_group').set_value('PWV bin').run(timeout=30)
             self.assertFalse(app.exception)
             app.radio(key='spectral_cohort_spec_variable').set_value('q').run(timeout=30)

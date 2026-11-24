@@ -55,6 +55,75 @@ def heatmap(values, x, y, title, unit, diverging=True):
     return fig
 
 
+def spectral_map(values, labels, y, bin_starts, model, width, title, unit,
+                 chart, key, diverging=True, counts=None, ylabel='Height (km AGL)'):
+    x, matrix, limits = debug.channel_grid(values,labels,bin_starts,model,width)
+    plot, controls = st.columns([5,1])
+    with controls:
+        st.caption('Reference optical thickness')
+        h2o = st.checkbox('H₂O',key=key+'_h2o')
+        co2 = st.checkbox('CO₂',key=key+'_co2')
+    fig = heatmap(matrix,x,y,title,unit,diverging)
+    fig.update_layout(plot_bgcolor='#d6d6d6', margin=dict(r=150,b=95),
+        xaxis=dict(title='Wavenumber (cm⁻¹)',range=list(limits)),
+        yaxis=dict(title=ylabel),
+        yaxis2=dict(title='Reference τ (log)',type='log',overlaying='y',side='right',showgrid=False))
+    fig.data[0].update(hoverongaps=False,colorbar=dict(title=unit,x=1.15))
+    if counts is not None:
+        _,count_matrix,_ = debug.channel_grid(counts,labels,bin_starts,model,width)
+        fig.data[0].customdata=count_matrix
+        fig.data[0].hovertemplate='%{y}<br>%{x:.1f} cm⁻¹<br>Mean %{z:.5g}<br>Cases %{customdata}<extra></extra>'
+    if h2o or co2:
+        try:
+            ref = pd.read_csv(Path(__file__).parent/'reference_data'/'oxford_zenith_optical_depth.csv')
+            ref = ref.loc[ref.wavenumber.between(*limits)]
+            for gas,on,color in [('H2O',h2o,'#008cff'),('CO2',co2,'#ff8c00')]:
+                if on:
+                    fig.add_trace(go.Scatter(x=ref.wavenumber,y=ref[gas].where(ref[gas]>0),
+                        mode='lines',name=gas+' reference τ',yaxis='y2',line=dict(color=color,width=1.3),
+                        hovertemplate='%{x:.2f} cm⁻¹<br>τ %{y:.4g}<extra>%{fullData.name}</extra>'))
+            fig.update_layout(legend=dict(orientation='h',y=1.12))
+        except (OSError,ValueError,KeyError) as exc:
+            st.warning('Reference optical thickness unavailable: '+str(exc))
+    with plot: chart(fig,key)
+    st.caption('Grey = no included IR observations / no available values in that bin; zero is a valid colored value. '
+               'Auxiliary observations remain in tables, not on the wavenumber axis. Bins can contain partially sampled intervals.')
+    if h2o or co2:
+        st.caption('Reference: [Oxford EODG ATLAS](https://eodg.atm.ox.ac.uk/ATLAS/zenith-absorption), '
+                   'RFM / HITRAN 2012 / US Standard Atmosphere. Published ~1 cm⁻¹ display dataset, '
+                   'not case-specific or instrument-convolved optical depth; τ uses its own logarithmic right axis.')
+
+
+def render_accuracy(a,table,sounding,variable,bottom,top,model,width,chart):
+    st.subheader('Do the spectral contributions improve agreement with the radiosonde?')
+    if sounding is None:
+        st.info('Observed sounding unavailable; accuracy attribution cannot be computed.')
+        return
+    try:
+        result = debug.accuracy_attribution(a,table,sounding,variable,bottom,top)
+    except ValueError as exc:
+        st.warning(str(exc));return
+    st.dataframe(pd.DataFrame([result['stats']]),hide_index=True)
+    st.latex(r'I_{jg}=c_{jg}(2s_j-x_{a,j}-x_{p,j}),\quad \sum_g I_{jg}=(x_{a,j}-s_j)^2-(x_{p,j}-s_j)^2')
+    st.caption('Positive = allocated squared-error reduction; negative = allocated degradation. '
+               's is the unsmoothed radiosonde interpolated to native AGL levels, xp is the proposed update, '
+               'and cg is the signed contribution from a spectral bin. This exact additive allocation shares '
+               'interactions symmetrically; it is not the causal effect of removing a bin. The proposal may differ from the saved final profile. '
+               'RMSE uses the same finite native-level pairs for prior, proposal and final; no extrapolation or filling missing sounding values.')
+    unit = '°C²' if variable=='T' else '(g/kg)²'
+    starts = table.groupby('group').bin_start.first().to_dict()
+    spectral_map(result['improvement'],result['labels'],result['z'],starts,model,width,
+        variable+' · allocated squared-error improvement from prior to proposal',unit,
+        chart,'spectral_accuracy_map')
+    st.dataframe(result['groups'].sort_values('mse_improvement',ascending=False),hide_index=True)
+    export = pd.DataFrame(result['improvement'],columns=result['labels'])
+    export.insert(0,'height_km',result['z'])
+    table_download(export,'spectral_accuracy_by_height')
+    with st.expander('Individual spectral elements · accuracy allocation'):
+        st.dataframe(result['elements'].sort_values('mse_improvement',ascending=False),hide_index=True)
+        table_download(result['elements'],'spectral_element_accuracy')
+
+
 def metadata_controls(cases, source, config):
     from cloud_screening import solar_zenith
     frame = data.case_metadata(cases)
@@ -155,7 +224,7 @@ def single_attempt(frame, inventory, index, model, tolerance):
         st.error('Debug data could not be loaded: '+str(exc)); return None
 
 
-def render_attribution(a, w, table, chart, bottom, top, variable, sounding):
+def render_attribution(a, w, table, chart, bottom, top, variable, sounding, model, width):
     raw,meta = a['raw'],a['meta']
     z,n = meta['z'],len(meta['z'])
     st.latex(r'd=y-F(x_n)+K(x_n-x_a),\quad x_{n+1}-x_a=Gd=\sum_i G_{:,i}d_i')
@@ -179,9 +248,10 @@ def render_attribution(a, w, table, chart, bottom, top, variable, sounding):
     offset = 0 if variable=='T' else n
     ids = np.flatnonzero((z>=bottom)&(z<=top))+offset
     labels, matrix, dfs = debug.grouped_contributions(a,table,ids)
-    fig = heatmap(matrix,labels,z[ids-offset],variable+' · signed spectral contributions to proposed departure',unit)
-    fig.update_yaxes(title='Height (km AGL)');fig.update_xaxes(title='Spectral bin / auxiliary observation')
-    chart(fig,'spectral_contribution_map')
+    starts = table.groupby('group').bin_start.first().to_dict()
+    spectral_map(matrix,labels,z[ids-offset],starts,model,width,
+        variable+' · signed spectral contributions to proposed departure',unit,chart,'spectral_contribution_map')
+    render_accuracy(a,table,sounding,variable,bottom,top,model,width,chart)
     ranked = table.groupby('group',sort=False).agg(
         signed=('feature_contribution','sum'),absolute=('absolute_contribution','sum'),
         absolute_share=('absolute_share','sum'),likelihood_pull=('likelihood_pull','sum'),
@@ -290,6 +360,22 @@ def render_experiment(a,w,table,chart,bottom,top,amplitude,sounding):
         if sounding is not None:
             curves['Observed sounding']=np.interp(z,sounding['z'],sounding['T' if offset==0 else 'q'],left=np.nan,right=np.nan)
         with col: chart(profiles(z,curves,label+' · local experiment',unit,bottom,top),'spectral_experiment_'+str(offset))
+    if sounding is not None:
+        rows=[]
+        for variable,offset in [('T',0),('q',n)]:
+            target=np.interp(z,sounding['z'],sounding[variable],left=np.nan,right=np.nan)
+            base=a['proposed'][offset:offset+n]; experiment=result['state'][offset:offset+n]
+            valid=(z>=bottom)&(z<=top)&np.isfinite(target)&np.isfinite(base)&np.isfinite(experiment)
+            if valid.any():
+                base_rmse=float(np.sqrt(np.mean((base[valid]-target[valid])**2)))
+                experiment_rmse=float(np.sqrt(np.mean((experiment[valid]-target[valid])**2)))
+                rows.append(dict(variable=variable,levels=int(valid.sum()),baseline_rmse=base_rmse,
+                    experiment_rmse=experiment_rmse,rmse_improvement=base_rmse-experiment_rmse))
+        if rows:
+            st.write('Local-experiment accuracy against the unsmoothed radiosonde')
+            st.dataframe(pd.DataFrame(rows),hide_index=True)
+            st.caption('Positive improvement = lower RMSE after the experiment. For a pure withholding test, '
+                       'leave prior covariance multiplier at 1. A nonlinear rerun is needed to confirm the result.')
     st.info('A weakly recovered mode can reflect limited spectral sensitivity, noise, or prior constraints. A larger response after weakening the prior is not evidence of useful atmospheric information by itself. Check spectral residual structure, the sounding, and nonlinear reruns; broad biases or bad forward values can also drive large responses.')
     st.caption('Withholding uses the marginal covariance of retained observations reconstructed from the full active SmInv, then recomputes the gain. Subtracting group DFS alone is not equivalent to withholding. No inference is made about wavenumbers not observed by this band.')
     table_download(pd.DataFrame({'state_index':np.arange(len(result['state'])),'prior':raw['Xa'],
@@ -297,23 +383,77 @@ def render_experiment(a,w,table,chart,bottom,top,amplitude,sounding):
         'baseline_kernel_diagonal':np.diag(a['A']),'experiment_kernel_diagonal':np.diag(result['A'])}),'spectral_experiment')
 
 
-def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
+def render_cohort_accuracy(metrics,spectra,model,variable,grouping,chart):
+    st.subheader('Spectral share versus radiosonde accuracy')
+    missing = metrics.loc[metrics.accuracy_error.ne('')]
+    if not missing.empty:
+        with st.expander('Unavailable sounding comparisons'):
+            st.dataframe(missing[['case_id','model','variable','accuracy_error']],hide_index=True)
+    if 'saved_rmse' not in metrics:
+        st.info('No valid sounding comparisons. Other cohort diagnostics remain available.')
+        return
+    fields = ['case_id','model','variable','saved_rmse','prior_rmse','saved_rmse_improvement',
+              'proposed_rmse','accuracy_levels','accuracy_total_levels']
+    paired = spectra.merge(metrics[fields],on=['case_id','model','variable'],validate='many_to_one')
+    paired = paired.loc[paired.model.eq(model)&paired.variable.eq(variable)&paired.saved_rmse.notna()]
+    if paired.empty:
+        st.info('No sounding pairs for this band and variable.');return
+    outcome = st.selectbox('Accuracy outcome',['saved_rmse','saved_rmse_improvement','proposed_rmse'],
+        format_func=lambda x:{'saved_rmse':'Saved final RMSE (lower is better)',
+        'saved_rmse_improvement':'Prior RMSE − saved final RMSE (positive is better)',
+        'proposed_rmse':'Proposed-update RMSE (lower is better)'}[x],key='spectral_accuracy_outcome')
+    spectral_group = st.selectbox('Inspect spectral bin / auxiliary group',list(dict.fromkeys(paired.spectral_group)),
+        key='spectral_accuracy_group')
+    chosen = paired.loc[paired.spectral_group.eq(spectral_group)].copy()
+    fig = px.scatter(chosen,x='absolute_share',y=outcome,color=grouping,hover_name='Case',
+        hover_data=['contribution','gamma'] if 'gamma' in chosen else ['contribution'],opacity=.75)
+    fig.update_layout(template='plotly_white',title=f'{model} {variable} · {spectral_group}',
+        xaxis_title='Absolute contribution share',yaxis_title=outcome.replace('_',' ')+' ('+('°C' if variable=='T' else 'g/kg')+')')
+    chart(fig,'spectral_accuracy_scatter')
+    rows=[]
+    for (regime,group),g in paired.groupby([grouping,'spectral_group'],dropna=False):
+        g=g.loc[np.isfinite(g.absolute_share)&np.isfinite(g[outcome])]
+        r=g.absolute_share.corr(g[outcome]) if len(g)>=3 and g.absolute_share.nunique()>1 and g[outcome].nunique()>1 else np.nan
+        rows.append(dict(regime=regime,spectral_group=group,cases=len(g),
+            mean_share=g.absolute_share.mean(),mean_outcome=g[outcome].mean(),pearson_r=r,
+            mean_allocated_mse_improvement=g.mse_improvement.mean() if 'mse_improvement' in g else np.nan))
+    summary=pd.DataFrame(rows)
+    st.dataframe(summary,hide_index=True);table_download(summary,'spectral_accuracy_associations')
+    table_download(paired,'spectral_accuracy_case_pairs')
+    st.caption('Correlation uses paired cases (minimum 3, nonconstant values). Negative r with final RMSE '
+               'means larger share accompanies lower error; positive r with RMSE improvement means larger '
+               'share accompanies greater improvement. Shares are compositional and depend on innovation, '
+               'gamma, other channels, prior and atmospheric state: these associations do not establish causality. '
+               'Allocated MSE improvement concerns the proposal, not the saved final state. All errors use unsmoothed sondes.')
+
+
+def render_cohort(frame,inventory,models,chart,bottom,top,bin_width,source):
     st.subheader('How do spectral use and prior influence vary across cases?')
     bands = st.multiselect('Cohort bands',models,default=models[:1],key='spectral_cohort_bands')
     eligible = inventory.loc[inventory.status.eq('finished')&inventory.model.isin(bands)].copy()
     # Latest finished attempt per minute/band; failed attempts never replace a finished one.
     eligible = eligible.sort_values('updated_ns').drop_duplicates(['case_minute','model'],keep='last')
-    jobs = frame[['case_id','case_minute','retrieval_time']].merge(eligible,on='case_minute',how='inner')
+    jobs = frame[['case_id','case_minute','retrieval_time','sounding_file']].merge(eligible,on='case_minute',how='inner')
     st.caption(f'{len(frame)} filtered cases · {len(jobs)} available finished case–band attempts. Only iterations matching the archived final Xn and kernel enter comparisons. Missing/invalid attempts are reported, never substituted from another case.')
     if jobs.empty:
         return
     sig = debug.cohort_signatures(jobs.attempt)
-    key = (debug.ANALYSIS_VERSION,tuple(jobs.case_id),tuple(jobs.model),sig,bottom,top,bin_width)
+    sounding_signatures = []
+    for name in jobs.sounding_file:
+        try:
+            path = data.sounding_path(name,Path(source['master']).parent,source.get('sonde_root',''))
+            sounding_signatures.append(data.signature(path))
+        except Exception:
+            sounding_signatures.append((str(name),'missing'))
+    key = (debug.ANALYSIS_VERSION,tuple(jobs.case_id),tuple(jobs.model),sig,bottom,top,bin_width,tuple(sounding_signatures))
     if st.button('Compute / refresh cohort diagnostics',key='spectral_build_cohort'):
         progress = st.progress(0.,text='Reading debug attempts…')
         def report(i,n):
             progress.progress(i/n,text=f'Analyzing debug attempt {i}/{n}')
-        result = debug.summarize_cohort(jobs.to_dict('records'),bottom,top,bin_width,report)
+        def sounding_loader(row):
+            path = data.sounding_path(row['sounding_file'],Path(source['master']).parent,source.get('sonde_root',''))
+            return data.load_sounding(data.signature(path))
+        result = debug.summarize_cohort(jobs.to_dict('records'),bottom,top,bin_width,report,sounding_loader)
         st.session_state.spectral_cohort_result = (key,result)
         progress.empty()
     saved = st.session_state.get('spectral_cohort_result')
@@ -347,8 +487,8 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
     spectra = spectra.merge(valid,on=['case_id','model','variable'],how='inner')
     if metrics.empty:
         st.info('No cases pass damping/QC selections.');return
-    metric = st.selectbox('Compare diagnostic',['layer_dfs','prior_sensitivity','sigma_ratio','departure_prior_sigma','gamma'],key='spectral_cohort_metric',
-        format_func=lambda x:dict(layer_dfs='Layer DFS (trace contribution)',prior_sensitivity='Mean covariance-scaled prior sensitivity',sigma_ratio='Mean reported σ / prior σ',departure_prior_sigma='RMS proposed departure / prior σ',gamma='Gamma (damping / prior weight)')[x])
+    metric = st.selectbox('Compare diagnostic',['layer_dfs','prior_sensitivity','sigma_ratio','departure_prior_sigma','gamma']+[f for f in ['saved_rmse','prior_rmse','saved_rmse_improvement','proposed_mse_improvement'] if f in metrics],key='spectral_cohort_metric',
+        format_func=lambda x:dict(layer_dfs='Layer DFS (trace contribution)',prior_sensitivity='Mean covariance-scaled prior sensitivity',sigma_ratio='Mean reported σ / prior σ',departure_prior_sigma='RMS proposed departure / prior σ',gamma='Gamma (damping / prior weight)').get(x,x.replace('_',' ')))
     grouping = st.selectbox('Stratify by',['Season','Day/night','Time of day (UTC)','PWV bin'],key='spectral_cohort_group')
     if grouping == 'PWV bin':
         width = st.number_input('PWV bin width (mm)',min_value=1.,value=10.,key='spectral_pwv_bin')
@@ -370,7 +510,7 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
             hover_name='Case',hover_data=['gamma','prior_id'],opacity=.7,color_discrete_sequence=colors)
         fig.update_layout(template='plotly_white',title='Observed PWV and selected constraint metric',xaxis_title='PWV (mm)',height=470)
         chart(fig,'spectral_cohort_pwv')
-    summary = metrics.groupby(['model','variable',grouping],dropna=False).agg(cases=('case_id','nunique'),
+    summary = metrics.loc[np.isfinite(metrics[metric])].groupby(['model','variable',grouping],dropna=False).agg(cases=('case_id','nunique'),
         mean=(metric,'mean'),median=(metric,'median'),std=(metric,'std'),mean_gamma=('gamma','mean'),
         prior_variants=('prior_id','nunique'),min_levels=('native_levels','min'),max_levels=('native_levels','max')).reset_index()
     st.dataframe(summary,hide_index=True);table_download(metrics,'spectral_cohort_case_metrics')
@@ -378,17 +518,19 @@ def render_cohort(frame,inventory,models,chart,bottom,top,bin_width):
     st.markdown('**Which spectral intervals matter under each regime?**')
     choice = st.selectbox('Spectral comparison band',bands,key='spectral_cohort_spec_band')
     v = st.radio('Spectral comparison variable',['T','q'],horizontal=True,key='spectral_cohort_spec_variable')
-    smetric = st.selectbox('Spectral metric',['absolute_share','layer_dfs','contribution'],key='spectral_cohort_spec_metric')
+    smetric = st.selectbox('Spectral metric',['absolute_share','layer_dfs','contribution']+(['mse_improvement'] if 'mse_improvement' in spectra else []),key='spectral_cohort_spec_metric')
     sf = spectra.loc[spectra.model.eq(choice)&spectra.variable.eq(v)].copy()
+    sf = sf.loc[np.isfinite(sf[smetric])]
     if not sf.empty:
         grouped = sf.groupby([grouping,'spectral_group'],dropna=False).agg(value=(smetric,'mean'),cases=('case_id','nunique')).reset_index()
         pivot = grouped.pivot(index=grouping,columns='spectral_group',values='value')
         count = grouped.pivot(index=grouping,columns='spectral_group',values='cases').reindex(index=pivot.index,columns=pivot.columns)
-        fig = heatmap(pivot.to_numpy(),pivot.columns,pivot.index,f'{choice} {v} · case-weighted mean '+smetric,smetric,smetric!='absolute_share')
-        fig.data[0].customdata=count.to_numpy()
-        fig.data[0].hovertemplate='%{y}<br>%{x}<br>Mean %{z:.5g}<br>Cases %{customdata}<extra></extra>'
-        chart(fig,'spectral_cohort_spectra')
+        starts = sf.groupby('spectral_group').bin_start.first().to_dict()
+        spectral_map(pivot.to_numpy(),pivot.columns,pivot.index,starts,choice,bin_width,
+            f'{choice} {v} · case-weighted mean '+smetric,smetric,chart,'spectral_cohort_spectra',
+            smetric!='absolute_share',count.to_numpy(),grouping)
         st.caption('Bins use exact included observations, without interpolation across spectral gaps. Auxiliary groups remain separate. Hover for contributing case counts; absent bins are missing, not zero. Absolute shares are normalized within each case before averaging and measure contributions to the selected layer mean, not information fractions.')
+    render_cohort_accuracy(metrics,spectra,choice,v,grouping,chart)
     table_download(spectra,'spectral_cohort_spectral_metrics')
 
 
@@ -420,7 +562,7 @@ def render_spectral_lab(cases,index,models,source,config,tolerance,chart):
     st.caption('All calculations retain the full native retrieval state; height limits select diagnostics and crop plots. Native levels are not smoothed or regridded.')
     mode = st.radio('Lab view',['One retrieval / iteration','Across cases'],horizontal=True,key='spectral_lab_view')
     if mode=='Across cases':
-        render_cohort(frame,inventory,models,chart,bottom,top,width);return
+        render_cohort(frame,inventory,models,chart,bottom,top,width,source);return
     model = st.selectbox('Band',models,key='spectral_band')
     selected = single_attempt(frame,inventory,index,model,tolerance)
     if selected is None:return
@@ -445,13 +587,13 @@ def render_spectral_lab(cases,index,models,source,config,tolerance,chart):
         st.warning(str(exc));return
     st.caption('Feature is an arithmetic mean over selected native levels, optionally minus the equal-weight average of lower/upper flanking means. It is not a mass-weighted layer average.')
     sounding = None
-    if st.checkbox('Overlay observed sounding',key='spectral_sonde'):
+    if st.checkbox('Load observed sounding for profiles and accuracy comparisons',value=True,key='spectral_sonde'):
         try:
             path = data.sounding_path(row.sounding_file,Path(source['master']).parent,source.get('sonde_root',''))
             sounding = data.load_sounding(data.signature(path))
         except Exception as exc:st.warning('Sounding unavailable: '+str(exc))
     tab = st.radio('Diagnostic',['Spectral attribution','Observations vs prior','Band / prior experiments','Iteration history','Matrices and provenance'],horizontal=True,key='spectral_diagnostic')
-    if tab=='Spectral attribution':render_attribution(a,w,table,chart,bottom,top,variable,sounding)
+    if tab=='Spectral attribution':render_attribution(a,w,table,chart,bottom,top,variable,sounding,model,width)
     elif tab=='Observations vs prior':render_prior(a,w,table,chart,bottom,top,amplitude)
     elif tab=='Band / prior experiments':render_experiment(a,w,table,chart,bottom,top,amplitude,sounding)
     elif tab=='Iteration history':

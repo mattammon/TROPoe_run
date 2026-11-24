@@ -220,3 +220,75 @@ and sensitivity to weaker prior covariance. A strong response after weakening
 the prior can also amplify noise, spectroscopy errors, or forward-model biases.
 These diagnostics guide experiments; they do not by themselves justify less
 regularization or selecting the band with the largest DFS.
+
+## Spectral contributions and radiosonde accuracy
+
+The **Spectral attribution** view now loads the observed sounding by default and
+shows an accuracy heatmap beneath the signed-contribution heatmap. For each native
+retrieval level j and spectral bin g, let c[j,g] be the summed Gain × innovation
+contribution, xa the prior, xp the proposed update, and s the radiosonde value.
+The allocated squared-error improvement is
+
+$$I_{jg}=c_{jg}(2s_j-x_{a,j}-x_{p,j}).$$
+
+Summing over **all** spectral and auxiliary groups gives exactly
+
+$$\sum_g I_{jg}=(x_{a,j}-s_j)^2-(x_{p,j}-s_j)^2.$$
+
+Positive values mean allocated improvement; negative values mean degradation.
+The formula allocates cross terms symmetrically (equivalently, integrates the
+squared-error gradient along the straight prior-to-proposal path). It is an
+algebraic explanation, not a channel-removal causal effect. Large contributions
+can overshoot or cancel, and the proposed update need not equal the saved final
+profile. Auxiliary groups are included in the exported scores and closure even
+though only infrared bins appear on the spectral axis. Units are °C² or (g/kg)²;
+these are squared-error contributions, **not additive RMSE contributions**.
+
+The table separately reports prior, proposed-update, and saved-final RMSE.
+Radiosondes are interpolated in AGL height onto native retrieval levels, without
+AK smoothing, extrapolation, or interpolation across missing-valued samples.
+All three RMSEs use the same finite paired levels and equal native-level weights.
+Valid/total level counts are reported; partial coverage can affect comparisons.
+Narrow the analysis bottom/top to study an individual level or thin layer.
+Sounding drift, representativeness, instrument errors, and smoothing differences
+remain possible sources of retrieval–sonde disagreement.
+
+**Across cases** adds final RMSE, prior RMSE, prior-minus-final RMSE improvement,
+and prior-to-proposal MSE improvement to the diagnostic selector. Spectral maps
+can show mean allocated MSE improvement by season, day/night, UTC time, or PWV.
+The new spectral-share versus accuracy scatter compares cases within a selected
+band, variable and spectral bin, with the chosen regime as color. The exportable
+association table reports paired sample counts, means and Pearson r within each
+regime/bin. Correlations require at least three paired cases and nonconstant
+values. Negative r with RMSE means higher share accompanies lower error;
+positive r with prior-minus-final RMSE means higher share accompanies improvement.
+These compositional shares depend on the innovation, prior, gamma, and the other
+channels. Associations do not establish that a bin causes better retrievals.
+Missing sondes disable accuracy metrics only: their valid debug diagnostics remain
+in the cohort, and missing-comparison reasons are shown. Sounding file signatures
+are included in cohort cache invalidation.
+
+For a stronger local test, use **Band / prior experiments**, withhold an interval,
+and leave the prior covariance multiplier at 1. The new experiment table compares
+baseline and withheld local-solution RMSE against the same sonde levels. Positive
+improvement means lower error after withholding. The experiment retains the full
+observation-covariance treatment but freezes the Jacobian, gamma and linearization;
+confirm a promising change with nonlinear retrieval reruns and independent cases.
+
+## Fixed spectral axes and optical-thickness overlays
+
+Spectral heatmaps use numeric axes fixed to 500–1800 cm⁻¹ for Ch1 and
+1800–3000 cm⁻¹ for Ch2. Unrepresented bins are grey, not zero; included zero-valued
+bins remain colored. A partially populated bin represents only its included
+observations. Auxiliary observations appear in tables rather than at invented
+wavenumbers. The chosen bin width is shared across cases, with no interpolation
+across unused bins.
+
+Adjacent **H₂O** and **CO₂** checkboxes overlay reference zenith-sky optical
+thickness on a separate logarithmic right axis. These use a bundled snapshot of
+Oxford EODG ATLAS's published approximately 1 cm⁻¹ display data. No network access
+is needed at dashboard runtime. The spectra are RFM calculations with HITRAN 2012
+and US Standard Atmosphere absorber profiles, not case-specific optical depths,
+not a retrieval input, and not convolved with the instrument line shape. Use them
+as qualitative spectral context, not as a quantitative weighting prediction.
+See `reference_data/README.md` for data provenance.
